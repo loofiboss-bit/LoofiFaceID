@@ -111,7 +111,8 @@ Kirigami.AbstractCard {
                 currentIndex: root.cameraPreviewSession.selectedDeviceIndex
                 enabled: root.cameraPreviewSession.canRefresh && root.cameraPreviewSession.hasUsableCamera
                     || root.cameraPreviewSession.canStartPreview
-                Accessible.name: i18n("Local camera")
+                property string accessibilityLabel: i18n("Local camera")
+                Accessible.name: accessibilityLabel
                 activeFocusOnTab: true
                 onActivated: index => root.cameraPreviewSession.selectedDeviceIndex = index
             }

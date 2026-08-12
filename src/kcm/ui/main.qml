@@ -10,7 +10,6 @@ KCMUtils.SimpleKCM {
     id: root
 
     title: i18n("KFaceAuth (Experimental Local Identity Preview)")
-    KCMUtils.ConfigModule.buttons: KCMUtils.ConfigModule.NoAdditionalButton
 
     header: Kirigami.NavigationTabBar {
         id: tabs
@@ -18,7 +17,7 @@ KCMUtils.SimpleKCM {
 
         width: parent.width
         Accessible.name: i18n("KFaceAuth sections")
-        KeyNavigation.down: stack.children[tabs.currentIndex]
+        KeyNavigation.down: stack && tabs.currentIndex >= 0 ? stack.children[tabs.currentIndex] : null
 
         Kirigami.NavigationTabButton {
             objectName: "homeTab"
