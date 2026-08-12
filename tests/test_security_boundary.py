@@ -153,7 +153,9 @@ class SecurityBoundaryTests(unittest.TestCase):
             ".po",
         }
         allowed_transition_files = {
+            Path("README.md"),
             Path("CHANGELOG.md"),
+            Path("docs/RELEASE-CHECKLIST.md"),
             Path("packaging/fedora/README.md"),
             Path("packaging/fedora/kfaceauth.spec"),
             Path("packaging/fedora/rpm-smoke-test.sh"),
@@ -192,16 +194,10 @@ class SecurityBoundaryTests(unittest.TestCase):
             for path in sorted((ROOT / "src/kcm/ui").rglob("*.qml"))
         )
 
-        for object_name in (
-            "overviewTab",
-            "cameraCheckTab",
-            "faceProfileTab",
-            "testRecognitionTab",
-            "diagnosticsTab",
-        ):
+        for object_name in ("homeTab", "setupTab", "testTab", "diagnosticsTab"):
             self.assertIn(f'objectName: "{object_name}"', main)
-        self.assertEqual(main.count("activeFocusOnTab: true"), 5)
-        self.assertGreaterEqual(main.count("Accessible.name: text"), 5)
+        self.assertEqual(main.count("activeFocusOnTab: true"), 4)
+        self.assertGreaterEqual(main.count("Accessible.name: text"), 4)
         self.assertIn("onClosed: deleteButton.forceActiveFocus()", qml)
         self.assertIn("onClosed: resetButton.forceActiveFocus()", qml)
         self.assertNotRegex(

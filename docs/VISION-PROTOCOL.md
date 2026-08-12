@@ -79,6 +79,6 @@ malformed response, and kills the worker after a protocol violation. A result
 is discarded if its generation is stale.
 
 Analysis is cancelled and the copied frame/result is cleared when preview
-stops, the Camera Check page is hidden, the application deactivates, the KCM is
+stops, the Setup page is hidden, the application deactivates, the KCM is
 destroyed, or a newer analysis supersedes it. No frame is exposed to QML or
 written to a temporary file.

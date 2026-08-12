@@ -3,23 +3,8 @@
 version = 4
 
 [[package]]
-name = "kfaceauth-cli"
-version = "0.1.0"
-dependencies = [
- "kfaceauth-daemon",
- "kfaceauth-protocol",
-]
-
-[[package]]
 name = "kfaceauth-crypto-openssl-sys"
 version = "0.1.0"
-
-[[package]]
-name = "kfaceauth-daemon"
-version = "0.1.0"
-dependencies = [
- "kfaceauth-protocol",
-]
 
 [[package]]
 name = "kfaceauth-identity"

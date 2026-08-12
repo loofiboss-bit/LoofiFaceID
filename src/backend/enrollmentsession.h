@@ -24,8 +24,15 @@ class EnrollmentSession final : public QObject
     Q_PROPERTY(int maximumSamples READ maximumSamples CONSTANT)
     Q_PROPERTY(int remainingSeconds READ remainingSeconds NOTIFY stateChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
+    Q_PROPERTY(bool enrollmentActive READ enrollmentActive NOTIFY stateChanged)
+    Q_PROPERTY(bool canStartEnrollment READ canStartEnrollment NOTIFY stateChanged)
+    Q_PROPERTY(bool canCancel READ canCancel NOTIFY stateChanged)
     Q_PROPERTY(bool canCapture READ canCapture NOTIFY stateChanged)
     Q_PROPERTY(bool canFinish READ canFinish NOTIFY stateChanged)
+    Q_PROPERTY(bool enrollmentComplete READ enrollmentComplete NOTIFY stateChanged)
+    Q_PROPERTY(bool profileReady READ profileReady NOTIFY profileChanged)
+    Q_PROPERTY(bool profileNeedsAttention READ profileNeedsAttention NOTIFY profileChanged)
+    Q_PROPERTY(QString profileStatusText READ profileStatusText NOTIFY profileChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY stateChanged)
 
@@ -70,8 +77,15 @@ class EnrollmentSession final : public QObject
     [[nodiscard]] int maximumSamples() const;
     [[nodiscard]] int remainingSeconds() const;
     [[nodiscard]] bool busy() const;
+    [[nodiscard]] bool enrollmentActive() const;
+    [[nodiscard]] bool canStartEnrollment() const;
+    [[nodiscard]] bool canCancel() const;
     [[nodiscard]] bool canCapture() const;
     [[nodiscard]] bool canFinish() const;
+    [[nodiscard]] bool enrollmentComplete() const;
+    [[nodiscard]] bool profileReady() const;
+    [[nodiscard]] bool profileNeedsAttention() const;
+    [[nodiscard]] QString profileStatusText() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorCode() const;
 

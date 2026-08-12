@@ -34,6 +34,7 @@ class SupportReport final : public QObject
 
     Q_INVOKABLE void copyReport();
     Q_INVOKABLE bool exportReport();
+    void setTransientIssueCode(const QString &code);
 
     bool exportToDirectory(const QString &directory);
     [[nodiscard]] static QString redactedValue(const QString &value);
@@ -56,4 +57,5 @@ class SupportReport final : public QObject
     QString m_recommendedAction;
     QString m_lastExportPath;
     QString m_statusText;
+    QString m_transientIssueCode;
 };

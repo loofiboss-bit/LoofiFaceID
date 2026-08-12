@@ -38,9 +38,9 @@ liveness evidence.
 
 ## Preview stops or verification is rate-limited
 
-Preview stops after 60 seconds and on page hide, app deactivation, failure, or
-teardown. Restart it explicitly. Verification intentionally permits no faster
-than one request every two seconds.
+Preview stops after 60 seconds and on Setup/Test page hide, app deactivation,
+failure, or teardown. Restart it explicitly. Verification intentionally
+permits no faster than one request every two seconds.
 
 ## Build dependencies
 

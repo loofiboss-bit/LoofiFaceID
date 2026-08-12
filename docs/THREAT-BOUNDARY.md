@@ -54,7 +54,7 @@ snapshots/backups, or physical erasure. KWallet is unavailable before login.
 - Unreadable vaults are preserved until an explicit destructive reset.
 - Atomic commit/rotation verifies the temporary ciphertext before rename; a
   failure preserves the previous valid file.
-- A local `Match` can update only Test Recognition and has no authorization
+- A local `Match` can update only Test and has no authorization
   side effect.
 - Package install/upgrade/remove has no authentication scriptlet and does not
   create, rewrite, migrate, or delete a user profile.

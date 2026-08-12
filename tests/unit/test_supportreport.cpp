@@ -26,11 +26,22 @@ void SupportReportTest::mapsMilestoneIssuesToActions()
              QStringLiteral("camera-unavailable"),
              QStringLiteral("native-engine-unavailable"),
              QStringLiteral("native-protocol-unavailable"),
+             QStringLiteral("kwallet-locked"),
+             QStringLiteral("vault-unavailable"),
+             QStringLiteral("vault-unreadable"),
+             QStringLiteral("vault-model-mismatch"),
          })
     {
         QVERIFY2(!SupportReport::titleForCode(code).isEmpty(), qPrintable(code));
         QVERIFY2(!SupportReport::actionForCode(code).isEmpty(), qPrintable(code));
     }
+
+    SystemState state;
+    SupportReport report(&state);
+    report.setTransientIssueCode(QStringLiteral("inference-timeout"));
+    QCOMPARE(report.issueCode(), QStringLiteral("worker-timeout"));
+    report.setTransientIssueCode(QStringLiteral("vault-key-unavailable"));
+    QCOMPARE(report.issueCode(), QStringLiteral("kwallet-unavailable"));
 }
 
 void SupportReportTest::reportPreservesPreviewPrivacy()

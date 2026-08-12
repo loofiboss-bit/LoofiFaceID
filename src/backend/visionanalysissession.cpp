@@ -175,6 +175,27 @@ bool VisionAnalysisSession::resultAvailable() const
     return m_state == State::Complete && m_faceFinding != FaceFinding::Unknown;
 }
 
+bool VisionAnalysisSession::hasFace() const
+{
+    return resultAvailable() && m_faceFinding == FaceFinding::OneFace;
+}
+
+bool VisionAnalysisSession::noFace() const
+{
+    return resultAvailable() && m_faceFinding == FaceFinding::NoFace;
+}
+
+bool VisionAnalysisSession::multipleFaces() const
+{
+    return resultAvailable() && m_faceFinding == FaceFinding::MultipleFaces;
+}
+
+bool VisionAnalysisSession::framingSuitable() const
+{
+    return hasFace() && m_position == Position::Centered && m_distance == Distance::Suitable &&
+           m_brightness == Quality::Suitable && m_contrast == Quality::Suitable && m_sharpness == Quality::Suitable;
+}
+
 VisionAnalysisSession::FaceFinding VisionAnalysisSession::faceFinding() const
 {
     return m_faceFinding;
@@ -213,6 +234,40 @@ VisionAnalysisSession::Quality VisionAnalysisSession::sharpness() const
 QString VisionAnalysisSession::statusText() const
 {
     return m_statusText;
+}
+
+QString VisionAnalysisSession::resultSummary() const
+{
+    if (noFace())
+        return translate("No face was found in this frame.");
+    if (multipleFaces())
+        return translate("Multiple faces were found in this frame.");
+    if (hasFace())
+        return translate("One face was found in this frame.");
+    return {};
+}
+
+QString VisionAnalysisSession::guidanceText() const
+{
+    if (!hasFace())
+        return resultSummary();
+    if (m_position == Position::OffCenter)
+        return translate("Center your face in the frame.");
+    if (m_distance == Distance::TooFar)
+        return translate("Move closer to the camera.");
+    if (m_distance == Distance::TooClose)
+        return translate("Move farther from the camera.");
+    if (m_brightness == Quality::Low)
+        return translate("Add more even light.");
+    if (m_brightness == Quality::High)
+        return translate("Reduce bright light on your face.");
+    if (m_contrast == Quality::Low)
+        return translate("Use more even front lighting.");
+    if (m_sharpness == Quality::Low)
+        return translate("Hold still and check that the camera lens is clear.");
+    if (framingSuitable())
+        return translate("Framing and image quality are suitable for this development check.");
+    return translate("Adjust your position and lighting, then try one frame again.");
 }
 
 QString VisionAnalysisSession::errorCode() const

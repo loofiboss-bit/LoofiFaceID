@@ -18,10 +18,11 @@
 - Add release-transition, workflow, cancellation, privacy, narrow-width,
   keyboard, localization, and manual qualification gates.
 
-This candidate has automated local qualification only. Physical RGB/IR
-hardware, accessibility with assistive technology, representative participant,
-FAR/FRR, bias, liveness, and spoof-resistance qualification remain unqualified
-and block publication.
+This candidate has automated qualification only. It is published as an
+experimental release candidate for manual review; physical RGB/IR hardware,
+accessibility with assistive technology, representative participant, FAR/FRR,
+bias, liveness, and spoof-resistance qualification remain `NOT RUN` or
+`UNQUALIFIED`. Publication does not make KFaceAuth suitable for authentication.
 
 ## Milestone 4 implementation history
 
@@ -66,8 +67,8 @@ and block publication.
 - Establish the initial KFaceAuth identity from one central CMake file.
 - Replace the external-engine adapter with an asynchronous, fail-closed native
   backend that never starts a face-authentication executable.
-- Add source-only Rust `protocol`, `vision`, `templates`, `daemon`, and `cli`
-  crates with bounded typed status/capability handling.
+- Add the closed Rust `protocol`, `vision`, and `templates` workspace crates
+  with bounded typed status/capability handling.
 - Preserve the unprivileged bounded camera preview and system probing.
 - Remove external engine schemas, fixtures, scripts, package requirements,
   identifiers, and compatibility surfaces.

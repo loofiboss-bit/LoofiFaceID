@@ -122,6 +122,37 @@ CameraPreviewSession::State CameraPreviewSession::state() const
     return m_state;
 }
 
+bool CameraPreviewSession::busy() const
+{
+    return m_state == State::Discovering || m_state == State::Starting || m_state == State::Streaming ||
+           m_state == State::Stopping;
+}
+
+bool CameraPreviewSession::previewActive() const
+{
+    return m_state == State::Streaming;
+}
+
+bool CameraPreviewSession::canStartPreview() const
+{
+    return m_state == State::Ready && m_selectedDeviceIndex >= 0 && m_selectedDeviceIndex < m_devices.size();
+}
+
+bool CameraPreviewSession::canStopPreview() const
+{
+    return m_state == State::Starting || m_state == State::Streaming;
+}
+
+bool CameraPreviewSession::canRefresh() const
+{
+    return !busy();
+}
+
+bool CameraPreviewSession::hasUsableCamera() const
+{
+    return !m_devices.isEmpty() && m_selectedDeviceIndex >= 0 && m_selectedDeviceIndex < m_devices.size();
+}
+
 int CameraPreviewSession::deviceCount() const
 {
     return m_devices.size();
@@ -139,6 +170,7 @@ void CameraPreviewSession::setSelectedDeviceIndex(int index)
         return;
     m_selectedDeviceIndex = bounded;
     Q_EMIT selectionChanged();
+    Q_EMIT stateChanged();
 }
 
 bool CameraPreviewSession::frameAvailable() const

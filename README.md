@@ -1,67 +1,122 @@
 # KFaceAuth
 
-KFaceAuth 4.0.0 is a standalone native KDE local identity experiment. It can
-enroll and locally compare the currently logged-in user's face. A `Match` is an
-in-session UI result only: it does not unlock, authenticate, authorize, invoke
-PAM or Polkit, or alter the session.
+KFaceAuth 4.0.0 is an experimental KDE System Settings utility for one
+bounded, local face-comparison flow in the already logged-in user session. It
+guides you through camera setup, an encrypted local profile, and one explicit
+current-frame test.
 
-The KCM provides:
+`Match` is only an in-session comparison result. KFaceAuth cannot unlock,
+authenticate, authorize, call PAM or Polkit, change the login stack, or alter
+system settings.
 
-- explicit, bounded RGB/infrared preview and one-frame YuNet analysis;
-- verified YuNet FP32 detection plus verified SFace FP32 alignment and
-  128-value embedding extraction through Fedora OpenCV 4.13;
-- deliberate enrollment of 3–5 samples, with a hard stored maximum of 8;
-- one encrypted profile for the current numeric UID;
-- a random AES-256-GCM vault key stored only in KDE KWallet;
-- aggregate profile status, explicit deletion, and explicit unreadable reset;
-- one-click, rate-limited local verification returning `Match`, `No match`,
-  `Ambiguous`, or a typed unavailable result;
-- short-lived, unprivileged workers with private pipes, strict bounds,
-  cancellation, deadlines, no network, and no telemetry.
+## What you get
 
-Embeddings are sensitive biometric data. No captured image is intentionally
-persisted. Frames, landmarks, embeddings, keys, and similarity scores do not
-reach QML, normal logs, the CLI, or support reports.
+- Home, Setup, Test, and Diagnostics destinations with one clear next action.
+- Explicit RGB/infrared preview and one-frame YuNet framing guidance.
+- Three required, five recommended, and eight maximum enrollment samples.
+- One AES-256-GCM profile for the current numeric UID, with its random key
+  held only by the logged-in KDE KWallet session.
+- Explicit profile deletion and unreadable-vault reset with confirmations.
+- Short-lived unprivileged workers, private pipes, strict bounds, cancellation,
+  deadlines, no telemetry, and no network access.
 
-There is no liveness or presentation-attack detection, security tier, PAM
-module/configuration, authselect change, SDDM/lock-screen integration,
-sudo/Polkit integration, privileged helper, system service, TPM sealing,
-background recognition, networking, or runtime model download. KWallet keys
-are unavailable before login. FAR, FRR, bias, spoof resistance, and broad
-hardware behavior remain unqualified.
+Captured images are not intentionally stored. Frames, landmarks, embeddings,
+keys, similarity scores, biometric paths, and stable camera identifiers are
+not exposed to QML, normal logs, support reports, or documentation examples.
 
-The code and automated gates are prepared as a v4.0.0 release candidate.
-Publication remains blocked until the required physical-camera, keyboard,
-assistive-technology, and representative identity qualification is recorded.
+## Supported release matrix
 
-## Build and verify
+The v4.0.0 experimental release candidate is prepared for:
+
+| Component | Supported baseline |
+|---|---|
+| Distribution | Fedora 44 |
+| Desktop | KDE Plasma 6 / System Settings |
+| Qt / KDE Frameworks | Qt 6.8 or newer / KF6 6.10 or newer |
+| Vision runtime | Fedora OpenCV 4.13.x |
+| Profile key storage | KDE KWallet in the logged-in session |
+
+Other combinations may build, but are not release-qualified. Physical RGB/IR
+coverage, accessibility, latency, memory, and representative identity
+qualification remain manual review gates for this experimental candidate.
+
+## Install a release RPM
+
+From a directory containing the release RPM and its `SHA256SUMS` file:
 
 ```bash
-cmake --fresh -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --parallel
-QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
-python3 -m unittest discover -s tests -p 'test_*.py'
-/usr/lib64/qt6/bin/qmllint src/kcm/ui/*.qml src/kcm/ui/components/*.qml
-
-cargo fmt --manifest-path engine/Cargo.toml --all -- --check
-cargo clippy --manifest-path engine/Cargo.toml \
-  --workspace --all-targets --locked --offline -- -D warnings
-cargo test --manifest-path engine/Cargo.toml \
-  --workspace --all-targets --locked --offline
-python3 tools/verify_models.py --root models
+sha256sum --check SHA256SUMS
+rpm -K ./kfaceauth-4.0.0-1.fc44.x86_64.rpm
+dnf install ./kfaceauth-4.0.0-1.fc44.x86_64.rpm
 ```
 
-See [architecture](docs/ARCHITECTURE.md),
-[threat boundary](docs/THREAT-BOUNDARY.md),
-[identity pipeline](docs/IDENTITY-PIPELINE.md),
-[identity protocol](docs/IDENTITY-PROTOCOL.md),
-[template vault](docs/TEMPLATE-VAULT.md),
-[embedding decision](docs/EMBEDDING-MODEL-SELECTION.md),
-[build guide](docs/BUILDING.md), and
-[hardware qualification](docs/HARDWARE-QUALIFICATION.md).
+Use the exact filename produced for your Fedora architecture if it differs
+from the example. Open **System Settings → Security & Privacy → KFaceAuth**,
+or launch the KCM directly:
+
+```bash
+systemsettings kcm_kfaceauth
+```
+
+The package does not create a profile or KWallet key during installation.
+
+## Quick start
+
+1. Open **Home** and follow its single recommended action.
+2. In **Setup**, refresh and explicitly start the camera preview. The first
+   usable camera is selected automatically; a selector is available when more
+   than one camera is usable.
+3. Run the one-frame **Analyze current frame** check for framing and lighting
+   guidance. This is not liveness or authentication evidence.
+4. Create a profile with one explicit capture per sample. Three samples are
+   required, five are recommended, and eight is the hard maximum. **Finish and
+   save** performs the atomic encrypted commit.
+5. Open **Test**, start the preview, and choose **Test current frame** once.
+   Clear the result before another deliberate test; requests are rate-limited.
+6. Use **Diagnostics** for current worker, model, camera, KWallet, profile, and
+   redacted support-report status.
+
+## Remove KFaceAuth
+
+```bash
+dnf remove kfaceauth
+```
+
+Package transactions do not inspect or remove user profiles or KWallet data.
+Delete a valid profile explicitly in **Setup → Profile management** before
+uninstalling if you want the application data removed through the supported
+application action. Physical erasure from SSDs, snapshots, backups, journals,
+or copy-on-write storage is not promised.
+
+## Honest limitations
+
+KFaceAuth has no PAM, authselect, SDDM, lock-screen, sudo, su, Polkit, system
+authorization, privileged helper, system service, setuid binary, file
+capability, network listener, runtime model download, cloud processing,
+telemetry, background recognition, configurable threshold, user-selectable
+model, liveness check, or presentation-attack defense.
+
+FAR, FRR, bias, demographic behavior, spoof resistance, pre-login key access,
+and authentication suitability are `UNQUALIFIED`. A physical camera run,
+keyboard/Orca run, and real Fedora 44 screenshots are release follow-ups; no
+screenshots are fabricated or included in this repository.
+
+The optional external follow-up is renaming the GitHub repository from
+`plasma-irlume` to `kfaceauth`. The current URL is intentionally retained until
+that repository operation is actually performed.
+
+## Development and verification
+
+Build dependencies, offline Cargo rules, staged installation, RPM checks, and
+the complete local gate list are in [docs/BUILDING.md](docs/BUILDING.md).
+Architecture and threat boundaries are documented in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/THREAT-BOUNDARY.md](docs/THREAT-BOUNDARY.md). The manual boundary is
+maintained in [docs/HARDWARE-QUALIFICATION.md](docs/HARDWARE-QUALIFICATION.md)
+and [docs/V4-QUALIFICATION-REPORT.md](docs/V4-QUALIFICATION-REPORT.md).
 
 ## License
 
 Project code is GPL-3.0-or-later. YuNet weights are MIT. SFace weights and
-Fedora OpenCV are Apache-2.0. The exact model licenses and provenance are
-shipped in the closed model inventory.
+Fedora OpenCV are Apache-2.0. Exact model licenses and provenance are shipped
+in the closed model inventory.

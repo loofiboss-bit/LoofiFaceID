@@ -18,6 +18,12 @@ class LocalVerificationSession final : public QObject
     Q_PROPERTY(Result result READ result NOTIFY resultChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
     Q_PROPERTY(bool canVerify READ canVerify NOTIFY stateChanged)
+    Q_PROPERTY(bool hasResult READ hasResult NOTIFY resultChanged)
+    Q_PROPERTY(bool canClearResult READ canClearResult NOTIFY resultChanged)
+    Q_PROPERTY(bool isMatch READ isMatch NOTIFY resultChanged)
+    Q_PROPERTY(bool isNoMatch READ isNoMatch NOTIFY resultChanged)
+    Q_PROPERTY(bool isAmbiguous READ isAmbiguous NOTIFY resultChanged)
+    Q_PROPERTY(bool isUnavailable READ isUnavailable NOTIFY resultChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY stateChanged)
 
@@ -57,6 +63,12 @@ class LocalVerificationSession final : public QObject
     [[nodiscard]] Result result() const;
     [[nodiscard]] bool busy() const;
     [[nodiscard]] bool canVerify() const;
+    [[nodiscard]] bool hasResult() const;
+    [[nodiscard]] bool canClearResult() const;
+    [[nodiscard]] bool isMatch() const;
+    [[nodiscard]] bool isNoMatch() const;
+    [[nodiscard]] bool isAmbiguous() const;
+    [[nodiscard]] bool isUnavailable() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorCode() const;
 

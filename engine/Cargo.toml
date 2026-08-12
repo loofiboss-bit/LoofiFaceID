@@ -7,8 +7,6 @@ members = [
     "vision",
     "vision-opencv-sys",
     "templates",
-    "daemon",
-    "cli",
 ]
 resolver = "2"
 

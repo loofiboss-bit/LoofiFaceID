@@ -42,6 +42,29 @@ lifecycle, rate limiting, transient enrollment embeddings, KWallet access,
 and high-level UI states. QML receives no frame bytes, embeddings, landmarks,
 keys, paths, or scores.
 
+## UI flow and semantic state
+
+The KCM exposes one shared `CameraPreviewSession` to four destinations:
+
+```text
+Home -> Setup -> Test
+  \-> Diagnostics
+```
+
+Home derives `NeedsCamera`, `NeedsProfile`, `ReadyToTest`, or
+`NeedsAttention` from typed backend properties. Setup owns the explicit camera,
+one-frame framing check, enrollment, and separated destructive profile
+management. Test owns one explicit comparison and its clear-result action.
+Diagnostics is read-only and exposes aggregate capability state plus a bounded
+redacted report. QML uses semantic properties such as `canStartPreview`,
+`previewActive`, `canAnalyze`, `profileReady`, and `recommendedAction`; it does
+not interpret numeric backend state values.
+
+The reusable `CameraPreviewCard`, `PrimaryStatusCard`, `PrivacySummary`, and
+`ActionableIssue` components keep camera controls, the privacy boundary, and
+recovery messaging consistent across pages. The preview guide is a static
+framing aid only. There is no continuous analysis or background recognition.
+
 ## Enrollment and verification
 
 Enrollment starts explicitly, captures exactly one current frame per click,
@@ -54,7 +77,10 @@ teardown clears transient material.
 Verification also requires a preview and a separate one-frame action. The
 worker opens the current user's encrypted profile, extracts one candidate,
 applies the central median/threshold policy, and returns only a typed result.
-The result updates only Test Recognition.
+The result updates only Test. Page changes, application deactivation, preview
+stop, cancellation, timeouts, and teardown clear active frames/results and
+terminate the relevant worker while preserving the last valid committed
+profile.
 
 ## Vault and key
 

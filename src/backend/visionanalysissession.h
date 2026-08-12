@@ -20,6 +20,10 @@ class VisionAnalysisSession final : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
     Q_PROPERTY(bool canAnalyze READ canAnalyze NOTIFY availabilityChanged)
     Q_PROPERTY(bool resultAvailable READ resultAvailable NOTIFY resultChanged)
+    Q_PROPERTY(bool hasFace READ hasFace NOTIFY resultChanged)
+    Q_PROPERTY(bool noFace READ noFace NOTIFY resultChanged)
+    Q_PROPERTY(bool multipleFaces READ multipleFaces NOTIFY resultChanged)
+    Q_PROPERTY(bool framingSuitable READ framingSuitable NOTIFY resultChanged)
     Q_PROPERTY(FaceFinding faceFinding READ faceFinding NOTIFY resultChanged)
     Q_PROPERTY(int faceCount READ faceCount NOTIFY resultChanged)
     Q_PROPERTY(Position position READ position NOTIFY resultChanged)
@@ -28,6 +32,8 @@ class VisionAnalysisSession final : public QObject
     Q_PROPERTY(Quality contrast READ contrast NOTIFY resultChanged)
     Q_PROPERTY(Quality sharpness READ sharpness NOTIFY resultChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
+    Q_PROPERTY(QString resultSummary READ resultSummary NOTIFY resultChanged)
+    Q_PROPERTY(QString guidanceText READ guidanceText NOTIFY resultChanged)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY stateChanged)
     Q_PROPERTY(quint64 generation READ generation NOTIFY stateChanged)
 
@@ -87,6 +93,10 @@ class VisionAnalysisSession final : public QObject
     [[nodiscard]] bool busy() const;
     [[nodiscard]] bool canAnalyze() const;
     [[nodiscard]] bool resultAvailable() const;
+    [[nodiscard]] bool hasFace() const;
+    [[nodiscard]] bool noFace() const;
+    [[nodiscard]] bool multipleFaces() const;
+    [[nodiscard]] bool framingSuitable() const;
     [[nodiscard]] FaceFinding faceFinding() const;
     [[nodiscard]] int faceCount() const;
     [[nodiscard]] Position position() const;
@@ -95,6 +105,8 @@ class VisionAnalysisSession final : public QObject
     [[nodiscard]] Quality contrast() const;
     [[nodiscard]] Quality sharpness() const;
     [[nodiscard]] QString statusText() const;
+    [[nodiscard]] QString resultSummary() const;
+    [[nodiscard]] QString guidanceText() const;
     [[nodiscard]] QString errorCode() const;
     [[nodiscard]] quint64 generation() const;
 

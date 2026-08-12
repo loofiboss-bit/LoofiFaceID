@@ -962,3 +962,282 @@ msgstr "Kameraleverantör"
 #: src/preview/cameraprovider.cpp:200
 msgid "Camera"
 msgstr "Kamera"
+
+msgid "Current capability status"
+msgstr "Aktuell kapacitetsstatus"
+
+msgid "Worker and runtime"
+msgstr "Worker och körmiljö"
+
+msgid "Verified models"
+msgstr "Verifierade modeller"
+
+msgid "Camera availability"
+msgstr "Kameratillgänglighet"
+
+msgid "KWallet"
+msgstr "KWallet"
+
+msgid "Encrypted profile"
+msgstr "Krypterad profil"
+
+msgid "Profile samples"
+msgstr "Profilprov"
+
+msgid "No profile"
+msgstr "Ingen profil"
+
+msgid "Environment details"
+msgstr "Miljödetaljer"
+
+msgid "Hide environment details"
+msgstr "Dölj miljödetaljer"
+
+msgid "Show environment details"
+msgstr "Visa miljödetaljer"
+
+msgid "Display manager"
+msgstr "Displayhanterare"
+
+msgid "System authentication"
+msgstr "Systemautentisering"
+
+msgid "Not implemented"
+msgstr "Inte implementerat"
+
+msgid "%1 encrypted sample"
+msgstr "%1 krypterat prov"
+
+msgid "Home"
+msgstr "Hem"
+
+msgid "KFaceAuth %1"
+msgstr "KFaceAuth %1"
+
+msgid "A local check needs attention"
+msgstr "En lokal kontroll behöver åtgärdas"
+
+msgid "Your profile is ready to test"
+msgstr "Din profil är redo att testas"
+
+msgid "Start with a camera check"
+msgstr "Börja med en kamerakontroll"
+
+msgid "Create your encrypted profile"
+msgstr "Skapa din krypterade profil"
+
+msgid "Open Diagnostics for the current issue and a bounded recovery step."
+msgstr "Öppna Diagnostik för det aktuella problemet och ett begränsat återställningssteg."
+
+msgid "Start a preview in Test, then test exactly one current frame."
+msgstr "Starta en förhandsvisning i Test och testa sedan exakt en aktuell bildruta."
+
+msgid "Setup guides you through camera discovery, a frame check, and profile creation."
+msgstr "Setup guidar dig genom kameraupptäckt, en bildrutskontroll och profilsättning."
+
+msgid "Setup keeps the camera, frame check, and one-click enrollment in one guided path."
+msgstr "Setup samlar kameran, bildrutskontrollen och registreringen med ett klick i en guidad väg."
+
+msgid "Open Setup"
+msgstr "Öppna Setup"
+
+msgid "KFaceAuth is experimental. It can compare one current frame in this logged-in session, but it cannot unlock, authenticate, authorize, or change system settings."
+msgstr "KFaceAuth är experimentellt. Det kan jämföra en aktuell bildruta i den här inloggade sessionen, men kan inte låsa upp, autentisera, auktorisera eller ändra systeminställningar."
+
+msgid "Setup"
+msgstr "Setup"
+
+msgid "Follow one bounded path: check the camera, test one frame for framing guidance, then create an encrypted profile."
+msgstr "Följ en begränsad väg: kontrollera kameran, testa en bildruta för inramningsvägledning och skapa sedan en krypterad profil."
+
+msgid "Setup needs attention"
+msgstr "Setup behöver åtgärdas"
+
+msgid "Step 1 and 2: camera and frame check"
+msgstr "Steg 1 och 2: kamera och bildrutskontroll"
+
+msgid "Step 3: encrypted face profile"
+msgstr "Steg 3: krypterad ansiktsprofil"
+
+msgid "Step 3: Create a face profile"
+msgstr "Steg 3: Skapa en ansiktsprofil"
+
+msgid "Refresh profile status"
+msgstr "Uppdatera profilstatus"
+
+msgid "Create face profile"
+msgstr "Skapa ansiktsprofil"
+
+msgid "Capture exactly one sample per click. Three are required, five are recommended, and eight is the hard maximum."
+msgstr "Fånga exakt ett prov per klick. Tre krävs, fem rekommenderas och åtta är det hårda maximumet."
+
+msgid "Open Test"
+msgstr "Öppna Test"
+
+msgid "Profile management"
+msgstr "Profilhantering"
+
+msgid "Deletion and unreadable-vault reset are separate destructive actions. Neither promises physical erasure from storage, snapshots, or backups."
+msgstr "Borttagning och återställning av oläsbart valv är separata destruktiva åtgärder. Ingen av dem lovar fysisk radering från lagring, ögonblicksbilder eller säkerhetskopior."
+
+msgid "Test"
+msgstr "Test"
+
+msgid "Test one explicit current frame against the encrypted profile. A result affects only this page."
+msgstr "Testa en uttrycklig aktuell bildruta mot den krypterade profilen. Ett resultat påverkar endast den här sidan."
+
+msgid "Private test preview"
+msgstr "Privat testförhandsvisning"
+
+msgid "Match is an experimental in-session comparison only. It cannot unlock, authenticate, authorize, call PAM, invoke Polkit, or change the Linux session."
+msgstr "Träff är endast en experimentell jämförelse i sessionen. Den kan inte låsa upp, autentisera, auktorisera, anropa PAM, aktivera Polkit eller ändra Linux-sessionen."
+
+msgid "One-frame test"
+msgstr "Test av en bildruta"
+
+msgid "Test current frame"
+msgstr "Testa aktuell bildruta"
+
+msgid "Test unavailable"
+msgstr "Testet är inte tillgängligt"
+
+msgid "Similarity scores, thresholds, liveness, and spoof-resistance claims are intentionally not shown or made."
+msgstr "Likhetspoäng, trösklar, livskontroll och påståenden om motståndskraft mot spoofing visas eller görs inte avsiktligt."
+
+msgid "Framing guidance only"
+msgstr "Endast inramningsvägledning"
+
+msgid "Choose a camera to begin"
+msgstr "Välj en kamera för att börja"
+
+msgid "Frame check is one explicit YuNet action. It is framing guidance, not liveness or authentication."
+msgstr "Bildrutskontrollen är en uttrycklig YuNet-åtgärd. Den är inramningsvägledning, inte livskontroll eller autentisering."
+
+msgid "Privacy summary"
+msgstr "Integritetsöversikt"
+
+msgid "Privacy at a glance"
+msgstr "Integritet i korthet"
+
+msgid "Local only"
+msgstr "Endast lokalt"
+
+msgid "Processing stays in this user session."
+msgstr "Bearbetningen stannar i den här användarsessionen."
+
+msgid "Images are not stored"
+msgstr "Bilder sparas inte"
+
+msgid "Frames are cleared after each bounded action."
+msgstr "Bildrutor rensas efter varje begränsad åtgärd."
+
+msgid "Profile encrypted with KWallet"
+msgstr "Profil krypterad med KWallet"
+
+msgid "The key is not kept in a file or sent over a network."
+msgstr "Nyckeln sparas inte i en fil och skickas inte över ett nätverk."
+
+msgid "Resolve issue"
+msgstr "Åtgärda problemet"
+
+msgid "Set up camera"
+msgstr "Konfigurera kamera"
+
+msgid "Test recognition"
+msgstr "Testa igenkänning"
+
+msgid "Resolve one issue"
+msgstr "Åtgärda ett problem"
+
+msgid "Camera setup needed"
+msgstr "Kamerakonfiguration behövs"
+
+msgid "Face profile setup needed"
+msgstr "Ansiktsprofil behöver konfigureras"
+
+msgid "Ready to test one frame"
+msgstr "Redo att testa en bildruta"
+
+msgid "Local identity worker needs attention"
+msgstr "Den lokala identitetsworkern behöver åtgärdas"
+
+msgid "The local worker status could not be read. Retry diagnostics before testing a profile."
+msgstr "Den lokala workerns status kunde inte läsas. Försök med diagnostiken igen innan du testar en profil."
+
+msgid "Verified models need attention"
+msgstr "Verifierade modeller behöver åtgärdas"
+
+msgid "The required local model inventory is incomplete or unavailable."
+msgstr "Det nödvändiga lokala modellinventariet är ofullständigt eller otillgängligt."
+
+msgid "KWallet is unavailable"
+msgstr "KWallet är inte tillgängligt"
+
+msgid "KFaceAuth cannot create or read an encrypted profile until KWallet is available."
+msgstr "KFaceAuth kan inte skapa eller läsa en krypterad profil förrän KWallet är tillgängligt."
+
+msgid "The encrypted profile needs attention"
+msgstr "Den krypterade profilen behöver åtgärdas"
+
+msgid "The existing profile is unreadable. Use the explicit reset action only if you accept re-enrollment."
+msgstr "Den befintliga profilen är oläsbar. Använd den uttryckliga återställningen endast om du accepterar ny registrering."
+
+msgid "The profile model has changed"
+msgstr "Profilmodellen har ändrats"
+
+msgid "The encrypted profile was created for a different verified model version."
+msgstr "Den krypterade profilen skapades för en annan verifierad modellversion."
+
+msgid "The verified model inventory is unavailable"
+msgstr "Det verifierade modellinventariet är inte tillgängligt"
+
+msgid "The profile model does not match"
+msgstr "Profilmodellen stämmer inte överens"
+
+msgid "KWallet needs attention"
+msgstr "KWallet behöver åtgärdas"
+
+msgid "The encrypted profile is unreadable"
+msgstr "Den krypterade profilen är oläsbar"
+
+msgid "A local worker needs attention"
+msgstr "En lokal worker behöver åtgärdas"
+
+msgid "Verify the installed YuNet and SFace files against the offline model manifest, then refresh."
+msgstr "Verifiera de installerade YuNet- och SFace-filerna mot det offline modellmanifestet och uppdatera sedan."
+
+msgid "Keep the profile unchanged and create a new profile only after confirming the verified model inventory."
+msgstr "Låt profilen vara oförändrad och skapa en ny profil först efter att det verifierade modellinventariet har bekräftats."
+
+msgid "Preserve the unreadable profile until you explicitly confirm reset; reset requires enrollment again."
+msgstr "Bevara den oläsbara profilen tills du uttryckligen bekräftar återställning; återställning kräver ny registrering."
+
+msgid "Unlock KWallet in the current session, then retry. KFaceAuth has no plaintext-key fallback."
+msgstr "Lås upp KWallet i den aktuella sessionen och försök igen. KFaceAuth har ingen reservnyckel i klartext."
+
+msgid "Enable and unlock KWallet in the current user session, then refresh. No profile key is stored elsewhere."
+msgstr "Aktivera och lås upp KWallet i den aktuella användarsessionen och uppdatera sedan. Ingen profilnyckel lagras någon annanstans."
+
+msgid "Retry once. If the issue continues, export this bounded report; worker failures clear frames and results."
+msgstr "Försök igen en gång. Om problemet kvarstår exporterar du den här begränsade rapporten; workerfel rensar bildrutor och resultat."
+
+msgid "%1 encrypted samples are enrolled."
+msgstr "%1 krypterade prov är registrerade."
+
+msgid "Adjust your position and lighting, then try one frame again."
+msgstr "Justera din position och belysning och försök sedan med en bildruta igen."
+
+msgid "Encrypted profile status is unavailable"
+msgstr "Status för krypterad profil är inte tillgänglig"
+
+msgid "Retry Diagnostics once. Keep the existing profile unchanged until its status is readable."
+msgstr "Försök med Diagnostik igen. Behåll den befintliga profilen oförändrad tills statusen kan läsas."
+
+msgid "Unlock KWallet in the current session, then refresh before using the profile."
+msgstr "Lås upp KWallet i den aktuella sessionen och uppdatera sedan innan profilen används."
+
+msgid "Encrypted profile status unavailable"
+msgstr "Status för krypterad profil är inte tillgänglig"
+
+msgid "The local profile status could not be read. Retry Diagnostics before testing."
+msgstr "Den lokala profilstatusen kunde inte läsas. Försök med Diagnostik igen innan du testar."

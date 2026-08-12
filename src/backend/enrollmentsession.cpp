@@ -110,6 +110,23 @@ bool EnrollmentSession::busy() const
     return m_state == State::OpeningWallet || m_state == State::Capturing || m_state == State::Saving;
 }
 
+bool EnrollmentSession::enrollmentActive() const
+{
+    return m_state == State::OpeningWallet || m_state == State::Enrolling || m_state == State::Capturing ||
+           m_state == State::ReadyToSave || m_state == State::Saving;
+}
+
+bool EnrollmentSession::canStartEnrollment() const
+{
+    return m_pageActive && !m_worker->busy() && !enrollmentActive() &&
+           m_preview->state() == CameraPreviewSession::State::Streaming && m_preview->frameAvailable();
+}
+
+bool EnrollmentSession::canCancel() const
+{
+    return enrollmentActive();
+}
+
 bool EnrollmentSession::canCapture() const
 {
     return m_pageActive && !m_worker->busy() && (m_state == State::Enrolling || m_state == State::ReadyToSave) &&
@@ -120,6 +137,46 @@ bool EnrollmentSession::canCapture() const
 bool EnrollmentSession::canFinish() const
 {
     return m_pageActive && !m_worker->busy() && m_state == State::ReadyToSave && m_sampleCount >= minimumSamples();
+}
+
+bool EnrollmentSession::enrollmentComplete() const
+{
+    return m_state == State::Complete;
+}
+
+bool EnrollmentSession::profileReady() const
+{
+    return m_profileState == ProfileState::Ready;
+}
+
+bool EnrollmentSession::profileNeedsAttention() const
+{
+    return m_profileState == ProfileState::Unreadable || m_profileState == ProfileState::ModelMismatch ||
+           m_profileState == ProfileState::VaultLocked || m_profileState == ProfileState::Unavailable;
+}
+
+QString EnrollmentSession::profileStatusText() const
+{
+    switch (m_profileState)
+    {
+    case ProfileState::Absent:
+        return translate("No face profile is enrolled.");
+    case ProfileState::Ready:
+        return m_storedSampleCount == 1 ? translate("%1 encrypted sample is enrolled.").arg(m_storedSampleCount)
+                                        : translate("%1 encrypted samples are enrolled.").arg(m_storedSampleCount);
+    case ProfileState::Unreadable:
+        return translate("The encrypted profile is unreadable or corrupt.");
+    case ProfileState::ModelMismatch:
+        return translate("The profile model version does not match this runtime.");
+    case ProfileState::VaultLocked:
+        return translate("KWallet is locked or access was cancelled.");
+    case ProfileState::Unavailable:
+        return translate("Profile status is unavailable.");
+    case ProfileState::Unknown:
+    case ProfileState::Checking:
+        return translate("Checking profile status…");
+    }
+    return translate("Profile status is unavailable.");
 }
 
 QString EnrollmentSession::statusText() const

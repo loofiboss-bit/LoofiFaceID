@@ -9,5 +9,6 @@ build*/
 rpmbuild/
 *.rpm
 *.src.rpm
-kfaceauth-*.tar.gz
+# Generated source archives (legacy and current package names).
+*.tar.gz
 engine/target/

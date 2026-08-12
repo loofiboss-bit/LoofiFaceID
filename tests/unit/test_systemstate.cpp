@@ -27,6 +27,7 @@ class SystemStateTest final : public QObject
   private Q_SLOTS:
     void unavailableEngineFailsClosed();
     void localIdentityReportsSupportedAndUnsupportedOperations();
+    void degradedIdentityReportsTypedKWalletAndVaultIssues();
     void applyingStateNotifiesConsumers();
     void hostProbeRunsAsynchronously();
 };
@@ -52,6 +53,10 @@ void SystemStateTest::localIdentityReportsSupportedAndUnsupportedOperations()
     inputs.engine.capabilities.detectorAnalysis = OperationSupport::Supported;
     inputs.engine.capabilities.enrollment = OperationSupport::Supported;
     inputs.engine.capabilities.encryptedPersistence = OperationSupport::Supported;
+    inputs.engine.status.data->detectorModelAvailable = true;
+    inputs.engine.status.data->embeddingModelAvailable = true;
+    inputs.engine.status.data->keyProviderState = EngineStatusSnapshot::KeyProviderState::Available;
+    inputs.engine.status.data->vaultState = EngineStatusSnapshot::VaultState::Absent;
 
     const SystemStateSnapshot snapshot = SystemProbe::evaluate(inputs);
 
@@ -60,9 +65,34 @@ void SystemStateTest::localIdentityReportsSupportedAndUnsupportedOperations()
     QCOMPARE(snapshot.visionStatus, SystemStateSnapshot::CapabilityStatus::Supported);
     QCOMPARE(snapshot.enrollmentStatus, SystemStateSnapshot::CapabilityStatus::Supported);
     QCOMPARE(snapshot.templatePersistenceStatus, SystemStateSnapshot::CapabilityStatus::Supported);
+    QCOMPARE(snapshot.modelStatus, SystemStateSnapshot::ModelStatus::Verified);
+    QCOMPARE(snapshot.keyProviderStatus, SystemStateSnapshot::KeyProviderStatus::Available);
+    QCOMPARE(snapshot.vaultStatus, SystemStateSnapshot::VaultStatus::Absent);
     QCOMPARE(snapshot.authenticationStatus, SystemStateSnapshot::CapabilityStatus::Unsupported);
     QCOMPARE(snapshot.pamStatus, SystemStateSnapshot::CapabilityStatus::Unsupported);
     QVERIFY(snapshot.issueCode.isEmpty());
+}
+
+void SystemStateTest::degradedIdentityReportsTypedKWalletAndVaultIssues()
+{
+    SystemProbeInputs inputs = baseInputs();
+    inputs.engine.engineAvailable = true;
+    inputs.engine.protocol = EngineProtocolSnapshot{2, QStringLiteral("0.1.0-local-identity")};
+    inputs.engine.status = EngineStatusSnapshot{EngineStatusSnapshot::State::Degraded};
+    inputs.engine.status.data->detectorModelAvailable = true;
+    inputs.engine.status.data->embeddingModelAvailable = true;
+    inputs.engine.status.data->keyProviderState = EngineStatusSnapshot::KeyProviderState::Locked;
+    inputs.engine.status.data->vaultState = EngineStatusSnapshot::VaultState::Unknown;
+
+    const SystemStateSnapshot walletSnapshot = SystemProbe::evaluate(inputs);
+    QCOMPARE(walletSnapshot.issueCode, QStringLiteral("kwallet-locked"));
+    QCOMPARE(walletSnapshot.keyProviderStatus, SystemStateSnapshot::KeyProviderStatus::Locked);
+
+    inputs.engine.status.data->keyProviderState = EngineStatusSnapshot::KeyProviderState::Available;
+    inputs.engine.status.data->vaultState = EngineStatusSnapshot::VaultState::ModelMismatch;
+    const SystemStateSnapshot vaultSnapshot = SystemProbe::evaluate(inputs);
+    QCOMPARE(vaultSnapshot.issueCode, QStringLiteral("vault-model-mismatch"));
+    QCOMPARE(vaultSnapshot.vaultStatus, SystemStateSnapshot::VaultStatus::ModelMismatch);
 }
 
 void SystemStateTest::applyingStateNotifiesConsumers()
@@ -79,6 +109,9 @@ void SystemStateTest::applyingStateNotifiesConsumers()
     QCOMPARE(state.engineStatus(), SystemState::EngineStatus::Unavailable);
     QCOMPARE(state.authenticationStatus(), SystemState::CapabilityStatus::Unsupported);
     QVERIFY(!state.authenticationStatusLabel().isEmpty());
+    QVERIFY(!state.modelStatusLabel().isEmpty());
+    QVERIFY(!state.keyProviderStatusLabel().isEmpty());
+    QVERIFY(!state.vaultStatusLabel().isEmpty());
 }
 
 void SystemStateTest::hostProbeRunsAsynchronously()

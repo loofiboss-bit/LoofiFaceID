@@ -45,17 +45,31 @@ QByteArray framedResponse(QByteArrayView request, const QString &mode)
     quint8 code = 0;
     QByteArray body;
 
-    if (mode == QLatin1String("session") || mode == QLatin1String("session-hang-capture"))
+    if (mode == QLatin1String("session") || mode == QLatin1String("session-hang-capture") ||
+        mode == QLatin1String("session-lifecycle") || mode == QLatin1String("session-fail-commit"))
     {
         if (operation == 1)
         {
             kind = 0x81;
-            body.append(char(0));
+            if (mode == QLatin1String("session-lifecycle") || mode == QLatin1String("session-fail-commit"))
+            {
+                code = 1;
+                body.append(char(5));
+            }
+            else
+            {
+                body.append(char(0));
+            }
         }
         else if (operation == 2)
         {
             kind = 0x82;
             body = QByteArray(128 * 4, char(0x2a));
+        }
+        else if (operation == 3 && mode == QLatin1String("session-fail-commit"))
+        {
+            kind = 0xff;
+            code = 20;
         }
         else if (operation == 5)
         {
