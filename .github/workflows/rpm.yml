@@ -129,5 +129,5 @@ jobs:
           packaging/fedora/verify-release-artifacts.sh artifacts
           TAG_NAME="${{ github.event.release.tag_name }}"
           test -n "$TAG_NAME"
-          gh release view "$TAG_NAME"
-          gh release upload "$TAG_NAME" artifacts/* --clobber
+          gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
