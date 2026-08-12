@@ -31,8 +31,26 @@ class KFaceAuthKcm final : public KQuickConfigModule
     Q_PROPERTY(bool refreshing READ refreshing NOTIFY refreshStateChanged)
     Q_PROPERTY(bool partialDiagnostics READ partialDiagnostics NOTIFY refreshStateChanged)
     Q_PROPERTY(bool retryAvailable READ retryAvailable NOTIFY refreshStateChanged)
+    Q_PROPERTY(QString productVersion READ productVersion CONSTANT)
+    Q_PROPERTY(UiFlowState flowState READ flowState NOTIFY flowStateChanged)
+    Q_PROPERTY(bool needsCamera READ needsCamera NOTIFY flowStateChanged)
+    Q_PROPERTY(bool needsProfile READ needsProfile NOTIFY flowStateChanged)
+    Q_PROPERTY(bool readyToTest READ readyToTest NOTIFY flowStateChanged)
+    Q_PROPERTY(bool needsAttention READ needsAttention NOTIFY flowStateChanged)
+    Q_PROPERTY(QString flowStateLabel READ flowStateLabel NOTIFY flowStateChanged)
+    Q_PROPERTY(QString recommendedAction READ recommendedAction NOTIFY flowStateChanged)
+    Q_PROPERTY(QString recommendedDestination READ recommendedDestination NOTIFY flowStateChanged)
 
   public:
+    enum class UiFlowState
+    {
+        NeedsCamera,
+        NeedsProfile,
+        ReadyToTest,
+        NeedsAttention,
+    };
+    Q_ENUM(UiFlowState)
+
     KFaceAuthKcm(QObject *parent, const KPluginMetaData &data);
     KFaceAuthKcm(QObject *parent, const KPluginMetaData &data, std::unique_ptr<FaceAuthBackend> backend);
     ~KFaceAuthKcm() override;
@@ -46,10 +64,20 @@ class KFaceAuthKcm final : public KQuickConfigModule
     [[nodiscard]] bool refreshing() const;
     [[nodiscard]] bool partialDiagnostics() const;
     [[nodiscard]] bool retryAvailable() const;
+    [[nodiscard]] QString productVersion() const;
+    [[nodiscard]] UiFlowState flowState() const;
+    [[nodiscard]] bool needsCamera() const;
+    [[nodiscard]] bool needsProfile() const;
+    [[nodiscard]] bool readyToTest() const;
+    [[nodiscard]] bool needsAttention() const;
+    [[nodiscard]] QString flowStateLabel() const;
+    [[nodiscard]] QString recommendedAction() const;
+    [[nodiscard]] QString recommendedDestination() const;
     Q_INVOKABLE void refresh();
 
   Q_SIGNALS:
     void refreshStateChanged();
+    void flowStateChanged();
 
   private:
     SystemProbe m_probe;

@@ -124,6 +124,8 @@ add_executable(test_qmlpages
 target_include_directories(test_qmlpages PRIVATE ${PROJECT_SOURCE_DIR}/src/kcm)
 target_compile_definitions(test_qmlpages PRIVATE
     KFACEAUTH_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    KFACEAUTH_QML_URI="${KFACEAUTH_QML_URI}"
+    KFACEAUTH_VERSION_STRING="${KFACEAUTH_VERSION}"
     KFACEAUTH_FAKE_PREVIEW_WORKER_PATH="$<TARGET_FILE:fake_preview_worker>"
     KFACEAUTH_FAKE_VISION_WORKER_PATH="$<TARGET_FILE:fake_vision_worker>"
 )
@@ -151,6 +153,7 @@ target_include_directories(test_kfaceauthkcm PRIVATE ${PROJECT_SOURCE_DIR}/src/k
 target_compile_definitions(test_kfaceauthkcm PRIVATE
     KFACEAUTH_PLUGIN_METADATA="${PROJECT_BINARY_DIR}/src/kcm/${KFACEAUTH_KCM_ID}.json"
     KFACEAUTH_QML_URI="${KFACEAUTH_QML_URI}"
+    KFACEAUTH_VERSION_STRING="${KFACEAUTH_VERSION}"
 )
 target_link_libraries(test_kfaceauthkcm
     kfaceauth_core

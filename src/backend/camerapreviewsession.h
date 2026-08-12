@@ -16,6 +16,12 @@ class CameraPreviewSession final : public QAbstractListModel
     Q_OBJECT
 
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
+    Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
+    Q_PROPERTY(bool previewActive READ previewActive NOTIFY stateChanged)
+    Q_PROPERTY(bool canStartPreview READ canStartPreview NOTIFY stateChanged)
+    Q_PROPERTY(bool canStopPreview READ canStopPreview NOTIFY stateChanged)
+    Q_PROPERTY(bool canRefresh READ canRefresh NOTIFY stateChanged)
+    Q_PROPERTY(bool hasUsableCamera READ hasUsableCamera NOTIFY stateChanged)
     Q_PROPERTY(int deviceCount READ deviceCount NOTIFY devicesChanged)
     Q_PROPERTY(int selectedDeviceIndex READ selectedDeviceIndex WRITE setSelectedDeviceIndex NOTIFY selectionChanged)
     Q_PROPERTY(bool frameAvailable READ frameAvailable NOTIFY frameChanged)
@@ -54,6 +60,12 @@ class CameraPreviewSession final : public QAbstractListModel
     [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
 
     [[nodiscard]] State state() const;
+    [[nodiscard]] bool busy() const;
+    [[nodiscard]] bool previewActive() const;
+    [[nodiscard]] bool canStartPreview() const;
+    [[nodiscard]] bool canStopPreview() const;
+    [[nodiscard]] bool canRefresh() const;
+    [[nodiscard]] bool hasUsableCamera() const;
     [[nodiscard]] int deviceCount() const;
     [[nodiscard]] int selectedDeviceIndex() const;
     void setSelectedDeviceIndex(int index);

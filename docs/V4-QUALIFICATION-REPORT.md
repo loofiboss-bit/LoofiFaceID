@@ -20,7 +20,11 @@ participant qualification.
 - Camera class, without serial number or stable device path: `NOT RUN`
 - Consent scope and retention agreement: `NOT RUN`
 
-## Coverage
+## A. Experimental preview release readiness
+
+The fields below cover only the logged-in preview utility. Keep each manual
+field as `NOT RUN` until directly observed; automated evidence must be listed
+separately and must not be turned into physical qualification.
 
 - RGB camera coverage: `NOT RUN`
 - Infrared camera coverage: `NOT RUN`
@@ -39,6 +43,19 @@ participant qualification.
 - Peak resident memory (parent and worker, aggregate only): `NOT RUN`
 - UI responsiveness and 20-cycle teardown result: `NOT RUN`
 
+## B. Authentication suitability — UNQUALIFIED
+
+These are not v4.0.0 release-readiness checks and must remain explicitly
+unqualified:
+
+- PAM, authselect, SDDM, lock-screen, sudo, Polkit, or system authorization:
+  `UNQUALIFIED`
+- pre-login key access outside the logged-in KWallet session: `UNQUALIFIED`
+- representative FAR/FRR and wrong-person acceptance: `UNQUALIFIED`
+- demographic/bias behavior: `UNQUALIFIED`
+- liveness and presentation-attack/spoof resistance: `UNQUALIFIED`
+- authentication suitability or security tier: `UNQUALIFIED`
+
 ## Outcome
 
 - Tested coverage: `NOT RUN`
@@ -47,11 +64,11 @@ participant qualification.
 - Remaining release blockers: `UNQUALIFIED`
 - Overall qualification decision: `UNQUALIFIED`
 
-Passing local comparison checks does not qualify Linux authentication,
-liveness, presentation-attack detection, spoof resistance, FAR, FRR, bias, or
-demographic behavior. Record those areas as `UNQUALIFIED`; do not infer them
-from RGB/IR class, brightness, contrast, sharpness, movement, or other image
-quality signals.
+Passing Section A or local comparison checks does not qualify Linux
+authentication, liveness, presentation-attack detection, spoof resistance,
+FAR, FRR, bias, or demographic behavior. Record those areas as `UNQUALIFIED`;
+do not infer them from RGB/IR class, brightness, contrast, sharpness, movement,
+or other image-quality signals.
 
 ## Privacy rules
 

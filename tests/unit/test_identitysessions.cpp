@@ -6,6 +6,7 @@
 #include "kwalletkeyprovider.h"
 #include "localverificationsession.h"
 
+#include <QElapsedTimer>
 #include <QProcessEnvironment>
 #include <QTest>
 
@@ -111,6 +112,8 @@ class IdentitySessionsTest final : public QObject
     void verificationRejectsStaleWorkerResponse();
     void enrollmentCancellationClearsTransientSamples();
     void pageHideCancelsActiveEnrollmentWorker();
+    void failedReplacementPreservesPreviousProfile();
+    void syntheticLifecycleRunsOneHundredCycles();
 };
 
 void IdentitySessionsTest::unavailableWalletStatesFailClosed_data()
@@ -229,6 +232,97 @@ void IdentitySessionsTest::pageHideCancelsActiveEnrollmentWorker()
     QTRY_VERIFY(!worker.busy());
     QCOMPARE(enrollment.sampleCount(), 0);
     QCOMPARE(keys.storeCalls, 0);
+}
+
+void IdentitySessionsTest::failedReplacementPreservesPreviousProfile()
+{
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    IdentityWorkerClient worker(QStringLiteral(KFACEAUTH_FAKE_IDENTITY_WORKER_PATH),
+                                environmentFor(QStringLiteral("session-fail-commit")), this);
+    FakeKeyProvider keys;
+    EnrollmentSession enrollment(&preview, &worker, &keys);
+    startPreview(&preview);
+    enrollment.setPageActive(true);
+    QTRY_COMPARE(enrollment.profileState(), EnrollmentSession::ProfileState::Ready);
+    QCOMPARE(enrollment.storedSampleCount(), 5);
+
+    enrollment.startEnrollment();
+    QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+    for (int sample = 0; sample < enrollment.minimumSamples(); ++sample)
+    {
+        enrollment.captureSample();
+        QTRY_COMPARE(enrollment.sampleCount(), sample + 1);
+    }
+    enrollment.finishAndSave();
+
+    QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Failed);
+    QVERIFY(enrollment.profileReady());
+    QCOMPARE(enrollment.storedSampleCount(), 5);
+    QVERIFY(!worker.busy());
+    enrollment.setPageActive(false);
+    preview.stopPreview();
+    QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+}
+
+void IdentitySessionsTest::syntheticLifecycleRunsOneHundredCycles()
+{
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    IdentityWorkerClient worker(QStringLiteral(KFACEAUTH_FAKE_IDENTITY_WORKER_PATH),
+                                environmentFor(QStringLiteral("session-lifecycle")), this);
+    FakeKeyProvider keys;
+    QElapsedTimer timer;
+    timer.start();
+
+    for (int cycle = 0; cycle < 100; ++cycle)
+    {
+        startPreview(&preview);
+        EnrollmentSession enrollment(&preview, &worker, &keys);
+        enrollment.setPageActive(true);
+        QTRY_COMPARE(enrollment.profileState(), EnrollmentSession::ProfileState::Ready);
+        enrollment.startEnrollment();
+        QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+
+        for (int sample = 0; sample < enrollment.recommendedSamples(); ++sample)
+        {
+            QVERIFY(enrollment.canCapture());
+            enrollment.captureSample();
+            QTRY_COMPARE(enrollment.sampleCount(), sample + 1);
+        }
+        QVERIFY(enrollment.canFinish());
+        enrollment.finishAndSave();
+        QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Complete);
+        QVERIFY(enrollment.profileReady());
+        QCOMPARE(enrollment.storedSampleCount(), enrollment.recommendedSamples());
+
+        enrollment.refreshProfileStatus();
+        QTRY_COMPARE(enrollment.profileState(), EnrollmentSession::ProfileState::Ready);
+        QCOMPARE(enrollment.storedSampleCount(), enrollment.recommendedSamples());
+
+        LocalVerificationSession verification(&preview, &worker, &keys);
+        verification.setPageActive(true);
+        verification.verifyCurrentFrame();
+        QTRY_COMPARE(verification.result(), LocalVerificationSession::Result::Match);
+        QVERIFY(verification.isMatch());
+        verification.clearResult();
+        QVERIFY(!verification.hasResult());
+
+        enrollment.deleteProfile();
+        QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Complete);
+        QTRY_COMPARE(enrollment.profileState(), EnrollmentSession::ProfileState::Absent);
+        QCOMPARE(enrollment.storedSampleCount(), 0);
+        QVERIFY(!worker.busy());
+
+        verification.setPageActive(false);
+        enrollment.setPageActive(false);
+        preview.stopPreview();
+        QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+        QVERIFY(!preview.frameAvailable());
+        QVERIFY(!worker.busy());
+
+        QVERIFY2(timer.elapsed() < 120000,
+                 qPrintable(
+                     QStringLiteral("100-cycle synthetic lifecycle exceeded 120 seconds at cycle %1").arg(cycle + 1)));
+    }
 }
 
 QTEST_MAIN(IdentitySessionsTest)

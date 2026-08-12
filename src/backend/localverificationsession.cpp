@@ -71,6 +71,37 @@ bool LocalVerificationSession::canVerify() const
            m_preview->state() == CameraPreviewSession::State::Streaming && m_preview->frameAvailable();
 }
 
+bool LocalVerificationSession::hasResult() const
+{
+    return m_result != Result::None;
+}
+
+bool LocalVerificationSession::canClearResult() const
+{
+    return !busy() && hasResult();
+}
+
+bool LocalVerificationSession::isMatch() const
+{
+    return m_result == Result::Match;
+}
+
+bool LocalVerificationSession::isNoMatch() const
+{
+    return m_result == Result::NoMatch;
+}
+
+bool LocalVerificationSession::isAmbiguous() const
+{
+    return m_result == Result::Ambiguous;
+}
+
+bool LocalVerificationSession::isUnavailable() const
+{
+    return m_result == Result::NoProfile || m_result == Result::VaultLocked || m_result == Result::ModelMismatch ||
+           m_result == Result::Unavailable || m_result == Result::Cancelled || m_result == Result::InternalFailure;
+}
+
 QString LocalVerificationSession::statusText() const
 {
     return m_statusText;

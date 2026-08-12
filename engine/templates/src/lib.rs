@@ -418,7 +418,7 @@ impl Drop for SensitiveBytes {
 
 fn associated_data(uid: u32) -> Vec<u8> {
     let mut data = Vec::with_capacity(256);
-    data.extend_from_slice(b"org.kde.kfaceauth/user-session-vault");
+    data.extend_from_slice(b"io.github.loofiboss_bit.KFaceAuth/user-session-vault");
     data.extend_from_slice(&VAULT_SCHEMA.to_be_bytes());
     data.extend_from_slice(&uid.to_be_bytes());
     data.extend_from_slice(DETECTOR_MODEL_ID.as_bytes());

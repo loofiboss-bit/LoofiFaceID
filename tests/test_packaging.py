@@ -30,7 +30,7 @@ class PackagingContractTests(unittest.TestCase):
             'set(KFACEAUTH_VERSION "4.0.0")',
             'set(KFACEAUTH_DISPLAY_NAME "KFaceAuth")',
             'set(KFACEAUTH_KCM_ID "kcm_kfaceauth")',
-            'set(KFACEAUTH_APP_ID "org.kde.kfaceauth")',
+            'set(KFACEAUTH_APP_ID "io.github.loofiboss_bit.KFaceAuth")',
             'set(KFACEAUTH_I18N_DOMAIN "kcm_kfaceauth")',
             'set(KFACEAUTH_PREVIEW_WORKER "kfaceauth-camera-preview-worker")',
             'set(KFACEAUTH_VISION_WORKER "kfaceauth-vision-worker")',

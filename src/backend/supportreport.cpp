@@ -14,6 +14,8 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 
+#include <QSet>
+
 #ifndef KFACEAUTH_SUPPORT_PREFIX
 #define KFACEAUTH_SUPPORT_PREFIX "kfaceauth-support"
 #endif
@@ -72,6 +74,62 @@ QString SupportReport::statusText() const
 bool SupportReport::hasIssue() const
 {
     return !m_issueCode.isEmpty();
+}
+
+void SupportReport::setTransientIssueCode(const QString &code)
+{
+    QString normalized = code;
+    static const QSet<QString> walletCodes = {
+        QStringLiteral("vault-key-unavailable"),
+        QStringLiteral("vault-key-delete-failed"),
+        QStringLiteral("vault-key-rollback-failed"),
+    };
+    static const QSet<QString> timeoutCodes = {
+        QStringLiteral("startup-timeout"),
+        QStringLiteral("inference-timeout"),
+        QStringLiteral("shutdown-timeout"),
+        QStringLiteral("identity-startup-timeout"),
+        QStringLiteral("identity-operation-timeout"),
+        QStringLiteral("identity-shutdown-timeout"),
+    };
+    static const QSet<QString> workerCodes = {
+        QStringLiteral("startup-failed"),
+        QStringLiteral("worker-crashed"),
+        QStringLiteral("worker-busy"),
+        QStringLiteral("identity-startup-failed"),
+        QStringLiteral("identity-worker-failed"),
+        QStringLiteral("identity-worker-busy"),
+    };
+    static const QSet<QString> protocolCodes = {
+        QStringLiteral("protocol-error"),
+        QStringLiteral("identity-protocol-error"),
+    };
+    if (walletCodes.contains(code))
+        normalized = QStringLiteral("kwallet-unavailable");
+    else if (timeoutCodes.contains(code))
+        normalized = QStringLiteral("worker-timeout");
+    else if (workerCodes.contains(code))
+        normalized = QStringLiteral("worker-crashed");
+    else if (protocolCodes.contains(code))
+        normalized = QStringLiteral("protocol-error");
+
+    static const QSet<QString> allowedCodes = {
+        QStringLiteral("model-unavailable"),
+        QStringLiteral("model-mismatch"),
+        QStringLiteral("vault-locked"),
+        QStringLiteral("vault-unreadable"),
+        QStringLiteral("vault-model-mismatch"),
+        QStringLiteral("kwallet-locked"),
+        QStringLiteral("kwallet-unavailable"),
+        QStringLiteral("worker-crashed"),
+        QStringLiteral("worker-timeout"),
+        QStringLiteral("identity-worker-unavailable"),
+        QStringLiteral("identity-protocol-error"),
+        QStringLiteral("protocol-error"),
+        QStringLiteral("vault-unavailable"),
+    };
+    m_transientIssueCode = allowedCodes.contains(normalized) ? normalized : QString();
+    rebuild();
 }
 
 void SupportReport::copyReport()
@@ -148,6 +206,22 @@ QString SupportReport::titleForCode(const QString &code)
         return translate("The native engine is unavailable");
     if (code == QLatin1String("native-protocol-unavailable"))
         return translate("The native protocol is unavailable");
+    if (code == QLatin1String("model-unavailable"))
+        return translate("The verified model inventory is unavailable");
+    if (code == QLatin1String("model-mismatch") || code == QLatin1String("vault-model-mismatch"))
+        return translate("The profile model does not match");
+    if (code == QLatin1String("vault-locked") || code == QLatin1String("kwallet-locked"))
+        return translate("KWallet needs attention");
+    if (code == QLatin1String("vault-unreadable"))
+        return translate("The encrypted profile is unreadable");
+    if (code == QLatin1String("vault-unavailable"))
+        return translate("Encrypted profile status is unavailable");
+    if (code == QLatin1String("kwallet-unavailable"))
+        return translate("KWallet is unavailable");
+    if (code == QLatin1String("worker-crashed") || code == QLatin1String("worker-timeout") ||
+        code == QLatin1String("identity-worker-unavailable") || code == QLatin1String("identity-protocol-error") ||
+        code == QLatin1String("protocol-error"))
+        return translate("A local worker needs attention");
     return code.isEmpty() ? QString() : translate("KFaceAuth needs attention");
 }
 
@@ -160,6 +234,27 @@ QString SupportReport::actionForCode(const QString &code)
     if (code == QLatin1String("native-engine-unavailable") || code == QLatin1String("native-protocol-unavailable"))
         return translate("Verify the installed local identity worker and model inventory. PAM and system "
                          "authentication remain unsupported.");
+    if (code == QLatin1String("model-unavailable"))
+        return translate(
+            "Verify the installed YuNet and SFace files against the offline model manifest, then refresh.");
+    if (code == QLatin1String("model-mismatch") || code == QLatin1String("vault-model-mismatch"))
+        return translate(
+            "Keep the profile unchanged and create a new profile only after confirming the verified model inventory.");
+    if (code == QLatin1String("vault-unreadable"))
+        return translate(
+            "Preserve the unreadable profile until you explicitly confirm reset; reset requires enrollment again.");
+    if (code == QLatin1String("vault-unavailable"))
+        return translate("Retry Diagnostics once. Keep the existing profile unchanged until its status is readable.");
+    if (code == QLatin1String("vault-locked") || code == QLatin1String("kwallet-locked"))
+        return translate("Unlock KWallet in the current session, then retry. KFaceAuth has no plaintext-key fallback.");
+    if (code == QLatin1String("kwallet-unavailable"))
+        return translate(
+            "Enable and unlock KWallet in the current user session, then refresh. No profile key is stored elsewhere.");
+    if (code == QLatin1String("worker-crashed") || code == QLatin1String("worker-timeout") ||
+        code == QLatin1String("identity-worker-unavailable") || code == QLatin1String("identity-protocol-error") ||
+        code == QLatin1String("protocol-error"))
+        return translate("Retry once. If the issue continues, export this bounded report; worker failures clear frames "
+                         "and results.");
     if (code.isEmpty())
         return translate("No known issue is currently reported.");
     return translate("Keep unsupported operations disabled and export the redacted report for development support.");
@@ -216,5 +311,7 @@ QString SupportReport::currentIssueCode() const
 {
     if (m_cameraPreviewSession && !m_cameraPreviewSession->errorCode().isEmpty())
         return m_cameraPreviewSession->errorCode();
+    if (!m_transientIssueCode.isEmpty())
+        return m_transientIssueCode;
     return m_systemState->issueCode();
 }

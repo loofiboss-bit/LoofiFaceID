@@ -6,7 +6,16 @@
 #include "nativefaceauthbackend.h"
 
 #include <KPluginFactory>
+#include <QCoreApplication>
 #include <qqml.h>
+
+namespace
+{
+QString translate(const char *text)
+{
+    return QCoreApplication::translate("KFaceAuthKcm", text);
+}
+} // namespace
 
 KFaceAuthKcm::KFaceAuthKcm(QObject *parent, const KPluginMetaData &data)
     : KFaceAuthKcm(parent, data, std::make_unique<NativeFaceAuthBackend>())
@@ -46,6 +55,27 @@ KFaceAuthKcm::KFaceAuthKcm(QObject *parent, const KPluginMetaData &data, std::un
                     m_systemState.apply(snapshot);
             });
     connect(&m_refreshCoordinator, &RefreshCoordinator::stateChanged, this, &KFaceAuthKcm::refreshStateChanged);
+    connect(&m_refreshCoordinator, &RefreshCoordinator::stateChanged, this, &KFaceAuthKcm::flowStateChanged);
+    connect(&m_systemState, &SystemState::stateChanged, this, &KFaceAuthKcm::flowStateChanged);
+    connect(&m_cameraPreviewSession, &CameraPreviewSession::stateChanged, this, &KFaceAuthKcm::flowStateChanged);
+    connect(&m_cameraPreviewSession, &CameraPreviewSession::devicesChanged, this, &KFaceAuthKcm::flowStateChanged);
+    connect(&m_cameraPreviewSession, &CameraPreviewSession::selectionChanged, this, &KFaceAuthKcm::flowStateChanged);
+    connect(&m_enrollmentSession, &EnrollmentSession::stateChanged, this, &KFaceAuthKcm::flowStateChanged);
+    connect(&m_enrollmentSession, &EnrollmentSession::profileChanged, this, &KFaceAuthKcm::flowStateChanged);
+    const auto refreshTransientIssue = [this]()
+    {
+        QString code;
+        if (!m_visionAnalysisSession.errorCode().isEmpty())
+            code = m_visionAnalysisSession.errorCode();
+        else if (!m_enrollmentSession.errorCode().isEmpty())
+            code = m_enrollmentSession.errorCode();
+        else if (!m_localVerificationSession.errorCode().isEmpty())
+            code = m_localVerificationSession.errorCode();
+        m_supportReport.setTransientIssueCode(code);
+    };
+    connect(&m_visionAnalysisSession, &VisionAnalysisSession::stateChanged, this, refreshTransientIssue);
+    connect(&m_enrollmentSession, &EnrollmentSession::stateChanged, this, refreshTransientIssue);
+    connect(&m_localVerificationSession, &LocalVerificationSession::stateChanged, this, refreshTransientIssue);
     refresh();
 }
 
@@ -94,6 +124,81 @@ bool KFaceAuthKcm::partialDiagnostics() const
 bool KFaceAuthKcm::retryAvailable() const
 {
     return m_refreshCoordinator.retryAvailable();
+}
+
+QString KFaceAuthKcm::productVersion() const
+{
+    return QStringLiteral(KFACEAUTH_VERSION_STRING);
+}
+
+KFaceAuthKcm::UiFlowState KFaceAuthKcm::flowState() const
+{
+    if (needsAttention())
+        return UiFlowState::NeedsAttention;
+    if (needsCamera())
+        return UiFlowState::NeedsCamera;
+    if (needsProfile())
+        return UiFlowState::NeedsProfile;
+    return UiFlowState::ReadyToTest;
+}
+
+bool KFaceAuthKcm::needsCamera() const
+{
+    return !m_cameraPreviewSession.hasUsableCamera();
+}
+
+bool KFaceAuthKcm::needsProfile() const
+{
+    return !m_enrollmentSession.profileReady();
+}
+
+bool KFaceAuthKcm::readyToTest() const
+{
+    return !needsAttention() && !needsCamera() && !needsProfile();
+}
+
+bool KFaceAuthKcm::needsAttention() const
+{
+    return !m_systemState.issueCode().isEmpty() || !m_cameraPreviewSession.errorCode().isEmpty() ||
+           m_enrollmentSession.profileNeedsAttention();
+}
+
+QString KFaceAuthKcm::flowStateLabel() const
+{
+    switch (flowState())
+    {
+    case UiFlowState::NeedsAttention:
+        return translate("Resolve one issue");
+    case UiFlowState::NeedsCamera:
+        return translate("Camera setup needed");
+    case UiFlowState::NeedsProfile:
+        return translate("Face profile setup needed");
+    case UiFlowState::ReadyToTest:
+        return translate("Ready to test one frame");
+    }
+    return translate("Camera setup needed");
+}
+
+QString KFaceAuthKcm::recommendedAction() const
+{
+    switch (flowState())
+    {
+    case UiFlowState::NeedsAttention:
+        return translate("Resolve issue");
+    case UiFlowState::NeedsCamera:
+        return translate("Set up camera");
+    case UiFlowState::NeedsProfile:
+        return translate("Create face profile");
+    case UiFlowState::ReadyToTest:
+        return translate("Test recognition");
+    }
+    return translate("Set up camera");
+}
+
+QString KFaceAuthKcm::recommendedDestination() const
+{
+    return needsAttention() ? QStringLiteral("diagnostics")
+                            : (readyToTest() ? QStringLiteral("test") : QStringLiteral("setup"));
 }
 
 void KFaceAuthKcm::refresh()

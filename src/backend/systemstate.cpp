@@ -90,9 +90,54 @@ SystemState::SecureBootStatus SystemState::secureBootStatus() const
     return static_cast<SecureBootStatus>(m_snapshot.secureBootStatus);
 }
 
+SystemState::ModelStatus SystemState::modelStatus() const
+{
+    return static_cast<ModelStatus>(m_snapshot.modelStatus);
+}
+
+SystemState::KeyProviderStatus SystemState::keyProviderStatus() const
+{
+    return static_cast<KeyProviderStatus>(m_snapshot.keyProviderStatus);
+}
+
+SystemState::VaultStatus SystemState::vaultStatus() const
+{
+    return static_cast<VaultStatus>(m_snapshot.vaultStatus);
+}
+
+bool SystemState::profileEnrolled() const
+{
+    return m_snapshot.profileEnrolled;
+}
+
+int SystemState::profileSampleCount() const
+{
+    return m_snapshot.profileSampleCount;
+}
+
 bool SystemState::liveData() const
 {
     return m_snapshot.liveData;
+}
+
+bool SystemState::engineReady() const
+{
+    return m_snapshot.engineStatus == SystemStateSnapshot::EngineStatus::LocalIdentityAvailable;
+}
+
+bool SystemState::modelsVerified() const
+{
+    return m_snapshot.modelStatus == SystemStateSnapshot::ModelStatus::Verified;
+}
+
+bool SystemState::keyAvailable() const
+{
+    return m_snapshot.keyProviderStatus == SystemStateSnapshot::KeyProviderStatus::Available;
+}
+
+bool SystemState::vaultReady() const
+{
+    return m_snapshot.vaultStatus == SystemStateSnapshot::VaultStatus::Ready;
 }
 
 QString SystemState::engineStatusLabel() const
@@ -157,6 +202,54 @@ QString SystemState::secureBootStatusLabel() const
     case SystemStateSnapshot::SecureBootStatus::Disabled:
         return tr("Disabled");
     case SystemStateSnapshot::SecureBootStatus::Unknown:
+        return tr("Unknown");
+    }
+    return tr("Unknown");
+}
+
+QString SystemState::modelStatusLabel() const
+{
+    switch (m_snapshot.modelStatus)
+    {
+    case SystemStateSnapshot::ModelStatus::Verified:
+        return tr("Verified");
+    case SystemStateSnapshot::ModelStatus::Unavailable:
+        return tr("Unavailable");
+    case SystemStateSnapshot::ModelStatus::Unknown:
+        return tr("Unknown");
+    }
+    return tr("Unknown");
+}
+
+QString SystemState::keyProviderStatusLabel() const
+{
+    switch (m_snapshot.keyProviderStatus)
+    {
+    case SystemStateSnapshot::KeyProviderStatus::Available:
+        return tr("Available");
+    case SystemStateSnapshot::KeyProviderStatus::Locked:
+        return tr("Locked");
+    case SystemStateSnapshot::KeyProviderStatus::Unavailable:
+        return tr("Unavailable");
+    case SystemStateSnapshot::KeyProviderStatus::Unknown:
+        return tr("Unknown");
+    }
+    return tr("Unknown");
+}
+
+QString SystemState::vaultStatusLabel() const
+{
+    switch (m_snapshot.vaultStatus)
+    {
+    case SystemStateSnapshot::VaultStatus::Absent:
+        return tr("No profile");
+    case SystemStateSnapshot::VaultStatus::Ready:
+        return tr("Ready");
+    case SystemStateSnapshot::VaultStatus::Unreadable:
+        return tr("Unreadable");
+    case SystemStateSnapshot::VaultStatus::ModelMismatch:
+        return tr("Model mismatch");
+    case SystemStateSnapshot::VaultStatus::Unknown:
         return tr("Unknown");
     }
     return tr("Unknown");

@@ -31,7 +31,7 @@ size is 16 KiB.
 
 Authenticated associated data binds:
 
-- product namespace `org.kde.kfaceauth/user-session-vault`;
+- product namespace `io.github.loofiboss_bit.KFaceAuth/user-session-vault`;
 - outer schema;
 - current numeric UID;
 - detector model ID;

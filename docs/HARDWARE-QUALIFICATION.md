@@ -5,6 +5,16 @@ liveness, spoof, or authentication qualification. Milestone 4 may pass code
 gates without hardware evidence, but missing hardware coverage is a release
 blocker and must be reported.
 
+Qualification has two intentionally separate sections:
+
+- **A. Experimental preview release readiness** covers camera behavior,
+  enrollment, cancellation and teardown, KWallet/vault recovery, keyboard and
+  Orca behavior, aggregate latency/memory, and privacy inspection.
+- **B. Authentication suitability** covers PAM/system authentication,
+  pre-login key access, FAR/FRR, demographic/bias behavior, liveness, and spoof
+  resistance. Section B is permanently `UNQUALIFIED` for v4.0.0 and is not
+  enabled by passing Section A.
+
 ## Non-installed evaluator
 
 Use only images whose participants explicitly consented to this evaluation and
@@ -40,7 +50,7 @@ FAR/FRR fields are `unqualified` unless the caller explicitly adds
 accepted samples each. Even then, results describe only that supplied set and
 are not product qualification.
 
-## Consent-based manual procedure
+## A. Experimental preview release readiness
 
 1. Use a clean, normally dependency-resolved Fedora 44 installation. Record
    Fedora/kernel/CPU/OpenCV/KFaceAuth versions and RGB/IR class without serial
@@ -71,6 +81,25 @@ are not product qualification.
     redacted support report for images, keys, embeddings, scores, rectangles,
     identifiers, and user paths.
 
+The automated fake-worker lifecycle complements this procedure with 100
+synthetic start/stop and enrollment/test/teardown cycles. It does not replace
+physical camera, keyboard, Orca, or privacy inspection.
+
+## B. Authentication suitability — UNQUALIFIED
+
+Do not run or report these items as v4.0.0 preview qualification:
+
+- PAM, authselect, SDDM, lock-screen, sudo, Polkit, or any system
+  authorization integration;
+- pre-login key access or a credential provider outside the logged-in KWallet
+  session;
+- FAR/FRR, representative wrong-person acceptance, demographic/bias
+  evaluation, liveness, presentation-attack, or spoof-resistance claims.
+
+These capabilities are outside the product boundary. They remain
+`UNQUALIFIED` and blocked regardless of RGB/IR results, image-quality guidance,
+synthetic cycles, or a local `Match` result.
+
 ## Result record and release boundary
 
 Record date, tester, environment, consent scope, camera class, conditions,
@@ -80,6 +109,7 @@ identity. Start each run from
 [V4-QUALIFICATION-REPORT.md](V4-QUALIFICATION-REPORT.md) and leave every
 unobserved field as `NOT RUN` or `UNQUALIFIED`.
 
-Missing representative FAR/FRR, bias, broad RGB/IR hardware, accessibility,
-and spoof testing remains explicit release-blocker evidence. Passing this
-procedure does not authorize liveness or PAM work.
+Missing broad RGB/IR hardware and accessibility evidence blocks Section A.
+Section B remains `UNQUALIFIED` by design. Passing Section A does not make
+KFaceAuth suitable for authentication and does not authorize liveness, PAM, or
+system-integration work.

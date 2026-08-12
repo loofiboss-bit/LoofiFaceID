@@ -28,6 +28,30 @@ struct SystemStateSnapshot
         Unknown,
     };
 
+    enum class ModelStatus
+    {
+        Verified,
+        Unavailable,
+        Unknown,
+    };
+
+    enum class KeyProviderStatus
+    {
+        Available,
+        Locked,
+        Unavailable,
+        Unknown,
+    };
+
+    enum class VaultStatus
+    {
+        Unknown,
+        Absent,
+        Ready,
+        Unreadable,
+        ModelMismatch,
+    };
+
     QString scenarioId;
     QString headline;
     QString summary;
@@ -44,6 +68,11 @@ struct SystemStateSnapshot
     CapabilityStatus pamStatus = CapabilityStatus::Unsupported;
     CapabilityStatus templatePersistenceStatus = CapabilityStatus::Unsupported;
     SecureBootStatus secureBootStatus = SecureBootStatus::Unknown;
+    ModelStatus modelStatus = ModelStatus::Unknown;
+    KeyProviderStatus keyProviderStatus = KeyProviderStatus::Unknown;
+    VaultStatus vaultStatus = VaultStatus::Unknown;
+    bool profileEnrolled = false;
+    int profileSampleCount = 0;
     bool liveData = false;
 };
 
@@ -67,7 +96,16 @@ class SystemState final : public QObject
     Q_PROPERTY(CapabilityStatus pamStatus READ pamStatus NOTIFY stateChanged)
     Q_PROPERTY(CapabilityStatus templatePersistenceStatus READ templatePersistenceStatus NOTIFY stateChanged)
     Q_PROPERTY(SecureBootStatus secureBootStatus READ secureBootStatus NOTIFY stateChanged)
+    Q_PROPERTY(ModelStatus modelStatus READ modelStatus NOTIFY stateChanged)
+    Q_PROPERTY(KeyProviderStatus keyProviderStatus READ keyProviderStatus NOTIFY stateChanged)
+    Q_PROPERTY(VaultStatus vaultStatus READ vaultStatus NOTIFY stateChanged)
+    Q_PROPERTY(bool profileEnrolled READ profileEnrolled NOTIFY stateChanged)
+    Q_PROPERTY(int profileSampleCount READ profileSampleCount NOTIFY stateChanged)
     Q_PROPERTY(bool liveData READ liveData NOTIFY stateChanged)
+    Q_PROPERTY(bool engineReady READ engineReady NOTIFY stateChanged)
+    Q_PROPERTY(bool modelsVerified READ modelsVerified NOTIFY stateChanged)
+    Q_PROPERTY(bool keyAvailable READ keyAvailable NOTIFY stateChanged)
+    Q_PROPERTY(bool vaultReady READ vaultReady NOTIFY stateChanged)
     Q_PROPERTY(QString engineStatusLabel READ engineStatusLabel NOTIFY stateChanged)
     Q_PROPERTY(QString visionStatusLabel READ visionStatusLabel NOTIFY stateChanged)
     Q_PROPERTY(QString enrollmentStatusLabel READ enrollmentStatusLabel NOTIFY stateChanged)
@@ -75,6 +113,9 @@ class SystemState final : public QObject
     Q_PROPERTY(QString pamStatusLabel READ pamStatusLabel NOTIFY stateChanged)
     Q_PROPERTY(QString templatePersistenceStatusLabel READ templatePersistenceStatusLabel NOTIFY stateChanged)
     Q_PROPERTY(QString secureBootStatusLabel READ secureBootStatusLabel NOTIFY stateChanged)
+    Q_PROPERTY(QString modelStatusLabel READ modelStatusLabel NOTIFY stateChanged)
+    Q_PROPERTY(QString keyProviderStatusLabel READ keyProviderStatusLabel NOTIFY stateChanged)
+    Q_PROPERTY(QString vaultStatusLabel READ vaultStatusLabel NOTIFY stateChanged)
 
   public:
     enum class EngineStatus
@@ -101,6 +142,33 @@ class SystemState final : public QObject
     };
     Q_ENUM(SecureBootStatus)
 
+    enum class ModelStatus
+    {
+        Verified,
+        Unavailable,
+        Unknown,
+    };
+    Q_ENUM(ModelStatus)
+
+    enum class KeyProviderStatus
+    {
+        Available,
+        Locked,
+        Unavailable,
+        Unknown,
+    };
+    Q_ENUM(KeyProviderStatus)
+
+    enum class VaultStatus
+    {
+        Unknown,
+        Absent,
+        Ready,
+        Unreadable,
+        ModelMismatch,
+    };
+    Q_ENUM(VaultStatus)
+
     explicit SystemState(QObject *parent = nullptr);
     void apply(const SystemStateSnapshot &snapshot);
 
@@ -120,7 +188,16 @@ class SystemState final : public QObject
     [[nodiscard]] CapabilityStatus pamStatus() const;
     [[nodiscard]] CapabilityStatus templatePersistenceStatus() const;
     [[nodiscard]] SecureBootStatus secureBootStatus() const;
+    [[nodiscard]] ModelStatus modelStatus() const;
+    [[nodiscard]] KeyProviderStatus keyProviderStatus() const;
+    [[nodiscard]] VaultStatus vaultStatus() const;
+    [[nodiscard]] bool profileEnrolled() const;
+    [[nodiscard]] int profileSampleCount() const;
     [[nodiscard]] bool liveData() const;
+    [[nodiscard]] bool engineReady() const;
+    [[nodiscard]] bool modelsVerified() const;
+    [[nodiscard]] bool keyAvailable() const;
+    [[nodiscard]] bool vaultReady() const;
 
     [[nodiscard]] QString engineStatusLabel() const;
     [[nodiscard]] QString visionStatusLabel() const;
@@ -129,6 +206,9 @@ class SystemState final : public QObject
     [[nodiscard]] QString pamStatusLabel() const;
     [[nodiscard]] QString templatePersistenceStatusLabel() const;
     [[nodiscard]] QString secureBootStatusLabel() const;
+    [[nodiscard]] QString modelStatusLabel() const;
+    [[nodiscard]] QString keyProviderStatusLabel() const;
+    [[nodiscard]] QString vaultStatusLabel() const;
 
   Q_SIGNALS:
     void stateChanged();

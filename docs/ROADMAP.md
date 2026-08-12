@@ -17,12 +17,17 @@ authorize login, unlock, sudo, Polkit, or any system action.
 
 ## v4.0.0 release-candidate boundary
 
-The v4 source, package transition, and automated gates are prepared for release
-review. Publication remains blocked until a completed
-[v4 qualification report](V4-QUALIFICATION-REPORT.md) records physical RGB/IR
-camera coverage, keyboard and assistive-technology behavior, cancellation and
-teardown loops, KWallet failure behavior, corrupt-vault recovery, latency,
-memory, and remaining untested coverage.
+The v4 source, package transition, and automated gates are prepared for an
+experimental release candidate. Public publication may proceed only with
+explicit release authority and an honest qualification boundary. The
+[v4 qualification report](V4-QUALIFICATION-REPORT.md) still records physical
+RGB/IR camera coverage, keyboard and assistive-technology behavior,
+cancellation and teardown loops, KWallet failure behavior, corrupt-vault
+recovery, latency, memory, and remaining untested coverage as `NOT RUN` until
+directly observed.
+
+Publication of this experimental candidate does not waive those manual gates.
+Authentication suitability remains blocked and `UNQUALIFIED`.
 
 Representative FAR/FRR, bias, liveness, and spoof-resistance evidence is not
 available. It must remain `UNQUALIFIED`; no current Match result is an

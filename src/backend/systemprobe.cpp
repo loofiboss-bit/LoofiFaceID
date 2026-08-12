@@ -104,6 +104,30 @@ SystemStateSnapshot SystemProbe::evaluate(const SystemProbeInputs &inputs)
     state.pamStatus = capability(inputs.engine.capabilities.pamConfiguration);
     state.templatePersistenceStatus = capability(inputs.engine.capabilities.encryptedPersistence);
 
+    if (inputs.engine.status.data)
+    {
+        const auto &status = *inputs.engine.status.data;
+        state.modelStatus = status.detectorModelAvailable && status.embeddingModelAvailable
+                                ? SystemStateSnapshot::ModelStatus::Verified
+                                : SystemStateSnapshot::ModelStatus::Unavailable;
+        state.keyProviderStatus = status.keyProviderState == EngineStatusSnapshot::KeyProviderState::Available
+                                      ? SystemStateSnapshot::KeyProviderStatus::Available
+                                      : (status.keyProviderState == EngineStatusSnapshot::KeyProviderState::Locked
+                                             ? SystemStateSnapshot::KeyProviderStatus::Locked
+                                             : SystemStateSnapshot::KeyProviderStatus::Unavailable);
+        state.vaultStatus = status.vaultState == EngineStatusSnapshot::VaultState::Absent
+                                ? SystemStateSnapshot::VaultStatus::Absent
+                                : (status.vaultState == EngineStatusSnapshot::VaultState::Ready
+                                       ? SystemStateSnapshot::VaultStatus::Ready
+                                       : (status.vaultState == EngineStatusSnapshot::VaultState::Corrupt
+                                              ? SystemStateSnapshot::VaultStatus::Unreadable
+                                              : (status.vaultState == EngineStatusSnapshot::VaultState::ModelMismatch
+                                                     ? SystemStateSnapshot::VaultStatus::ModelMismatch
+                                                     : SystemStateSnapshot::VaultStatus::Unknown)));
+        state.profileEnrolled = status.profileEnrolled;
+        state.profileSampleCount = status.sampleCount;
+    }
+
     if (!inputs.engine.engineAvailable)
     {
         state.headline = translate("Native engine unavailable");
@@ -121,6 +145,71 @@ SystemStateSnapshot SystemProbe::evaluate(const SystemProbeInputs &inputs)
         state.summary = translate("The local engine did not provide the versioned local-identity status protocol.");
         state.issueCode = QStringLiteral("native-protocol-unavailable");
         state.engineStatus = SystemStateSnapshot::EngineStatus::ProtocolError;
+        return state;
+    }
+
+    if (!inputs.engine.status.data)
+    {
+        state.headline = translate("Local identity worker needs attention");
+        state.summary =
+            translate("The local worker status could not be read. Retry diagnostics before testing a profile.");
+        state.issueCode = QStringLiteral("identity-worker-unavailable");
+        state.engineStatus = SystemStateSnapshot::EngineStatus::LocalIdentityAvailable;
+        return state;
+    }
+
+    if (state.modelStatus == SystemStateSnapshot::ModelStatus::Unavailable)
+    {
+        state.headline = translate("Verified models need attention");
+        state.summary = translate("The required local model inventory is incomplete or unavailable.");
+        state.issueCode = QStringLiteral("model-unavailable");
+        state.engineStatus = SystemStateSnapshot::EngineStatus::LocalIdentityAvailable;
+        return state;
+    }
+
+    if (state.keyProviderStatus == SystemStateSnapshot::KeyProviderStatus::Unavailable)
+    {
+        state.headline = translate("KWallet is unavailable");
+        state.summary = translate("KFaceAuth cannot create or read an encrypted profile until KWallet is available.");
+        state.issueCode = QStringLiteral("kwallet-unavailable");
+        state.engineStatus = SystemStateSnapshot::EngineStatus::LocalIdentityAvailable;
+        return state;
+    }
+
+    if (state.keyProviderStatus == SystemStateSnapshot::KeyProviderStatus::Locked)
+    {
+        state.headline = translate("KWallet needs attention");
+        state.summary = translate("Unlock KWallet in the current session, then refresh before using the profile.");
+        state.issueCode = QStringLiteral("kwallet-locked");
+        state.engineStatus = SystemStateSnapshot::EngineStatus::LocalIdentityAvailable;
+        return state;
+    }
+
+    if (state.vaultStatus == SystemStateSnapshot::VaultStatus::Unknown)
+    {
+        state.headline = translate("Encrypted profile status unavailable");
+        state.summary = translate("The local profile status could not be read. Retry Diagnostics before testing.");
+        state.issueCode = QStringLiteral("vault-unavailable");
+        state.engineStatus = SystemStateSnapshot::EngineStatus::LocalIdentityAvailable;
+        return state;
+    }
+
+    if (state.vaultStatus == SystemStateSnapshot::VaultStatus::Unreadable)
+    {
+        state.headline = translate("The encrypted profile needs attention");
+        state.summary = translate(
+            "The existing profile is unreadable. Use the explicit reset action only if you accept re-enrollment.");
+        state.issueCode = QStringLiteral("vault-unreadable");
+        state.engineStatus = SystemStateSnapshot::EngineStatus::LocalIdentityAvailable;
+        return state;
+    }
+
+    if (state.vaultStatus == SystemStateSnapshot::VaultStatus::ModelMismatch)
+    {
+        state.headline = translate("The profile model has changed");
+        state.summary = translate("The encrypted profile was created for a different verified model version.");
+        state.issueCode = QStringLiteral("vault-model-mismatch");
+        state.engineStatus = SystemStateSnapshot::EngineStatus::LocalIdentityAvailable;
         return state;
     }
 
