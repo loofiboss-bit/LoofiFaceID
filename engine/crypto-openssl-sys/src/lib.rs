@@ -98,19 +98,27 @@ pub fn random<const N: usize>() -> Result<[u8; N], CryptoError> {
         return Err(CryptoError::InvalidArgument);
     }
     let mut file = std::fs::File::open("/dev/urandom").map_err(|_| CryptoError::ProviderFailure)?;
-    let mut output = [0_u8; N];
     use std::io::Read;
-    file.read_exact(&mut output)
+    let mut bytes = Vec::with_capacity(N);
+    file.by_ref()
+        .take(u64::try_from(N).map_err(|_| CryptoError::InvalidArgument)?)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CryptoError::ProviderFailure)?;
+    if bytes.len() != N {
+        return Err(CryptoError::ProviderFailure);
+    }
+    let mut output: [u8; N] = bytes
+        .try_into()
         .map_err(|_| CryptoError::ProviderFailure)?;
 
-    let mut openssl_buf = [0_u8; N];
-    // SAFETY: the fixed array is uniquely writable for exactly N bytes.
+    let mut openssl_buf = vec![0_u8; N];
+    // SAFETY: openssl_buf is allocated with exactly N bytes and has valid pointer.
     status_result(unsafe {
         kfaceauth_crypto_random(openssl_buf.as_mut_ptr(), openssl_buf.len())
     })?;
 
-    for (out, open) in output.iter_mut().zip(openssl_buf.iter()) {
-        *out ^= *open;
+    for i in 0..N {
+        output[i] ^= openssl_buf[i];
     }
     Ok(output)
 }
