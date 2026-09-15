@@ -1,6 +1,6 @@
-# Användarguide
+# Användarguide — LoofiFace-ID
 
-KFaceAuth är ett experiment för en lokal, avgränsad jämförelse i den redan
+LoofiFace-ID (KFaceAuth) är ett experiment för en lokal, avgränsad jämförelse i den redan
 inloggade användarsessionen. Det aktiverar inte inloggning eller autentisering.
 
 ## Hem

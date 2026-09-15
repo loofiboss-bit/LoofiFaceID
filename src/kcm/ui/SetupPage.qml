@@ -116,7 +116,7 @@ Kirigami.ScrollablePage {
             Layout.fillWidth: true
             visible: !root.backendReady
             type: Kirigami.MessageType.Warning
-            text: i18n("KFaceAuth is still initializing. Camera and profile controls will become available when the local backend is ready.")
+            text: i18n("LoofiFace-ID is still initializing. Camera and profile controls will become available when the local backend is ready.")
         }
 
         Components.CameraPreviewCard {

@@ -1,11 +1,11 @@
-# KFaceAuth
+# LoofiFace-ID (KFaceAuth)
 
-KFaceAuth 4.0.0 is an experimental KDE System Settings utility for one
+LoofiFace-ID (KFaceAuth 4.0.0) is an experimental KDE System Settings utility for one
 bounded, local face-comparison flow in the already logged-in user session. It
 guides you through camera setup, an encrypted local profile, and one explicit
 current-frame test.
 
-`Match` is only an in-session comparison result. KFaceAuth cannot unlock,
+`Match` is only an in-session comparison result. LoofiFace-ID cannot unlock,
 authenticate, authorize, call PAM or Polkit, change the login stack, or alter
 system settings.
 
@@ -51,7 +51,7 @@ dnf install ./kfaceauth-4.0.0-1.fc44.x86_64.rpm
 ```
 
 Use the exact filename produced for your Fedora architecture if it differs
-from the example. Open **System Settings → Security & Privacy → KFaceAuth**,
+from the example. Open **System Settings → Security & Privacy → LoofiFace-ID**,
 or launch the KCM directly:
 
 ```bash

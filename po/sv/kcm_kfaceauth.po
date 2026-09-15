@@ -443,12 +443,12 @@ msgid "Clear result"
 msgstr "Rensa resultat"
 
 #: src/kcm/ui/main.qml:13
-msgid "KFaceAuth (Experimental Local Identity Preview)"
-msgstr "KFaceAuth (experimentell förhandsvisning av lokal identitet)"
+msgid "LoofiFace-ID (Experimental Local Identity Preview)"
+msgstr "LoofiFace-ID (experimentell förhandsvisning av lokal identitet)"
 
 #: src/kcm/ui/main.qml:20
-msgid "KFaceAuth sections"
-msgstr "KFaceAuth-avsnitt"
+msgid "LoofiFace-ID sections"
+msgstr "LoofiFace-ID-avsnitt"
 
 #: src/backend/camerapreviewsession.cpp:22
 msgid "CameraPreviewSession"
@@ -1011,8 +1011,8 @@ msgstr "%1 krypterat prov"
 msgid "Home"
 msgstr "Hem"
 
-msgid "KFaceAuth %1"
-msgstr "KFaceAuth %1"
+msgid "LoofiFace-ID %1"
+msgstr "LoofiFace-ID %1"
 
 msgid "A local check needs attention"
 msgstr "En lokal kontroll behöver åtgärdas"
@@ -1041,8 +1041,8 @@ msgstr "Setup samlar kameran, bildrutskontrollen och registreringen med ett klic
 msgid "Open Setup"
 msgstr "Öppna Setup"
 
-msgid "KFaceAuth is experimental. It can compare one current frame in this logged-in session, but it cannot unlock, authenticate, authorize, or change system settings."
-msgstr "KFaceAuth är experimentellt. Det kan jämföra en aktuell bildruta i den här inloggade sessionen, men kan inte låsa upp, autentisera, auktorisera eller ändra systeminställningar."
+msgid "LoofiFace-ID is experimental. It can compare one current frame in this logged-in session, but it cannot unlock, authenticate, authorize, or change system settings."
+msgstr "LoofiFace-ID är experimentellt. Det kan jämföra en aktuell bildruta i den här inloggade sessionen, men kan inte låsa upp, autentisera, auktorisera eller ändra systeminställningar."
 
 msgid "Setup"
 msgstr "Setup"
@@ -1242,8 +1242,8 @@ msgstr "Status för krypterad profil är inte tillgänglig"
 msgid "The local profile status could not be read. Retry Diagnostics before testing."
 msgstr "Den lokala profilstatusen kunde inte läsas. Försök med Diagnostik igen innan du testar."
 
-msgid "KFaceAuth is still initializing. Diagnostic values will appear when the local backend is ready."
-msgstr "KFaceAuth initieras fortfarande. Diagnostikvärden visas när den lokala backend är redo."
+msgid "LoofiFace-ID is still initializing. Diagnostic values will appear when the local backend is ready."
+msgstr "LoofiFace-ID initieras fortfarande. Diagnostikvärden visas när den lokala backend är redo."
 
 msgid "Initializing…"
 msgstr "Initierar…"
@@ -1251,8 +1251,8 @@ msgstr "Initierar…"
 msgid "Support report is initializing…"
 msgstr "Supportrapporten initieras…"
 
-msgid "KFaceAuth is still initializing. Camera and profile controls will become available when the local backend is ready."
-msgstr "KFaceAuth initieras fortfarande. Kamera- och profilkontroller blir tillgängliga när den lokala backend är redo."
+msgid "LoofiFace-ID is still initializing. Camera and profile controls will become available when the local backend is ready."
+msgstr "LoofiFace-ID initieras fortfarande. Kamera- och profilkontroller blir tillgängliga när den lokala backend är redo."
 
 msgid "Profile service is initializing…"
 msgstr "Profiltjänsten initieras…"
@@ -1260,14 +1260,14 @@ msgstr "Profiltjänsten initieras…"
 msgid "Enrollment is initializing"
 msgstr "Registreringen initieras"
 
-msgid "KFaceAuth is still initializing. The local comparison controls will become available when the backend is ready."
-msgstr "KFaceAuth initieras fortfarande. Kontrollerna för lokal jämförelse blir tillgängliga när backend är redo."
+msgid "LoofiFace-ID is still initializing. The local comparison controls will become available when the backend is ready."
+msgstr "LoofiFace-ID initieras fortfarande. Kontrollerna för lokal jämförelse blir tillgängliga när backend är redo."
 
 msgid "Comparison service is initializing…"
 msgstr "Jämförelsetjänsten initieras…"
 
-msgid "KFaceAuth is still initializing. If this message remains, close and reopen System Settings."
-msgstr "KFaceAuth initieras fortfarande. Stäng och öppna Systeminställningar igen om meddelandet kvarstår."
+msgid "LoofiFace-ID is still initializing. If this message remains, close and reopen System Settings."
+msgstr "LoofiFace-ID initieras fortfarande. Stäng och öppna Systeminställningar igen om meddelandet kvarstår."
 
 msgid "Camera service is initializing…"
 msgstr "Kameratjänsten initieras…"

@@ -28,7 +28,7 @@ class PackagingContractTests(unittest.TestCase):
         for declaration in (
             'set(KFACEAUTH_PROJECT_ID "kfaceauth")',
             'set(KFACEAUTH_VERSION "4.0.0")',
-            'set(KFACEAUTH_DISPLAY_NAME "KFaceAuth")',
+            'set(KFACEAUTH_DISPLAY_NAME "LoofiFace-ID")',
             'set(KFACEAUTH_KCM_ID "kcm_kfaceauth")',
             'set(KFACEAUTH_APP_ID "io.github.loofiboss_bit.KFaceAuth")',
             'set(KFACEAUTH_I18N_DOMAIN "kcm_kfaceauth")',

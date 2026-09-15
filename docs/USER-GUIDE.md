@@ -1,6 +1,6 @@
-# User guide
+# User guide — LoofiFace-ID
 
-KFaceAuth is an experimental local comparison utility in KDE System Settings.
+LoofiFace-ID (KFaceAuth) is an experimental local comparison utility in KDE System Settings.
 It operates only in the already logged-in user session and does not enable
 login or authentication.
 

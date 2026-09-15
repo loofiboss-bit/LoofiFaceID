@@ -9,7 +9,7 @@ import org.kde.kcmutils as KCMUtils
 KCMUtils.SimpleKCM {
     id: root
 
-    title: i18n("KFaceAuth (Experimental Local Identity Preview)")
+    title: i18n("LoofiFace-ID (Experimental Local Identity Preview)")
 
     // KCMUtils can create the QML surface before all backend objects have been
     // published into the context. Keep the surface usable during that short
@@ -28,7 +28,7 @@ KCMUtils.SimpleKCM {
         objectName: "navigationTabs"
 
         width: parent.width
-        Accessible.name: i18n("KFaceAuth sections")
+        Accessible.name: i18n("LoofiFace-ID sections")
         KeyNavigation.down: stack && tabs.currentIndex >= 0 ? stack.children[tabs.currentIndex] : null
 
         Kirigami.NavigationTabButton {

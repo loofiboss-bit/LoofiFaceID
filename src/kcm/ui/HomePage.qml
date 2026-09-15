@@ -45,7 +45,7 @@ Kirigami.ScrollablePage {
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: i18n("KFaceAuth %1", root.productVersion)
+            text: i18n("LoofiFace-ID %1", root.productVersion)
             color: Kirigami.Theme.disabledTextColor
             font.weight: Font.DemiBold
         }
@@ -104,13 +104,13 @@ Kirigami.ScrollablePage {
             Layout.fillWidth: true
             visible: !root.backendReady
             type: Kirigami.MessageType.Warning
-            text: i18n("KFaceAuth is still initializing. If this message remains, close and reopen System Settings.")
+            text: i18n("LoofiFace-ID is still initializing. If this message remains, close and reopen System Settings.")
         }
 
         Kirigami.InlineMessage {
             Layout.fillWidth: true
             type: Kirigami.MessageType.Information
-            text: i18n("KFaceAuth is experimental. It can compare one current frame in this logged-in session, but it cannot unlock, authenticate, authorize, or change system settings.")
+            text: i18n("LoofiFace-ID is experimental. It can compare one current frame in this logged-in session, but it cannot unlock, authenticate, authorize, or change system settings.")
         }
     }
 }
