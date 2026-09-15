@@ -197,6 +197,33 @@ QString EnrollmentSession::errorCode() const
     return m_errorCode;
 }
 
+EnrollmentSession::GuidePhase EnrollmentSession::guidePhase() const
+{
+    if (m_state == State::Saving)
+        return GuidePhase::Saving;
+    if (m_state == State::Complete)
+        return GuidePhase::Complete;
+    if (m_state == State::Failed)
+        return GuidePhase::Error;
+    if (!enrollmentActive())
+        return GuidePhase::Camera;
+    switch (m_sampleCount)
+    {
+    case 0:
+        return GuidePhase::Frontal;
+    case 1:
+        return GuidePhase::Left;
+    case 2:
+        return GuidePhase::Right;
+    case 3:
+        return GuidePhase::Tilt;
+    case 4:
+        return GuidePhase::Natural;
+    default:
+        return GuidePhase::Review;
+    }
+}
+
 void EnrollmentSession::refreshProfileStatus()
 {
     if (m_requestActive || busy())
@@ -285,7 +312,7 @@ void EnrollmentSession::startEnrollment()
         });
 }
 
-void EnrollmentSession::captureSample()
+void EnrollmentSession::captureSample(bool automatic)
 {
     if (!canCapture())
         return;
@@ -308,6 +335,7 @@ void EnrollmentSession::captureSample()
     }
     m_pendingOperation = PendingOperation::Capture;
     m_requestActive = true;
+    m_captureAutomatic = automatic;
     m_activeGeneration = generation;
     setState(State::Capturing, translate("Extracting one local enrollment sample…"));
     m_worker->execute(generation, std::move(request),
@@ -326,6 +354,7 @@ void EnrollmentSession::discardLastSample()
     setState(m_sampleCount >= minimumSamples() ? State::ReadyToSave : State::Enrolling,
              translate("The latest sample was discarded. Capture a replacement when ready."));
     Q_EMIT samplesChanged();
+    Q_EMIT guidePhaseChanged();
 }
 
 void EnrollmentSession::finishAndSave()
@@ -506,6 +535,7 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
         Q_EMIT profileChanged();
         break;
     case PendingOperation::Capture:
+    {
         if (response.kind != IdentityProtocol::ResponseKind::Sample ||
             response.sensitivePayload.size() != IdentityProtocol::EmbeddingBytes)
         {
@@ -513,13 +543,18 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
             break;
         }
         m_embeddings.append(response.sensitivePayload);
+        const int capturedSampleIndex = m_sampleCount;
+        const bool automatic = std::exchange(m_captureAutomatic, false);
         ++m_sampleCount;
         Q_EMIT samplesChanged();
+        Q_EMIT guidePhaseChanged();
+        Q_EMIT sampleCaptured(capturedSampleIndex, automatic);
         setState(m_sampleCount >= minimumSamples() ? State::ReadyToSave : State::Enrolling,
                  m_sampleCount >= minimumSamples()
                      ? translate("Minimum enrollment is complete. Five samples are recommended; eight is the limit.")
                      : translate("Sample accepted. Capture the next deliberate sample."));
         break;
+    }
     case PendingOperation::Commit:
         if (response.kind != IdentityProtocol::ResponseKind::Ack)
         {
@@ -593,6 +628,7 @@ void EnrollmentSession::fail(const QString &code, const QString &text)
 
 void EnrollmentSession::handleSampleError(const QString &code, const QString &text)
 {
+    m_captureAutomatic = false;
     m_errorCode = code;
     m_state = m_sampleCount >= minimumSamples() ? State::ReadyToSave : State::Enrolling;
     m_statusText = text;
@@ -606,6 +642,7 @@ void EnrollmentSession::setState(State state, const QString &text)
     if (state != State::Failed)
         m_errorCode.clear();
     Q_EMIT stateChanged();
+    Q_EMIT guidePhaseChanged();
 }
 
 void EnrollmentSession::clearSensitive()
@@ -616,7 +653,9 @@ void EnrollmentSession::clearSensitive()
     m_embeddings.clear();
     m_sampleCount = 0;
     m_keyNeedsStore = false;
+    m_captureAutomatic = false;
     Q_EMIT samplesChanged();
+    Q_EMIT guidePhaseChanged();
 }
 
 quint64 EnrollmentSession::nextGeneration()

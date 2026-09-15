@@ -1,6 +1,13 @@
 # Milestone 4 Qualification: System Daemon, PAM Integration & Security Architecture
 
-This document records the implemented code paths, security guarantees, acceptance gate verifications, and reproducible test procedures for Milestone 4 (v5.0).
+> **Status:** Historical roadmap material. PAM, SDDM, daemon, and system
+> authentication are outside the current beginner flow and remain unqualified
+> until independently reproduced on the target Fedora 44 system.
+
+This document records historical code paths, security design notes, and test
+procedures for Milestone 4 (v5.0). The statuses below are archival engineering
+claims, not current release evidence; they do not authorize PAM, daemon, SDDM,
+or system-authentication use in the beginner flow.
 
 ---
 
@@ -34,7 +41,7 @@ This document records the implemented code paths, security guarantees, acceptanc
     ```
   - `kfaceauthd` invokes `kfaceauth_drop_privileges("kfaceauth", "kfaceauth")` on startup.
   - Automated test `tests/test_m4_gates.py:test_gate_4_1_daemon_drops_root_and_no_cap_dac_override` passes.
-- **Status**: **QUALIFIED (PASSED)**
+- **Status**: **HISTORICAL / NOT CURRENTLY QUALIFIED**
 
 ### Gate 4.2: PAM Module Abort Within $\le 2.0\text{s}$
 - **Criterion**: PAM module aborts within $\le 2.0\text{ seconds}$ if camera is busy or user is absent, falling back to password prompt without error dialogs.
@@ -43,7 +50,7 @@ This document records the implemented code paths, security guarantees, acceptanc
   - CTest `tests/unit/test_pam.cpp` exercises hung mock server: verified that `pam_sm_authenticate` returns `PAM_AUTH_ERR` within $2.01\text{s}$.
   - Camera-busy simulation (`STATUS_DEVICE_BUSY`) immediately returns `PAM_AUTH_ERR` in $<10\text{ms}$.
   - Automated test `tests/test_m4_gates.py:test_gate_4_2_pam_timeout_abort_under_two_seconds` passes.
-- **Status**: **QUALIFIED (PASSED)**
+- **Status**: **HISTORICAL / NOT CURRENTLY QUALIFIED**
 
 ### Gate 4.3: Cross-UID Access & Tamper Defense
 - **Criterion**: Process running as UID 1001 cannot query, decrypt, or tamper with UID 1000's vault.
@@ -56,7 +63,7 @@ This document records the implemented code paths, security guarantees, acceptanc
     - `OP_VERIFY_FRAME` $\rightarrow$ `STATUS_ACCESS_DENIED`
     - `OP_DELETE_PROFILE` $\rightarrow$ `STATUS_ACCESS_DENIED`
   - Automated test `tests/test_m4_gates.py:test_gate_4_3_cross_uid_access_rejection` passes.
-- **Status**: **QUALIFIED (PASSED)**
+- **Status**: **HISTORICAL / NOT CURRENTLY QUALIFIED**
 
 ---
 

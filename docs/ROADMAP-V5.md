@@ -1,8 +1,15 @@
 # KFaceAuth v5.0 Architecture Roadmap & Technical Specification
 
+> **Current product boundary (September 2026):** The shipped KCM is an
+> experimental local profile/comparison utility for a logged-in Fedora 44/KDE
+> session. The PAM, SDDM, sudo, Polkit, PAD, accelerator, latency, and physical
+> qualification material below is roadmap or historical review content, not a
+> current capability claim. The beginner flow does not activate any system
+> authentication service.
+
 **Target Release**: KFaceAuth v5.0.0  
 **Target Platform**: Fedora Linux 44+ / KDE Plasma 6.7+ / KF6 6.30+ / Linux Kernel 6.12+  
-**Document Status**: Approved Technical Specification & Execution Roadmap  
+**Document Status**: Historical technical specification & execution roadmap
 **Date**: 2026-09-15  
 **Cross-References**: [REVIEW-V4.md](REVIEW-V4.md) | [ARCHITECTURE.md](ARCHITECTURE.md) | [SECURITY.md](../SECURITY.md) | [THREAT-BOUNDARY.md](THREAT-BOUNDARY.md) | [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) | [TEMPLATE-VAULT.md](TEMPLATE-VAULT.md)
 
@@ -383,7 +390,12 @@ The user experience in KDE Plasma 6 System Settings is completely modernized to 
   - Draws a sleek, rounded tracking rectangle using `Kirigami.Theme.highlightColor` with subtle edge corner accents.
   - Draws 5 subtle landmark points (right eye, left eye, nose tip, mouth corners) providing immediate, intuitive confirmation that the biometric engine is tracking the user.
 
-#### 3. Automated Guided Enrollment Wizard (`EnrollmentWizard.qml`):
+#### 3. Automated Guided Enrollment Wizard (historical `EnrollmentWizard.qml`):
+
+The current product keeps the supported guide inline in `SetupPage.qml`; the
+older standalone component was removed to avoid two competing enrollment
+implementations. The design notes below are retained as historical roadmap
+material only.
 - **Elimination of 5-Click Manual Friction**:
   - Replace repetitive manual clicks with an automated, guided state machine that captures samples upon detecting required head pose variations.
 - **Five-Step Guided Flow**:
@@ -657,7 +669,7 @@ Deliver fluid 30 FPS camera preview using hardware-accelerated Qt Quick scene gr
 - [x] **Task 2.4: Kirigami Dynamic Tracking Overlay (`CameraPreviewOverlay.qml`)**:
   - Create QML overlay rendering a smooth bounding box around the detected face with corner accents themed with `Kirigami.Theme.highlightColor`.
   - Render subtle, non-intrusive landmark indicators over eye, nose, and mouth positions.
-- [x] **Task 2.5: Automated Guided Enrollment Wizard (`EnrollmentWizard.qml`)**:
+- [x] **Task 2.5: Automated Guided Enrollment Wizard (historical component)**:
   - Replace 5-click manual enrollment with an automated state machine detecting pose diversity (Frontal $\rightarrow$ Yaw Left $\rightarrow$ Yaw Right $\rightarrow$ Pitch Up/Down $\rightarrow$ Expression/Verification).
   - Tag each captured sample with pose class metadata, dispatching to `kfaceauth-templates` for top-K / pose-clustered profile enrollment (Task 1.7).
   - Implement real-time user coaching prompts ("Turn head slightly left", "Move slightly closer") and progress bar.

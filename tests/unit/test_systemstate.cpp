@@ -26,6 +26,7 @@ class SystemStateTest final : public QObject
 
   private Q_SLOTS:
     void unavailableEngineFailsClosed();
+    void unsupportedPlatformReportsDetectedDistribution();
     void localIdentityReportsSupportedAndUnsupportedOperations();
     void degradedIdentityReportsTypedKWalletAndVaultIssues();
     void applyingStateNotifiesConsumers();
@@ -42,6 +43,36 @@ void SystemStateTest::unavailableEngineFailsClosed()
     QCOMPARE(snapshot.enrollmentStatus, SystemStateSnapshot::CapabilityStatus::Unsupported);
     QCOMPARE(snapshot.pamStatus, SystemStateSnapshot::CapabilityStatus::Unsupported);
     QCOMPARE(snapshot.templatePersistenceStatus, SystemStateSnapshot::CapabilityStatus::Unsupported);
+}
+
+void SystemStateTest::unsupportedPlatformReportsDetectedDistribution()
+{
+    SystemProbeInputs inputs = baseInputs();
+    inputs.osRelease = "NAME=Ubuntu\nID=ubuntu\nVERSION_ID=\"24.04\"\n";
+    inputs.engine.engineAvailable = true;
+    inputs.engine.protocol = EngineProtocolSnapshot{2, QStringLiteral("0.1.0-local-identity")};
+    inputs.engine.status = EngineStatusSnapshot{EngineStatusSnapshot::State::Ready};
+    inputs.engine.status.data->detectorModelAvailable = true;
+    inputs.engine.status.data->embeddingModelAvailable = true;
+    inputs.engine.status.data->keyProviderState = EngineStatusSnapshot::KeyProviderState::Available;
+    inputs.engine.status.data->vaultState = EngineStatusSnapshot::VaultState::Ready;
+    inputs.engine.status.data->profileEnrolled = true;
+    inputs.engine.status.data->sampleCount = 5;
+
+    const SystemStateSnapshot snapshot = SystemProbe::evaluate(inputs);
+
+    QCOMPARE(snapshot.distribution, QStringLiteral("ubuntu"));
+    QCOMPARE(snapshot.fedoraVersion, QStringLiteral("24.04"));
+    QCOMPARE(snapshot.issueCode, QStringLiteral("unsupported-platform"));
+    QCOMPARE(snapshot.headline, QStringLiteral("This system is not qualified"));
+    QVERIFY(snapshot.summary.contains(QStringLiteral("ubuntu")));
+    QVERIFY(snapshot.summary.contains(QStringLiteral("24.04")));
+    QCOMPARE(snapshot.engineStatus, SystemStateSnapshot::EngineStatus::LocalIdentityAvailable);
+    QCOMPARE(snapshot.modelStatus, SystemStateSnapshot::ModelStatus::Verified);
+    QCOMPARE(snapshot.keyProviderStatus, SystemStateSnapshot::KeyProviderStatus::Available);
+    QCOMPARE(snapshot.vaultStatus, SystemStateSnapshot::VaultStatus::Ready);
+    QCOMPARE(snapshot.profileEnrolled, true);
+    QCOMPARE(snapshot.profileSampleCount, 5);
 }
 
 void SystemStateTest::localIdentityReportsSupportedAndUnsupportedOperations()

@@ -1368,3 +1368,123 @@ msgstr "Förlopp för guidad registrering"
 
 msgid "Automatic pose capture (recommended)"
 msgstr "Automatisk fångst av poser (rekommenderas)"
+
+msgid "Distribution"
+msgstr "Distribution"
+
+msgid "Fix the current problem"
+msgstr "Åtgärda aktuellt problem"
+
+msgid "Test your profile"
+msgstr "Testa din profil"
+
+msgid "Get started"
+msgstr "Kom igång"
+
+msgid "Continue registration"
+msgstr "Fortsätt registreringen"
+
+msgid "Start a private preview in Test and compare one deliberate current frame locally."
+msgstr "Starta en privat förhandsvisning i Test och jämför en vald aktuell bildruta lokalt."
+
+msgid "Choose the only usable camera, start the private preview, and follow the guided registration."
+msgstr "Välj den enda användbara kameran, starta den privata förhandsvisningen och följ den guidade registreringen."
+
+msgid "Continue the guided registration. Five samples are recommended; saving always requires your click."
+msgstr "Fortsätt den guidade registreringen. Fem prover rekommenderas; sparande kräver alltid ditt klick."
+
+msgid "Start guided registration when the camera preview is ready."
+msgstr "Starta guidad registrering när kamerans förhandsvisning är redo."
+
+msgid "Start guided registration"
+msgstr "Starta guidad registrering"
+
+msgid "Five samples are ready. Review them and choose Save profile."
+msgstr "Fem prover är klara. Granska dem och välj Spara profil."
+
+msgid "Place one face in front of the camera."
+msgstr "Placera ett ansikte framför kameran."
+
+msgid "Hold still — %1 of 3 fresh observations"
+msgstr "Håll stilla – %1 av 3 färska observationer"
+
+msgid "Review your samples and choose Save profile."
+msgstr "Granska dina prover och välj Spara profil."
+
+msgid "Get started with the camera"
+msgstr "Kom igång med kameran"
+
+msgid "Ready for a guided start?"
+msgstr "Redo för en guidad start?"
+
+msgid "Choose the available camera, start a private preview, and follow five short pose prompts. Nothing is saved until you choose Save profile."
+msgstr "Välj den tillgängliga kameran, starta en privat förhandsvisning och följ fem korta posinstruktioner. Inget sparas förrän du väljer Spara profil."
+
+msgid "Camera and guided registration"
+msgstr "Kamera och guidad registrering"
+
+msgid "Guided face registration"
+msgstr "Guidad ansiktsregistrering"
+
+msgid "Start the guided registration to capture one pose at a time. Three samples are required, five are recommended, and eight is the hard maximum."
+msgstr "Starta den guidade registreringen för att fånga en pose i taget. Tre prover krävs, fem rekommenderas och åtta är maxgränsen."
+
+msgid "Automatically capture after three stable observations (recommended)"
+msgstr "Fånga automatiskt efter tre stabila observationer (rekommenderas)"
+
+msgid "Capture manually"
+msgstr "Fånga manuellt"
+
+msgid "Save profile"
+msgstr "Spara profil"
+
+msgid "Save now (three samples)"
+msgstr "Spara nu (tre prover)"
+
+msgid "Five samples are recommended for a more varied local profile."
+msgstr "Fem prover rekommenderas för en mer varierad lokal profil."
+
+msgid "Using the only available camera"
+msgstr "Använder den enda tillgängliga kameran"
+
+msgid "One usable camera will be selected automatically"
+msgstr "En användbar kamera väljs automatiskt"
+
+msgid "Place your face in front of the camera."
+msgstr "Placera ansiktet framför kameran."
+
+msgid "This system is not qualified"
+msgstr "Detta system är inte kvalificerat"
+
+msgid "This build is qualified only for Fedora 44 with KDE Plasma. Detected values are shown in Diagnostics."
+msgstr "Detta bygge är endast kvalificerat för Fedora 44 med KDE Plasma. Upptäckta värden visas i Diagnostik."
+
+msgid "LoofiFace-ID is qualified only for Fedora 44 with KDE Plasma. Detected system: %1 %2."
+msgstr "LoofiFace-ID är endast kvalificerat för Fedora 44 med KDE Plasma. Upptäckt system: %1 %2."
+
+msgid "unknown distribution"
+msgstr "okänd distribution"
+
+msgid "unknown version"
+msgstr "okänd version"
+
+msgid "Place one face in the camera frame."
+msgstr "Placera ett ansikte i kamerans bild."
+
+msgid "Only one face may be visible."
+msgstr "Endast ett ansikte får synas."
+
+msgid "Hold still and clean the camera lens."
+msgstr "Håll stilla och rengör kameralinsen."
+
+msgid "Face framing and image quality are ready."
+msgstr "Ansiktsinramning och bildkvalitet är redo."
+
+msgid "Live guidance is ready. No image was saved."
+msgstr "Liveguidning är redo. Ingen bild sparades."
+
+msgid "Adjust your pose to match the highlighted step."
+msgstr "Justera posen så att den matchar det markerade steget."
+
+msgid "The camera preview returned invalid data. Refresh camera discovery and try again."
+msgstr "Kamerans förhandsvisning returnerade ogiltiga data. Uppdatera kameror och försök igen."

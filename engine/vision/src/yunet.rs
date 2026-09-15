@@ -11,8 +11,8 @@ use kfaceauth_vision_opencv_sys::{
 
 use crate::model::{ManifestEntry, ModelError, VerifiedArtifact, load_and_verify_model_inventory};
 use crate::{
-    FaceObservation, FaceRectangle, ImageView, MAX_FACES, PixelFormat, ProcessingControl,
-    VisionAnalysis, VisionError, VisionProvider, calculate_quality,
+    FaceLandmarks, FaceObservation, FaceRectangle, ImageView, MAX_FACES, PixelFormat,
+    ProcessingControl, VisionAnalysis, VisionError, VisionProvider, calculate_quality,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -21,7 +21,7 @@ pub const YUNET_MODEL_PATH: &str = "files/face_detection_yunet_2023mar.onnx";
 pub const YUNET_MODEL_SIZE: u64 = 232_589;
 pub const YUNET_MODEL_SHA256: &str =
     "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4";
-pub const YUNET_SCORE_THRESHOLD: f32 = 0.9;
+pub const YUNET_SCORE_THRESHOLD: f32 = 0.7;
 pub const YUNET_NMS_THRESHOLD: f32 = 0.3;
 pub const YUNET_TOP_K: usize = 5_000;
 pub const YUNET_MINIMUM_RUNTIME_DIMENSION: u32 = 64;
@@ -333,7 +333,23 @@ pub(crate) fn validate_detections(
         if integer_width <= 0.0 || integer_height <= 0.0 {
             return Err(VisionError::InvalidRuntimeOutput);
         }
+        for landmark in detection.values[4..14].chunks_exact(2) {
+            if landmark[0] < left
+                || landmark[0] >= right
+                || landmark[1] < top
+                || landmark[1] >= bottom
+            {
+                return Err(VisionError::InvalidRuntimeOutput);
+            }
+        }
         if faces.len() < MAX_FACES {
+            let mut landmarks = [0_u16; 10];
+            for (index, landmark) in detection.values[4..14].chunks_exact(2).enumerate() {
+                let clamped_x = landmark[0].round().clamp(left, (right - 1.0).max(left));
+                let clamped_y = landmark[1].round().clamp(top, (bottom - 1.0).max(top));
+                landmarks[index * 2] = checked_u16(clamped_x)?;
+                landmarks[index * 2 + 1] = checked_u16(clamped_y)?;
+            }
             faces.push(FaceObservation {
                 rectangle: FaceRectangle {
                     x: checked_u16(left)?,
@@ -341,6 +357,7 @@ pub(crate) fn validate_detections(
                     width: checked_u16(integer_width)?,
                     height: checked_u16(integer_height)?,
                 },
+                landmarks: FaceLandmarks { points: landmarks },
             });
         }
     }
@@ -461,6 +478,29 @@ mod tests {
             validate_detections(&[landmark_outside], 64, 64),
             Err(VisionError::InvalidRuntimeOutput)
         );
+        let mut landmark_outside_face = valid_detection();
+        landmark_outside_face.values[4] = 31.0;
+        assert_eq!(
+            validate_detections(&[landmark_outside_face], 64, 64),
+            Err(VisionError::InvalidRuntimeOutput)
+        );
+
+        let mut near_boundary = valid_detection();
+        // right = 10.25 + 20.0 = 30.25 -> ceil = 31.0. bottom = 12.5 + 30.0 = 42.5 -> ceil = 43.0.
+        // Set landmark near 30.9 and 42.9, which rounds to 31.0 and 43.0, clamped to 30 and 42.
+        near_boundary.values[4] = 30.9;
+        near_boundary.values[5] = 42.9;
+        let validated = validate_detections(&[near_boundary], 64, 64).unwrap();
+        assert_eq!(validated[0].landmarks.points[0], 30);
+        assert_eq!(validated[0].landmarks.points[1], 42);
+        assert!(
+            validated[0].landmarks.points[0]
+                < validated[0].rectangle.x + validated[0].rectangle.width
+        );
+        assert!(
+            validated[0].landmarks.points[1]
+                < validated[0].rectangle.y + validated[0].rectangle.height
+        );
     }
 
     #[test]
@@ -477,7 +517,7 @@ mod tests {
                 .len(),
             MAX_FACES
         );
-        assert!((YUNET_SCORE_THRESHOLD - 0.9).abs() < f32::EPSILON);
+        assert!((YUNET_SCORE_THRESHOLD - 0.7).abs() < f32::EPSILON);
         assert!((YUNET_NMS_THRESHOLD - 0.3).abs() < f32::EPSILON);
         assert_eq!(YUNET_TOP_K, 5_000);
     }

@@ -6,5 +6,7 @@ Filters = [
     ".*pam-unauthorized-module.*",
     ".*non-standard-dir-perm.*",
     ".*useless-provides.*",
+    ".*spelling-error.*sudo.*",
+    ".*description-line-too-long.*",
 ]
 

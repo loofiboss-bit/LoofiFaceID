@@ -30,6 +30,10 @@ void SupportReportTest::mapsMilestoneIssuesToActions()
              QStringLiteral("vault-unavailable"),
              QStringLiteral("vault-unreadable"),
              QStringLiteral("vault-model-mismatch"),
+             QStringLiteral("unsupported-platform"),
+             QStringLiteral("model-unavailable"),
+             QStringLiteral("worker-crashed"),
+             QStringLiteral("worker-timeout"),
          })
     {
         QVERIFY2(!SupportReport::titleForCode(code).isEmpty(), qPrintable(code));
@@ -66,6 +70,8 @@ void SupportReportTest::reportPreservesPreviewPrivacy()
     QVERIFY(!report.contains(QStringLiteral("biometric-payload")));
     QVERIFY(!report.contains(QStringLiteral("/home/")));
     QVERIFY(report.contains(QStringLiteral("[redacted]")));
+    QVERIFY(report.contains(QStringLiteral("- Distribution: unknown")));
+    QVERIFY(report.contains(QStringLiteral("- Fedora version: [redacted]")));
     QVERIFY(report.contains(QStringLiteral("Native cameras: total=10 rgb=1 ir=1 unknown=8")));
     QVERIFY(!report.contains(QStringLiteral("RGB Test Camera")));
     QVERIFY(!report.contains(QStringLiteral("rgb-token")));

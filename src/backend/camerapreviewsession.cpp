@@ -630,7 +630,7 @@ QString CameraPreviewSession::textForError(const QString &errorCode) const
     if (errorCode == QLatin1String("stream-stalled"))
         return translate("The camera preview stopped delivering frames.");
     if (errorCode == QLatin1String("protocol-error"))
-        return translate("The camera worker returned invalid data.");
+        return translate("The camera preview returned invalid data. Refresh camera discovery and try again.");
     if (errorCode == QLatin1String("worker-crashed"))
         return translate("The camera worker stopped unexpectedly.");
     return translate("The local camera is unavailable.");

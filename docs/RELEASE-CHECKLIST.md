@@ -1,6 +1,13 @@
 # KFaceAuth 5.0.0 release checklist
 
-This checklist describes the v5.0.0 release candidate boundary and publication closure.
+> The current end-user release is the experimental Fedora 44/KDE local
+> profile/comparison KCM. PAM, daemon, PAD, accelerator, and physical
+> qualification items below are historical or future gates unless independently
+> rerun; they must not be presented as current capabilities.
+
+This checklist describes the v5.0.0 release candidate boundary and publication
+closure. Checked items inherited from an earlier candidate do not qualify the
+current working tree; rerun them and record direct evidence before release.
 
 ## Local candidate closure
 
@@ -13,10 +20,12 @@ This checklist describes the v5.0.0 release candidate boundary and publication c
       locked/offline Cargo clippy/tests, and model verification.
 - [x] Build the reproducible source archive and verify its deterministic hash.
 - [x] Build/lint the Fedora 44 RPM and SRPM.
-- [x] Verify system daemon (kfaceauthd) and PAM module (pam_kfaceauth) security
-      boundaries, drop_privileges, and least-privilege DAC modes.
-- [x] Verify Presentation Attack Detection (PAD) gates conforming to ISO/IEC 30107-3
-      as documented in docs/QUALIFICATION-V5.md.
+- [ ] Historical/future gate: verify system daemon (kfaceauthd) and PAM module
+      (pam_kfaceauth) security boundaries, drop_privileges, and least-privilege
+      DAC modes before any authentication release.
+- [ ] Historical/future gate: reproduce Presentation Attack Detection (PAD)
+      evidence against ISO/IEC 30107-3; `docs/QUALIFICATION-V5.md` is archival
+      and not current release evidence.
 
 ## A. Experimental preview readiness
 
@@ -40,10 +49,16 @@ This checklist describes the v5.0.0 release candidate boundary and publication c
 
 ## B. Authentication suitability & Liveness Qualification (v5.0.0)
 
-- [x] Dedicated system daemon `kfaceauthd` with Landlock and Seccomp sandboxing.
-- [x] PAM module `pam_kfaceauth.so` with strict 2-second fail-closed timeout.
-- [x] Level 1 and Level 2 Presentation Attack Detection (PAD) qualified under ISO/IEC 30107-3.
-- [x] Documented in `docs/QUALIFICATION-V5.md` (0.0% APCER across 130 attack presentations, 0.8% BPCER).
+- [ ] Future authentication gate: dedicated system daemon `kfaceauthd` with
+      Landlock and Seccomp sandboxing, independently reproduced for the target
+      release.
+- [ ] Future authentication gate: PAM module `pam_kfaceauth.so` with strict
+      2-second fail-closed timeout, independently reproduced for the target
+      release.
+- [ ] Future authentication gate: Level 1 and Level 2 Presentation Attack
+      Detection (PAD) qualification under ISO/IEC 30107-3.
+- [ ] Historical report retained in `docs/QUALIFICATION-V5.md`; its APCER,
+      BPCER, and physical results are not current evidence.
 
 ## External follow-ups
 

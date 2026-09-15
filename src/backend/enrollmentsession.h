@@ -35,6 +35,7 @@ class EnrollmentSession final : public QObject
     Q_PROPERTY(QString profileStatusText READ profileStatusText NOTIFY profileChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY stateChanged)
+    Q_PROPERTY(GuidePhase guidePhase READ guidePhase NOTIFY guidePhaseChanged)
 
   public:
     enum class State
@@ -64,6 +65,21 @@ class EnrollmentSession final : public QObject
     };
     Q_ENUM(ProfileState)
 
+    enum class GuidePhase
+    {
+        Camera,
+        Frontal,
+        Left,
+        Right,
+        Tilt,
+        Natural,
+        Review,
+        Saving,
+        Complete,
+        Error,
+    };
+    Q_ENUM(GuidePhase)
+
     EnrollmentSession(CameraPreviewSession *preview, IdentityWorkerClient *worker, KWalletKeyProvider *keyProvider,
                       QObject *parent = nullptr);
     ~EnrollmentSession() override;
@@ -88,10 +104,11 @@ class EnrollmentSession final : public QObject
     [[nodiscard]] QString profileStatusText() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorCode() const;
+    [[nodiscard]] GuidePhase guidePhase() const;
 
     Q_INVOKABLE void refreshProfileStatus();
     Q_INVOKABLE void startEnrollment();
-    Q_INVOKABLE void captureSample();
+    Q_INVOKABLE void captureSample(bool automatic = false);
     Q_INVOKABLE void discardLastSample();
     Q_INVOKABLE void finishAndSave();
     Q_INVOKABLE void cancel();
@@ -103,6 +120,8 @@ class EnrollmentSession final : public QObject
     void stateChanged();
     void profileChanged();
     void samplesChanged();
+    void guidePhaseChanged();
+    void sampleCaptured(int sampleIndex, bool automatic);
 
   private:
     void runStatus(const QByteArray &key);
@@ -143,5 +162,6 @@ class EnrollmentSession final : public QObject
     bool m_pageActive = false;
     bool m_keyNeedsStore = false;
     bool m_keyStoredDuringEnrollment = false;
+    bool m_captureAutomatic = false;
     QTimer m_sessionTimer;
 };

@@ -140,41 +140,4 @@ Item {
         }
     }
 
-    // 5 Facial Landmarks (Eyes, Nose, Mouth corners)
-    Repeater {
-        id: landmarkRepeater
-        model: root.hasTracking ? root.analysisSession.landmarks : []
-
-        Item {
-            readonly property var pt: modelData
-            readonly property real mappedX: root.mapX(pt.x, 0)
-            readonly property real mappedY: root.mapY(pt.y)
-
-            x: mappedX - width / 2.0
-            y: mappedY - height / 2.0
-            width: Kirigami.Units.gridUnit * 0.4
-            height: width
-
-            Behavior on x { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
-            Behavior on y { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: parent.width
-                height: parent.height
-                radius: width / 2.0
-                color: Kirigami.Theme.highlightColor
-                opacity: 0.8
-            }
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: parent.width * 0.4
-                height: width
-                radius: width / 2.0
-                color: Kirigami.Theme.backgroundColor
-                opacity: 0.9
-            }
-        }
-    }
 }

@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QProcessEnvironment>
 #include <QSocketNotifier>
+#include <QStringList>
 #include <QTimer>
 #include <QtEndian>
 
@@ -75,7 +76,8 @@ class FakeVisionWorker final : public QObject
   public:
     explicit FakeVisionWorker(QObject *parent = nullptr)
         : QObject(parent),
-          m_mode(QProcessEnvironment::systemEnvironment().value(QStringLiteral("KFACEAUTH_FAKE_VISION_MODE")))
+          m_mode(QProcessEnvironment::systemEnvironment().value(QStringLiteral("KFACEAUTH_FAKE_VISION_MODE"))),
+          m_sessionMode(QCoreApplication::arguments().contains(QStringLiteral("--session")))
     {
         connect(&m_notifier, &QSocketNotifier::activated, this, [this]() { readRequest(); });
     }
@@ -124,7 +126,7 @@ class FakeVisionWorker final : public QObject
         const quint16 width = readU16(payload, 16);
         const quint16 height = readU16(payload, 18);
         const quint32 stride = readU32(payload, 20);
-        if (declaredSize != payload.size() || readU16(payload, 0) != 1 || static_cast<quint8>(payload.at(2)) != 1 ||
+        if (declaredSize != payload.size() || readU16(payload, 0) != 2 || static_cast<quint8>(payload.at(2)) != 1 ||
             static_cast<quint8>(payload.at(3)) != 1 || width == 0 || width > 1920 || height == 0 || height > 1080 ||
             stride < static_cast<quint32>(width) * 3 || stride > static_cast<quint32>(width) * 4 ||
             payload.size() != RequestHeaderBytes + static_cast<qsizetype>(stride) * height)
@@ -172,7 +174,7 @@ class FakeVisionWorker final : public QObject
         if (mode == QLatin1String("model-unavailable") || mode == QLatin1String("runtime-output"))
         {
             QByteArray response;
-            appendU16(&response, 1);
+            appendU16(&response, 2);
             response.append(static_cast<char>(0xff));
             response.append(mode == QLatin1String("model-unavailable") ? static_cast<char>(11) : static_cast<char>(12));
             appendU64(&response, generation);
@@ -183,7 +185,7 @@ class FakeVisionWorker final : public QObject
 
         const quint8 faceCount = mode == QLatin1String("zero") ? 0 : (mode == QLatin1String("multiple") ? 2 : 1);
         QByteArray response;
-        appendU16(&response, 1);
+        appendU16(&response, 2);
         response.append(static_cast<char>(0x81));
         response.append(static_cast<char>(faceCount));
         appendU64(&response, mode == QLatin1String("stale") ? generation + 1 : generation);
@@ -204,8 +206,36 @@ class FakeVisionWorker final : public QObject
             appendU16(&response, y);
             appendU16(&response, rectWidth);
             appendU16(&response, rectHeight);
+            const bool naturalPose = mode == QLatin1String("natural");
+            const quint16 firstEyeX = naturalPose ? x + 1 : x + rectWidth / 4;
+            const quint16 secondEyeX = naturalPose ? x + rectWidth - 1 : x + (rectWidth * 3) / 4;
+            const quint16 noseX =
+                mode == QLatin1String("left")
+                    ? x + rectWidth / 4
+                    : (mode == QLatin1String("right") ? x + (rectWidth * 3) / 4
+                                                      : (naturalPose ? x + rectWidth / 2 + 1 : x + rectWidth / 2));
+            const quint16 noseY = mode == QLatin1String("tilt") ? y + (rectHeight * 2) / 3 : y + rectHeight / 2;
+            appendU16(&response, mode == QLatin1String("landmark-outside")
+                                     ? width
+                                     : (mode == QLatin1String("landmark-outside-rect") ? x + rectWidth : firstEyeX));
+            appendU16(&response, y + rectHeight / 3);
+            appendU16(&response, secondEyeX);
+            appendU16(&response, y + rectHeight / 3);
+            appendU16(&response, noseX);
+            appendU16(&response, noseY);
+            appendU16(&response, x + rectWidth / 4);
+            appendU16(&response, y + (rectHeight * 2) / 3);
+            appendU16(&response, x + (rectWidth * 3) / 4);
+            appendU16(&response, y + (rectHeight * 2) / 3);
         }
         writeAll(framed(response));
+        m_request.fill(0);
+        m_request.clear();
+        if (m_sessionMode)
+        {
+            m_notifier.setEnabled(true);
+            return;
+        }
         if (mode != QLatin1String("shutdown-timeout"))
             QCoreApplication::quit();
     }
@@ -213,6 +243,7 @@ class FakeVisionWorker final : public QObject
     QSocketNotifier m_notifier{STDIN_FILENO, QSocketNotifier::Read};
     QByteArray m_request;
     QString m_mode;
+    bool m_sessionMode = false;
 };
 
 int main(int argc, char **argv)

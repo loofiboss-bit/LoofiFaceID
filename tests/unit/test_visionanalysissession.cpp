@@ -18,6 +18,9 @@ class VisionAnalysisSessionTest final : public QObject
     void workerFailures();
     void cancellationAndCleanup();
     void repeatedAnalyzeReplacesActiveRequest();
+    void poseClassification_data();
+    void poseClassification();
+    void persistentGuidanceSession();
 
   private:
     static QProcessEnvironment environmentFor(const QString &mode);
@@ -102,7 +105,11 @@ void VisionAnalysisSessionTest::workerFailures_data()
     QTest::newRow("unknown flags") << QStringLiteral("unknown-flags") << QStringLiteral("protocol-error") << 2000;
     QTest::newRow("contradictory flags") << QStringLiteral("contradictory-flags") << QStringLiteral("protocol-error")
                                          << 2000;
-    QTest::newRow("oversized") << QStringLiteral("oversized") << QStringLiteral("protocol-error") << 2000;
+    QTest::newRow("landmark outside frame")
+        << QStringLiteral("landmark-outside") << QStringLiteral("protocol-error") << 2000;
+    QTest::newRow("landmark outside face rectangle")
+        << QStringLiteral("landmark-outside-rect") << QStringLiteral("protocol-error") << 2000;
+    QTest::newRow("oversized") << QStringLiteral("oversized") << QStringLiteral("protocol-error") << 3000;
     QTest::newRow("stale") << QStringLiteral("stale") << QStringLiteral("stale-response") << 2000;
     QTest::newRow("model unavailable") << QStringLiteral("model-unavailable") << QStringLiteral("analysis-error-11")
                                        << 2000;
@@ -169,6 +176,56 @@ void VisionAnalysisSessionTest::repeatedAnalyzeReplacesActiveRequest()
     analysis.cancelAnalysis();
     QCOMPARE(analysis.state(), VisionAnalysisSession::State::Idle);
     QVERIFY(!analysis.resultAvailable());
+}
+
+void VisionAnalysisSessionTest::poseClassification_data()
+{
+    QTest::addColumn<QString>("mode");
+    QTest::addColumn<int>("sampleIndex");
+    QTest::addColumn<VisionAnalysisSession::Pose>("pose");
+    QTest::newRow("frontal") << QStringLiteral("one") << 0 << VisionAnalysisSession::Pose::Frontal;
+    QTest::newRow("left") << QStringLiteral("left") << 1 << VisionAnalysisSession::Pose::Left;
+    QTest::newRow("right") << QStringLiteral("right") << 2 << VisionAnalysisSession::Pose::Right;
+    QTest::newRow("tilt") << QStringLiteral("tilt") << 3 << VisionAnalysisSession::Pose::Tilt;
+    QTest::newRow("natural") << QStringLiteral("natural") << 4 << VisionAnalysisSession::Pose::Natural;
+}
+
+void VisionAnalysisSessionTest::poseClassification()
+{
+    QFETCH(QString, mode);
+    QFETCH(int, sampleIndex);
+    QFETCH(VisionAnalysisSession::Pose, pose);
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    startPreview(&preview);
+    VisionAnalysisSession analysis(&preview, QStringLiteral(KFACEAUTH_FAKE_VISION_WORKER_PATH), environmentFor(mode),
+                                   nullptr);
+    analysis.analyzeCurrentFrame();
+    QTRY_COMPARE(analysis.state(), VisionAnalysisSession::State::Complete);
+    QCOMPARE(analysis.guidanceState(), VisionAnalysisSession::GuidanceState::Ready);
+    QCOMPARE(analysis.detectedPose(), pose);
+    QVERIFY(analysis.poseMatches(sampleIndex));
+}
+
+void VisionAnalysisSessionTest::persistentGuidanceSession()
+{
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    startPreview(&preview);
+    VisionAnalysisSession analysis(&preview, QStringLiteral(KFACEAUTH_FAKE_VISION_WORKER_PATH),
+                                   environmentFor(QStringLiteral("one")), nullptr);
+
+    analysis.startGuidance();
+    QTRY_COMPARE(analysis.state(), VisionAnalysisSession::State::Complete);
+    const quint64 firstGeneration = analysis.generation();
+    QTRY_VERIFY_WITH_TIMEOUT(analysis.generation() > firstGeneration, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        analysis.state() == VisionAnalysisSession::State::Complete && analysis.generation() > firstGeneration, 3000);
+    QCOMPARE(analysis.guidanceState(), VisionAnalysisSession::GuidanceState::Ready);
+    QVERIFY(analysis.poseMatches(0));
+    QVERIFY(!analysis.poseMatches(99));
+
+    analysis.stopGuidance();
+    QCOMPARE(analysis.state(), VisionAnalysisSession::State::Idle);
+    QVERIFY(!analysis.continuousTracking());
 }
 
 QTEST_GUILESS_MAIN(VisionAnalysisSessionTest)

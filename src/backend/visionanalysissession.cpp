@@ -9,9 +9,11 @@
 #include <QGuiApplication>
 #include <QImage>
 #include <QProcess>
+#include <QStringList>
 #include <QtEndian>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <utility>
 
@@ -25,7 +27,7 @@
 
 namespace
 {
-constexpr quint16 ProtocolVersion = 1;
+constexpr quint16 ProtocolVersion = 2;
 constexpr quint8 AnalyzeOperation = 1;
 constexpr quint8 Rgb8PixelFormat = 1;
 constexpr quint8 SuccessResponse = 0x81;
@@ -37,7 +39,10 @@ constexpr qsizetype MaxRequestBytes =
     static_cast<qsizetype>(PreviewProtocol::MaxWidth) * PreviewProtocol::MaxHeight * 4 + RequestHeaderBytes;
 constexpr qsizetype SuccessHeaderBytes = 16;
 constexpr qsizetype FaceRectangleBytes = 8;
-constexpr qsizetype MaxResponseBytes = SuccessHeaderBytes + 8 * FaceRectangleBytes;
+constexpr qsizetype LandmarkBytes = 20;
+constexpr qsizetype FaceObservationBytes = FaceRectangleBytes + LandmarkBytes;
+constexpr qsizetype MaxResponseBytes = SuccessHeaderBytes + 8 * FaceObservationBytes;
+constexpr int GuidanceIntervalMs = 250;
 
 QString translate(const char *text)
 {
@@ -102,10 +107,18 @@ VisionAnalysisSession::VisionAnalysisSession(CameraPreviewSession *previewSessio
     m_inferenceTimer.setInterval(InferenceTimeoutMs);
     m_shutdownTimer.setSingleShot(true);
     m_shutdownTimer.setInterval(1000);
+    m_trackingTimer.setInterval(GuidanceIntervalMs);
+    m_trackingTimer.setSingleShot(false);
 
     connect(&m_startupTimer, &QTimer::timeout, this, [this]() { fail(QStringLiteral("startup-timeout")); });
     connect(&m_inferenceTimer, &QTimer::timeout, this, [this]() { fail(QStringLiteral("inference-timeout")); });
     connect(&m_shutdownTimer, &QTimer::timeout, this, [this]() { fail(QStringLiteral("shutdown-timeout")); });
+    connect(&m_trackingTimer, &QTimer::timeout, this,
+            [this]()
+            {
+                if (m_continuousTracking && canAnalyze() && !m_requestInFlight)
+                    analyzeCurrentFrame();
+            });
     connect(m_previewSession, &CameraPreviewSession::stateChanged, this,
             [this]()
             {
@@ -119,8 +132,6 @@ VisionAnalysisSession::VisionAnalysisSession(CameraPreviewSession *previewSessio
                 Q_EMIT availabilityChanged();
                 if (!m_previewSession->frameAvailable())
                     cancelForLifecycle();
-                else if (m_continuousTracking && canAnalyze() && m_state == State::Idle)
-                    analyzeCurrentFrame();
             });
     connect(m_previewSession, &QObject::destroyed, this,
             [this]()
@@ -143,6 +154,9 @@ VisionAnalysisSession::VisionAnalysisSession(CameraPreviewSession *previewSessio
 VisionAnalysisSession::~VisionAnalysisSession()
 {
     ++m_generation;
+    m_trackingTimer.stop();
+    m_requestInFlight = false;
+    m_workerStarted = false;
     m_ignoringProcessExit = true;
     if (m_process)
     {
@@ -218,11 +232,6 @@ QRectF VisionAnalysisSession::faceRect() const
     return m_faceRect;
 }
 
-QVariantList VisionAnalysisSession::landmarks() const
-{
-    return m_landmarks;
-}
-
 bool VisionAnalysisSession::continuousTracking() const
 {
     return m_continuousTracking;
@@ -231,11 +240,62 @@ bool VisionAnalysisSession::continuousTracking() const
 void VisionAnalysisSession::setContinuousTracking(bool enabled)
 {
     if (m_continuousTracking == enabled)
+    {
+        if (!enabled && (m_state != State::Idle || m_process))
+            cancelAnalysis();
         return;
+    }
     m_continuousTracking = enabled;
+    if (m_continuousTracking)
+        m_trackingTimer.start();
+    else
+        m_trackingTimer.stop();
     Q_EMIT continuousTrackingChanged();
-    if (m_continuousTracking && canAnalyze() && m_state == State::Idle)
+    if (m_continuousTracking && canAnalyze() && !m_requestInFlight)
         analyzeCurrentFrame();
+    else if (!m_continuousTracking && (m_state != State::Idle || m_process))
+        cancelAnalysis();
+}
+
+void VisionAnalysisSession::startGuidance()
+{
+    setContinuousTracking(true);
+}
+
+void VisionAnalysisSession::stopGuidance()
+{
+    setContinuousTracking(false);
+}
+
+VisionAnalysisSession::GuidanceState VisionAnalysisSession::guidanceState() const
+{
+    return m_guidanceState;
+}
+
+VisionAnalysisSession::Pose VisionAnalysisSession::detectedPose() const
+{
+    return m_detectedPose;
+}
+
+bool VisionAnalysisSession::poseMatches(int sampleIndex) const
+{
+    if (!hasFace() || sampleIndex < 0 || sampleIndex > 4)
+        return false;
+    switch (sampleIndex)
+    {
+    case 0:
+        return m_detectedPose == Pose::Frontal;
+    case 1:
+        return m_detectedPose == Pose::Left;
+    case 2:
+        return m_detectedPose == Pose::Right;
+    case 3:
+        return m_detectedPose == Pose::Tilt;
+    case 4:
+        return m_detectedPose == Pose::Natural || m_detectedPose == Pose::Frontal;
+    default:
+        return false;
+    }
 }
 
 VisionAnalysisSession::FaceFinding VisionAnalysisSession::faceFinding() const
@@ -291,8 +351,10 @@ QString VisionAnalysisSession::resultSummary() const
 
 QString VisionAnalysisSession::guidanceText() const
 {
-    if (!hasFace())
-        return resultSummary();
+    if (m_guidanceState == GuidanceState::NoFace)
+        return translate("Place one face in the camera frame.");
+    if (m_guidanceState == GuidanceState::MultipleFaces)
+        return translate("Only one face may be visible.");
     if (m_position == Position::OffCenter)
         return translate("Center your face in the frame.");
     if (m_distance == Distance::TooFar)
@@ -307,8 +369,14 @@ QString VisionAnalysisSession::guidanceText() const
         return translate("Use more even front lighting.");
     if (m_sharpness == Quality::Low)
         return translate("Hold still and check that the camera lens is clear.");
+    if (m_guidanceState == GuidanceState::Blurred)
+        return translate("Hold still and clean the camera lens.");
+    if (m_guidanceState == GuidanceState::WrongPose)
+        return translate("Adjust your pose to match the highlighted step.");
     if (framingSuitable())
-        return translate("Framing and image quality are suitable for this development check.");
+        return translate("Face framing and image quality are ready.");
+    if (!hasFace())
+        return translate("Place one face in the camera frame.");
     return translate("Adjust your position and lighting, then try one frame again.");
 }
 
@@ -326,7 +394,15 @@ void VisionAnalysisSession::analyzeCurrentFrame()
 {
     if (!canAnalyze())
         return;
-    if (busy() || m_process)
+    if (m_requestInFlight)
+    {
+        if (!m_sessionMode)
+            stopAnalysis(true);
+        return;
+    }
+    if (busy())
+        return;
+    if (m_process && (!m_sessionMode || !m_workerStarted))
     {
         stopAnalysis(true);
         return;
@@ -359,7 +435,8 @@ void VisionAnalysisSession::analyzeCurrentFrame()
 
     ++m_generation;
     clearSensitiveData();
-    clearResult();
+    if (!m_sessionMode)
+        clearResult();
     m_requestWidth = static_cast<quint16>(rgb.width());
     m_requestHeight = static_cast<quint16>(rgb.height());
     m_frameBytes = QByteArray(reinterpret_cast<const char *>(rgb.constBits()), frameSize);
@@ -388,6 +465,7 @@ void VisionAnalysisSession::analyzeCurrentFrame()
     appendU32(&request, static_cast<quint32>(payload.size()));
     request.append(payload);
     payload.fill(0);
+    m_requestInFlight = true;
     startWorker(std::move(request));
 }
 
@@ -403,6 +481,10 @@ void VisionAnalysisSession::stopAnalysis(bool replacementRequested)
     m_startupTimer.stop();
     m_inferenceTimer.stop();
     m_shutdownTimer.stop();
+    m_trackingTimer.stop();
+    m_requestInFlight = false;
+    m_workerStarted = false;
+    m_sessionMode = false;
     m_ignoringProcessExit = true;
     if (m_process)
         m_process->kill();
@@ -417,37 +499,41 @@ void VisionAnalysisSession::startWorker(QByteArray request)
 {
     if (m_process)
     {
-        request.fill(0);
-        fail(QStringLiteral("worker-busy"));
+        if (m_sessionMode && m_workerStarted)
+            writeRequest(std::move(request));
+        else
+        {
+            request.fill(0);
+            fail(QStringLiteral("worker-busy"));
+        }
         return;
     }
 
+    m_sessionMode = m_continuousTracking;
     m_errorCode.clear();
     m_ignoringProcessExit = false;
     m_responseReceived = false;
+    m_workerStarted = false;
     m_stderrBytes = 0;
     m_process = new QProcess(this);
     m_process->setProgram(m_workerPath);
-    m_process->setArguments({QStringLiteral("--model-root"), QStringLiteral(KFACEAUTH_MODEL_ROOT)});
+    QStringList arguments = {QStringLiteral("--model-root"), QStringLiteral(KFACEAUTH_MODEL_ROOT)};
+    if (m_sessionMode)
+        arguments.append(QStringLiteral("--session"));
+    m_process->setArguments(arguments);
     m_process->setProcessChannelMode(QProcess::SeparateChannels);
     m_process->setProcessEnvironment(m_workerEnvironment);
     connect(m_process, &QProcess::started, this,
             [this, request = std::move(request)]() mutable
             {
-                m_startupTimer.stop();
-                setState(State::Analyzing, translate("Analyzing one in-memory frame…"));
-                const qsizetype requestSize = request.size();
-                const qint64 accepted = m_process ? m_process->write(request) : -1;
-                if (m_process)
-                    m_process->closeWriteChannel();
-                request.fill(0);
-                clearSensitiveData();
-                if (accepted != requestSize)
+                if (m_ignoringProcessExit || !m_process)
                 {
-                    fail(QStringLiteral("protocol-error"));
+                    request.fill(0);
                     return;
                 }
-                m_inferenceTimer.start();
+                m_startupTimer.stop();
+                m_workerStarted = true;
+                writeRequest(std::move(request));
             });
     connect(m_process, &QProcess::readyReadStandardOutput, this, &VisionAnalysisSession::readResponse);
     connect(m_process, &QProcess::readyReadStandardError, this,
@@ -487,6 +573,30 @@ void VisionAnalysisSession::startWorker(QByteArray request)
     m_startupTimer.start();
 }
 
+void VisionAnalysisSession::writeRequest(QByteArray request)
+{
+    if (!m_process || !m_workerStarted)
+    {
+        request.fill(0);
+        fail(QStringLiteral("protocol-error"));
+        return;
+    }
+    setState(State::Analyzing, translate("Analyzing one in-memory frame…"));
+    const qsizetype requestSize = request.size();
+    const qint64 accepted = m_process->write(request);
+    if (!m_sessionMode)
+        m_process->closeWriteChannel();
+    request.fill(0);
+    clearSensitiveData();
+    m_responseReceived = false;
+    if (accepted != requestSize)
+    {
+        fail(QStringLiteral("protocol-error"));
+        return;
+    }
+    m_inferenceTimer.start();
+}
+
 void VisionAnalysisSession::readResponse()
 {
     if (!m_process)
@@ -504,7 +614,11 @@ void VisionAnalysisSession::readResponse()
         return;
 
     const quint32 payloadSize = readU32(QByteArrayView(m_responseBytes), 0);
-    if (payloadSize < 12 || payloadSize > MaxResponseBytes)
+    const bool isErrorPayload = payloadSize == 12;
+    const bool isSuccessPayload = payloadSize >= SuccessHeaderBytes &&
+                                  (payloadSize - SuccessHeaderBytes) % FaceObservationBytes == 0 &&
+                                  (payloadSize - SuccessHeaderBytes) / FaceObservationBytes <= 8;
+    if (payloadSize < 12 || payloadSize > MaxResponseBytes || (!isErrorPayload && !isSuccessPayload))
     {
         fail(QStringLiteral("protocol-error"));
         return;
@@ -529,6 +643,16 @@ void VisionAnalysisSession::readResponse()
     m_responseReceived = true;
     m_responseBytes.fill(0);
     m_responseBytes.clear();
+    m_requestInFlight = false;
+    if (m_sessionMode)
+    {
+        clearSensitiveData();
+        setState(State::Complete, translate("Live guidance is ready. No image was saved."));
+        applyResult(result);
+        m_requestWidth = 0;
+        m_requestHeight = 0;
+        return;
+    }
     m_pendingResult = result;
     m_statusText = translate("Finishing local analysis and clearing process data…");
     Q_EMIT stateChanged();
@@ -539,6 +663,7 @@ void VisionAnalysisSession::processFinished(int exitCode, QProcess::ExitStatus e
 {
     QProcess *process = m_process;
     m_process = nullptr;
+    m_workerStarted = false;
     if (process)
         process->deleteLater();
     m_startupTimer.stop();
@@ -561,11 +686,12 @@ void VisionAnalysisSession::processFinished(int exitCode, QProcess::ExitStatus e
     }
 
     const Result result = *m_pendingResult;
+    m_requestInFlight = false;
     clearSensitiveData();
+    setState(State::Complete, translate("One-frame analysis is complete. No image was saved."));
     applyResult(result);
     m_requestWidth = 0;
     m_requestHeight = 0;
-    setState(State::Complete, translate("One-frame analysis is complete. No image was saved."));
     if (m_continuousTracking && canAnalyze())
     {
         QTimer::singleShot(33, this,
@@ -585,6 +711,15 @@ void VisionAnalysisSession::fail(const QString &errorCode)
     m_startupTimer.stop();
     m_inferenceTimer.stop();
     m_shutdownTimer.stop();
+    m_trackingTimer.stop();
+    if (m_continuousTracking)
+    {
+        m_continuousTracking = false;
+        Q_EMIT continuousTrackingChanged();
+    }
+    m_requestInFlight = false;
+    m_workerStarted = false;
+    m_sessionMode = false;
     m_ignoringProcessExit = true;
     m_replacementRequested = false;
     if (m_process)
@@ -632,16 +767,16 @@ void VisionAnalysisSession::clearResult()
     m_contrast = Quality::Unknown;
     m_sharpness = Quality::Unknown;
     m_faceRect = {};
-    m_landmarks.clear();
     m_frameWidth = 0;
     m_frameHeight = 0;
+    m_guidanceState = GuidanceState::Unknown;
+    m_detectedPose = Pose::Unknown;
     Q_EMIT resultChanged();
 }
 
 void VisionAnalysisSession::cancelForLifecycle()
 {
-    if (m_state != State::Idle || m_process)
-        cancelAnalysis();
+    setContinuousTracking(false);
 }
 
 bool VisionAnalysisSession::parseResponse(QByteArrayView payload, Result *result, QString *errorCode) const
@@ -667,8 +802,8 @@ bool VisionAnalysisSession::parseResponse(QByteArrayView payload, Result *result
         return false;
 
     const quint8 faceCount = static_cast<quint8>(payload.at(3));
-    const bool withLandmarks = (payload.size() == SuccessHeaderBytes + faceCount * (FaceRectangleBytes + 20));
-    if (faceCount > 8 || (payload.size() != SuccessHeaderBytes + faceCount * FaceRectangleBytes && !withLandmarks))
+    const bool withLandmarks = (payload.size() == SuccessHeaderBytes + faceCount * FaceObservationBytes);
+    if (faceCount > 8 || !withLandmarks)
         return false;
 
     result->faceCount = faceCount;
@@ -682,7 +817,7 @@ bool VisionAnalysisSession::parseResponse(QByteArrayView payload, Result *result
         return false;
     result->frameWidth = m_requestWidth;
     result->frameHeight = m_requestHeight;
-    const qsizetype stride = withLandmarks ? (FaceRectangleBytes + 20) : FaceRectangleBytes;
+    const qsizetype stride = FaceObservationBytes;
     for (quint8 index = 0; index < faceCount; ++index)
     {
         const qsizetype offset = SuccessHeaderBytes + index * stride;
@@ -698,16 +833,17 @@ bool VisionAnalysisSession::parseResponse(QByteArrayView payload, Result *result
             result->y = y;
             result->width = width;
             result->height = height;
-            if (withLandmarks)
-            {
-                const qsizetype lmOffset = offset + FaceRectangleBytes;
-                for (int lm = 0; lm < 5; ++lm)
-                {
-                    const quint16 lx = readU16(payload, lmOffset + lm * 4);
-                    const quint16 ly = readU16(payload, lmOffset + lm * 4 + 2);
-                    result->landmarks.append(QPointF(lx, ly));
-                }
-            }
+        }
+        const qsizetype lmOffset = offset + FaceRectangleBytes;
+        for (int lm = 0; lm < 5; ++lm)
+        {
+            const quint16 lx = readU16(payload, lmOffset + lm * 4);
+            const quint16 ly = readU16(payload, lmOffset + lm * 4 + 2);
+            if (lx >= m_requestWidth || ly >= m_requestHeight || lx < x || ly < y || lx >= x + width ||
+                ly >= y + height)
+                return false;
+            if (index == 0)
+                result->landmarks.append(QPointF(lx, ly));
         }
     }
     return true;
@@ -725,29 +861,26 @@ void VisionAnalysisSession::applyResult(const Result &result)
     m_position = Position::Unknown;
     m_distance = Distance::Unknown;
     m_faceRect = {};
-    m_landmarks.clear();
+    m_detectedPose = Pose::Unknown;
     m_frameWidth = result.frameWidth;
     m_frameHeight = result.frameHeight;
+
+    if (result.faceCount == 0)
+    {
+        m_guidanceState = GuidanceState::NoFace;
+        Q_EMIT resultChanged();
+        return;
+    }
+    if (result.faceCount > 1)
+    {
+        m_guidanceState = GuidanceState::MultipleFaces;
+        Q_EMIT resultChanged();
+        return;
+    }
 
     if (result.faceCount == 1)
     {
         m_faceRect = QRectF(result.x, result.y, result.width, result.height);
-        if (result.landmarks.size() == 5)
-        {
-            for (const auto &pt : result.landmarks)
-                m_landmarks.append(QVariant::fromValue(pt));
-        }
-        else
-        {
-            const qreal w = result.width;
-            const qreal h = result.height;
-            m_landmarks.append(QPointF(result.x + w * 0.30, result.y + h * 0.35));
-            m_landmarks.append(QPointF(result.x + w * 0.70, result.y + h * 0.35));
-            m_landmarks.append(QPointF(result.x + w * 0.50, result.y + h * 0.55));
-            m_landmarks.append(QPointF(result.x + w * 0.35, result.y + h * 0.75));
-            m_landmarks.append(QPointF(result.x + w * 0.65, result.y + h * 0.75));
-        }
-
         const double centerX = result.x + result.width / 2.0;
         const double centerY = result.y + result.height / 2.0;
         const bool centered = centerX >= result.frameWidth * 0.35 && centerX <= result.frameWidth * 0.65 &&
@@ -756,6 +889,45 @@ void VisionAnalysisSession::applyResult(const Result &result)
         const double areaRatio =
             static_cast<double>(result.width) * result.height / (result.frameWidth * result.frameHeight);
         m_distance = areaRatio < 0.08 ? Distance::TooFar : (areaRatio > 0.55 ? Distance::TooClose : Distance::Suitable);
+
+        if (result.landmarks.size() == 5)
+        {
+            const double eyeDistance = std::abs(result.landmarks.at(1).x() - result.landmarks.at(0).x());
+            const double eyeMidX = (result.landmarks.at(0).x() + result.landmarks.at(1).x()) / 2.0;
+            const double eyeMidY = (result.landmarks.at(0).y() + result.landmarks.at(1).y()) / 2.0;
+            const double mouthMidY = (result.landmarks.at(3).y() + result.landmarks.at(4).y()) / 2.0;
+            const double eyeToMouth = mouthMidY - eyeMidY;
+            if (eyeDistance >= 1.0 && eyeToMouth >= 1.0)
+            {
+                const double yaw = (result.landmarks.at(2).x() - eyeMidX) / eyeDistance;
+                const double pitch = (result.landmarks.at(2).y() - eyeMidY) / eyeToMouth - 0.5;
+                if (std::abs(yaw) < 0.09 && std::abs(pitch) < 0.12)
+                    m_detectedPose = Pose::Frontal;
+                else if (yaw < -0.20)
+                    m_detectedPose = Pose::Left;
+                else if (yaw > 0.20)
+                    m_detectedPose = Pose::Right;
+                else if (std::abs(pitch) > 0.18)
+                    m_detectedPose = Pose::Tilt;
+                else
+                    m_detectedPose = Pose::Natural;
+            }
+        }
+
+        if (m_distance == Distance::TooFar)
+            m_guidanceState = GuidanceState::TooFar;
+        else if (m_distance == Distance::TooClose)
+            m_guidanceState = GuidanceState::TooClose;
+        else if (m_position == Position::OffCenter)
+            m_guidanceState = GuidanceState::OffCenter;
+        else if (m_brightness != Quality::Suitable || m_contrast == Quality::Low)
+            m_guidanceState = GuidanceState::PoorLighting;
+        else if (m_sharpness == Quality::Low)
+            m_guidanceState = GuidanceState::Blurred;
+        else if (m_detectedPose == Pose::Unknown)
+            m_guidanceState = GuidanceState::WrongPose;
+        else
+            m_guidanceState = GuidanceState::Ready;
     }
     Q_EMIT resultChanged();
 }

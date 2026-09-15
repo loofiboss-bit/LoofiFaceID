@@ -1,5 +1,12 @@
 # Troubleshooting
 
+## Unsupported system
+
+LoofiFace-ID is qualified only on Fedora 44 with KDE Plasma. If Diagnostics
+shows **This system is not qualified**, use the displayed distribution and
+version when reporting the issue. The KCM does not change the host or enable
+system authentication on another platform.
+
 ## Local identity unavailable
 
 Verify every installed package-owned file, including the exact model
@@ -31,10 +38,12 @@ again.
 
 ## Enrollment sample rejected
 
-Keep exactly one face visible, use even lighting, center the face away from the
-edge, move closer if it is small, and vary ordinary pose or appearance between
-samples. Each frame requires an explicit Capture click. Quality guidance is not
-liveness evidence.
+Follow the one instruction shown above the camera: keep exactly one face
+visible, use even lighting, center the face away from the edge, move closer or
+farther as requested, and hold still. Automatic capture needs three fresh
+observations over at least 600 ms; **Capture manually** remains available. A
+rejected sample does not end enrollment. Quality guidance is not liveness
+evidence.
 
 ## Preview stops or verification is rate-limited
 

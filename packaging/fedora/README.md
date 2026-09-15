@@ -1,10 +1,22 @@
 # Fedora packaging
 
-The Fedora 44 RPM builds the KCM and three ordinary-user workers. It installs
-the exact verified YuNet FP32 and SFace FP32 artifacts with manifest, licenses,
-and immutable provenance. Fedora supplies OpenCV 4.13 (the package contract
-accepts OpenCV >= 4.8), OpenSSL 3, and KF6
-KWallet; none is bundled.
+The Fedora 44 RPM builds the KCM and local workers. It installs the exact
+verified YuNet FP32 and SFace FP32 artifacts with manifest, licenses, and
+immutable provenance. Fedora supplies OpenCV 4.13 (the package contract
+accepts OpenCV >= 4.8), OpenSSL 3, and KF6 KWallet; none is bundled.
+
+Ordinary users should install the maintained COPR build:
+
+```bash
+sudo dnf copr enable loofitheboss/loofifaceid
+sudo dnf install kfaceauth
+```
+
+The first-run KCM is an experimental local profile/comparison flow for the
+logged-in Fedora 44/KDE session. Installing the package does not configure or
+activate PAM, SDDM, sudo, Polkit, or another system authentication path.
+Those binaries remain separate engineering artifacts and are not part of the
+beginner workflow.
 
 ## Package transition
 
@@ -16,10 +28,12 @@ Provides:  plasma-irlume = %{version}-%{release}
 ```
 
 The replacement removes the old `kcm_irlume` plugin, desktop entry, and
-`plasma-irlume-camera-preview-worker` through normal RPM ownership. The new
-package installs only `kcm_kfaceauth` and its three ordinary-user workers. It
-has no migration scriptlet and never reads, creates, changes, or removes user
-configuration, KWallet entries, biometric profiles, PAM, or authselect state.
+`plasma-irlume-camera-preview-worker` through normal RPM ownership. The package
+installs the KCM and ordinary-user workers; separate daemon/PAM files, where
+present for engineering follow-up, are inert until a separately authorized
+authentication milestone configures them. It has no migration scriptlet and
+never reads, creates, changes, or removes user configuration, KWallet entries,
+biometric profiles, PAM, or authselect state.
 
 ## Build and reproduce
 
@@ -47,9 +61,11 @@ packaging/fedora/rpm-smoke-test.sh "$rpm_path"
 ```
 
 Inspect worker modes/ownership, ELF `NEEDED` entries, file capabilities,
-scriptlets, model hashes, and license/provenance payload. The package must have
-no PAM file/module, authselect mutation, service unit, privileged helper,
-setuid/capability, evaluator, fake provider, or authentication scriptlet.
+scriptlets, model hashes, and license/provenance payload. The beginner install
+must not enable or configure PAM, a service unit, authselect, a privileged
+helper, setuid/capabilities, an evaluator, a fake provider, or an
+authentication scriptlet. Any shipped daemon/PAM artifacts remain inert
+engineering payload until a separately authorized milestone.
 
 Release qualification additionally uses ordinary dependency-resolved
 `dnf install`, upgrade, and remove in a clean Fedora 44 environment. `--nodeps`

@@ -592,7 +592,7 @@ mod tests {
     #[test]
     fn rejects_invalid_constructor_inputs_before_runtime_use() {
         assert!(matches!(
-            Detector::new(&[], 320, 320, 0.9, 0.3, 8),
+            Detector::new(&[], 320, 320, 0.7, 0.3, 8),
             Err(BridgeError::InvalidArgument)
         ));
         assert!(matches!(

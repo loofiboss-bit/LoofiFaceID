@@ -21,7 +21,10 @@ format, or normalization version differs.
 
 1. Rust validates the bounded RGB8, RGBA8, or Gray8 frame and converts it into
    a fresh packed BGR buffer.
-2. The existing YuNet provider returns bounded raw `1 x 15` FP32 rows.
+2. The YuNet provider runs full-resolution detection first and uses the same
+   320×320 letterbox/tracking path as live guidance when no face is returned.
+   Both paths return original-frame coordinates and bounded raw `1 x 15` FP32
+   rows.
 3. Rust validates every rectangle, score, and landmark and requires exactly
    one face for enrollment and verification.
 4. Quality flags must be clear. The face rectangle must be at least 80×80

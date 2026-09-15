@@ -5,7 +5,7 @@
 Name:           kfaceauth
 Version:        5.0.0
 Release:        1%{?dist}
-Summary:        Biometric facial authentication daemon, PAM module and KDE settings
+Summary:        Experimental local face profile and comparison utility for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
 URL:            https://github.com/loofiboss-bit/LoofiFaceID
@@ -57,15 +57,14 @@ Requires:       qt6-qtdeclarative >= 6.8.0
 Requires:       qt6-qtmultimedia >= 6.8.0
 
 %description
-KFaceAuth v5.0 is an ultra-low-latency, publication-grade biometric facial
-authentication architecture for Linux and KDE Plasma 6. It features a hardened
-system daemon with Landlock and Seccomp isolation, Linux PAM module, zero-copy
-sealed shared memory frame transfer, hardware acceleration via OpenVINO and
-Vulkan, presentation attack detection conforming to ISO/IEC 30107-3 (active
-eye-blink tracking, randomized micro-pose challenge response, passive FFT
-moire and texture analysis, and multi-spectrum NIR qualification), and a
-modernized QML/Kirigami 30 FPS scene graph user interface in KDE System
-Settings.
+KFaceAuth is an experimental local face-profile and explicit comparison
+utility for a logged-in Fedora 44/KDE Plasma session. The KCM provides private
+camera guidance, a five-pose enrollment flow, encrypted KWallet-backed profile
+storage, and one-frame local comparison. Installation does not configure or
+activate PAM, SDDM, privilege escalation, Polkit, or another system
+authentication service. The package contains separate engineering artifacts
+for future work, but the user-facing product makes no PAD, performance, or
+authentication qualification claim.
 
 %prep
 %autosetup -p1
@@ -141,12 +140,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 
 %changelog
 * Tue Sep 15 2026 Loofi <noreply@example.invalid> - 5.0.0-1
-- Release v5.0.0
-- Milestone 1: Persistent pool, warm models, and zero-copy memfd IPC frame transfer
-- Milestone 2: QML/Kirigami UX modernization, 30 FPS scene graph, guided enrollment
-- Milestone 3: Hardware acceleration with OpenVINO and Vulkan GPU offload
-- Milestone 4: Privilege separation, kfaceauthd system daemon, PAM module (pam_kfaceauth)
-- Milestone 5: Presentation attack detection (PAD) conforming to ISO/IEC 30107-3
+- Experimental local profile/comparison KCM with guided five-pose enrollment
+- Persistent vision guidance session, validated YuNet landmarks, and typed recovery states
+- Explicit COPR-first installation boundary; no automatic PAM/SDDM/sudo/Polkit activation
 
 * Tue Jul 28 2026 Loofi <noreply@example.invalid> - 4.0.0-1
 - Start the standalone native architecture with fail-closed engine status

@@ -203,9 +203,18 @@ pub struct FaceRectangle {
     pub height: u16,
 }
 
+/// Five `YuNet` landmarks in source-image coordinates: right eye, left eye,
+/// nose, right mouth corner, and left mouth corner. They stay inside the
+/// private vision boundary and are never serialized into QML.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FaceLandmarks {
+    pub points: [u16; 10],
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FaceObservation {
     pub rectangle: FaceRectangle,
+    pub landmarks: FaceLandmarks,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -396,6 +405,20 @@ fn fake_rectangles(count: u8, width: u32, height: u32) -> Vec<FaceObservation> {
                         .expect("bounded width fits u16"),
                     height: u16::try_from(rectangle_height.min(height - y))
                         .expect("bounded height fits u16"),
+                },
+                landmarks: FaceLandmarks {
+                    points: [
+                        u16::try_from(x + rectangle_width / 3).expect("landmark fits u16"),
+                        u16::try_from(y + rectangle_height / 3).expect("landmark fits u16"),
+                        u16::try_from(x + (rectangle_width * 2) / 3).expect("landmark fits u16"),
+                        u16::try_from(y + rectangle_height / 3).expect("landmark fits u16"),
+                        u16::try_from(x + rectangle_width / 2).expect("landmark fits u16"),
+                        u16::try_from(y + rectangle_height / 2).expect("landmark fits u16"),
+                        u16::try_from(x + rectangle_width / 3).expect("landmark fits u16"),
+                        u16::try_from(y + (rectangle_height * 3) / 4).expect("landmark fits u16"),
+                        u16::try_from(x + (rectangle_width * 2) / 3).expect("landmark fits u16"),
+                        u16::try_from(y + (rectangle_height * 3) / 4).expect("landmark fits u16"),
+                    ],
                 },
             }
         })

@@ -1,88 +1,71 @@
 # User guide — LoofiFace-ID
 
-LoofiFace-ID (KFaceAuth) is an experimental local comparison utility in KDE System Settings.
-It operates only in the already logged-in user session and does not enable
-login or authentication.
+LoofiFace-ID (KFaceAuth) is an experimental local profile and explicit
+comparison utility for a logged-in Fedora 44/KDE Plasma session. It does not
+enable PAM, SDDM, sudo, Polkit, desktop unlock, or login authentication.
 
-## Home
+## Install and launch
 
-Home shows the current next step as one primary action:
+The supported Fedora 44 installation path is COPR:
 
-- **Set up camera** when no usable camera is available;
-- **Create face profile** when the camera path is ready but no profile exists;
-- **Test recognition** when a profile is ready;
-- **Resolve issue** when a worker, model, KWallet, or vault problem needs
-  attention.
+```bash
+sudo dnf copr enable loofitheboss/loofifaceid
+sudo dnf install kfaceauth
+systemsettings kcm_kfaceauth
+```
 
-The privacy summary is always visible: processing is local to this session,
-captured images are not stored, and the profile key is kept only in KWallet.
-The experimental warning is part of the normal flow, not a promise of
-authentication.
+Open **Home** and follow the one primary action. Choose **Get started** when a
+profile is missing and the camera is not running. The only usable camera is
+selected automatically; the camera selector appears only when multiple usable
+cameras are discovered.
 
-## Setup
+## First start and enrollment
 
-Setup combines camera, frame guidance, enrollment, and profile management.
+1. Click **Get started**. This is the explicit consent to start the private
+   camera preview.
+2. Follow the same guide: placement, **Frontal**, **Left**, **Right**, **Tilt**,
+   and **Natural**.
+3. Automatic capture requires exactly one face, suitable framing/image quality,
+   and three fresh analyses spanning at least 600 ms. Stability resets as soon
+   as the condition breaks; an 800 ms cooldown follows each accepted sample.
+4. **Capture manually** is always available as a fallback. After three samples
+   **Save now** is offered; five samples are recommended and eight is the hard
+   maximum.
+5. Choose **Save profile** yourself. The profile is never saved automatically.
+   Then choose **Test profile** or open the **Test** tab.
 
-1. Refresh devices and explicitly start the private preview. The first usable
-   camera is selected automatically; choose another one when multiple devices
-   are available.
-2. Choose **Analyze current frame** for one explicit YuNet check. Feedback is
-   limited to face count, framing, and image-quality guidance. It is not
-   liveness, spoof detection, or authentication.
-3. Choose **Create face profile**, then capture exactly one sample per click.
-   Three are required, five are recommended, and eight is the hard maximum.
-4. Use **Retry sample** to discard the latest transient sample, **Cancel** to
-   clear the uncommitted session, or **Finish and save** for the atomic
-   encrypted commit.
-5. When the profile is complete, choose **Open Test**. Completion does not
-   enable login or any system authentication path.
+When a sample is rejected, enrollment continues and shows one concrete action:
+move closer/farther, center the face, improve lighting, hold still, or show only
+one face. Camera frames are not stored.
 
-Enrollment expires after 120 seconds and is cancelled when its page, preview,
-application, or KCM becomes inactive. No partial profile is saved before
-**Finish and save**.
+## Home, Test, and profile management
 
-### Profile management
+Home reports **Get started**, **Continue registration**, **Test profile**, or
+**Fix problem** according to the current state. **Test** processes one deliberate
+current frame against the encrypted local profile; its result has no effect on
+the Linux session.
 
-**Delete face profile** removes a valid encrypted profile after confirmation.
-**Reset unreadable data** is a separate destructive action for an unreadable
-vault and its KWallet key; re-enrollment is required afterwards. Neither action
-promises physical erasure from SSDs, snapshots, backups, journals, or
-copy-on-write storage.
+**Delete face profile** and **Reset unreadable data** are separate, confirmed
+actions. Neither promises physical erasure from SSDs, snapshots, backups,
+journals, or copy-on-write storage.
 
-## Test
+## Diagnostics and errors
 
-Start the private preview and choose **Test current frame**. The current frame
-is processed once against the encrypted current-user profile. The page can
-show `Match`, `No match`, `Ambiguous`, or a typed unavailable result such as no
-profile, locked KWallet, model mismatch, cancellation, or worker failure.
+Diagnostics is read-only and never stops other camera services or changes host
+configuration. Refresh and follow the typed recovery action for:
 
-Scores and thresholds are intentionally hidden. Requests are rate-limited and
-the result can be cleared explicitly. `Match` changes only this page: it cannot
-unlock, authenticate, authorize, call PAM or Polkit, or alter the Linux
-session.
+- a camera that is busy, disconnected, or unavailable;
+- a worker, protocol, or verified-model failure;
+- a locked or unavailable KWallet;
+- an unreadable or model-incompatible profile;
+- an unqualified distribution/version.
 
-## Diagnostics
-
-Diagnostics is read-only. Refreshing runs bounded local probes and reports:
-
-- worker/runtime availability;
-- offline model verification;
-- camera count;
-- KWallet state;
-- encrypted vault/profile state and bounded sample count;
-- the current typed issue and a plain-language recovery action.
-
-The redacted support report contains aggregate status only. Secure Boot and
-display-manager details are secondary environment information; they do not
-change the local comparison capability.
+The support report is bounded and redacted. Do not attach camera images,
+embeddings, keys, or passwords when reporting a problem.
 
 ## Privacy boundary
 
-Face embeddings are sensitive biometric data. KFaceAuth intentionally stores
-no captured image. Frames, landmarks, embeddings, keys, scores, biometric
-paths, and stable camera identifiers do not reach QML, normal logs, the CLI,
-support reports, or examples. KWallet is the only production key provider.
-
-There is no liveness or presentation-attack detection. FAR, FRR, bias,
-demographic behavior, RGB/IR security, and authentication suitability remain
-unqualified. KWallet keys are unavailable before login.
+Raw landmarks, detector values, scores, frames, and embeddings stay inside the
+private worker/backend boundary. They are not exposed to QML, normal logs, or
+support reports. This version has no reproducible PAD, performance, bias, or
+authentication qualification.

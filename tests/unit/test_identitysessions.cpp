@@ -8,6 +8,7 @@
 
 #include <QElapsedTimer>
 #include <QProcessEnvironment>
+#include <QSignalSpy>
 #include <QTest>
 
 #ifndef KFACEAUTH_FAKE_IDENTITY_WORKER_PATH
@@ -113,6 +114,7 @@ class IdentitySessionsTest final : public QObject
     void enrollmentCancellationClearsTransientSamples();
     void pageHideCancelsActiveEnrollmentWorker();
     void failedReplacementPreservesPreviousProfile();
+    void guidePhaseAndCaptureSignal();
     void syntheticLifecycleRunsOneHundredCycles();
 };
 
@@ -262,6 +264,31 @@ void IdentitySessionsTest::failedReplacementPreservesPreviousProfile()
     enrollment.setPageActive(false);
     preview.stopPreview();
     QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+}
+
+void IdentitySessionsTest::guidePhaseAndCaptureSignal()
+{
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    IdentityWorkerClient worker(QStringLiteral(KFACEAUTH_FAKE_IDENTITY_WORKER_PATH),
+                                environmentFor(QStringLiteral("session")), this);
+    FakeKeyProvider keys;
+    EnrollmentSession enrollment(&preview, &worker, &keys);
+    startPreview(&preview);
+    enrollment.setPageActive(true);
+    QTRY_VERIFY(enrollment.profileState() != EnrollmentSession::ProfileState::Unknown &&
+                enrollment.profileState() != EnrollmentSession::ProfileState::Checking);
+    enrollment.startEnrollment();
+    QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+    QCOMPARE(enrollment.guidePhase(), EnrollmentSession::GuidePhase::Frontal);
+
+    QSignalSpy captured(&enrollment, &EnrollmentSession::sampleCaptured);
+    enrollment.captureSample(true);
+    QTRY_COMPARE(enrollment.sampleCount(), 1);
+    QCOMPARE(enrollment.guidePhase(), EnrollmentSession::GuidePhase::Left);
+    QCOMPARE(captured.count(), 1);
+    QCOMPARE(captured.at(0).at(0).toInt(), 0);
+    QCOMPARE(captured.at(0).at(1).toBool(), true);
+    enrollment.cancel();
 }
 
 void IdentitySessionsTest::syntheticLifecycleRunsOneHundredCycles()

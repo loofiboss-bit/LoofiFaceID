@@ -22,6 +22,7 @@ Kirigami.ScrollablePage {
     required property bool readyToTest
     required property bool needsAttention
     required property bool refreshActive
+    property var startOnboarding: () => {}
     property var openSetup: () => {}
     property var openTest: () => {}
     property var openDiagnostics: () => {}
@@ -36,7 +37,7 @@ Kirigami.ScrollablePage {
         else if (root.readyToTest)
             root.openTest()
         else
-            root.openSetup()
+            root.startOnboarding()
     }
 
     QQC2.Dialog {
@@ -76,17 +77,17 @@ Kirigami.ScrollablePage {
             Layout.fillWidth: true
             eyebrow: root.flowStateLabel
             title: root.needsAttention
-                ? i18n("A local check needs attention")
+                ? i18n("Fix the current problem")
                 : (root.readyToTest
-                    ? i18n("Your profile is ready to test")
-                    : (root.needsCamera ? i18n("Start with a camera check") : i18n("Create your encrypted profile")))
+                    ? i18n("Test your profile")
+                    : (root.needsCamera ? i18n("Get started") : i18n("Continue registration")))
             description: root.needsAttention
                 ? i18n("Open Diagnostics for the current issue and a bounded recovery step.")
                 : (root.readyToTest
-                    ? i18n("Start a preview in Test, then test exactly one current frame.")
+                    ? i18n("Start a private preview in Test and compare one deliberate current frame locally.")
                     : (root.needsCamera
-                        ? i18n("Setup guides you through camera discovery, a frame check, and profile creation.")
-                        : i18n("Setup keeps the camera, frame check, and one-click enrollment in one guided path.")))
+                        ? i18n("Choose the only usable camera, start the private preview, and follow the guided registration.")
+                        : i18n("Continue the guided registration. Five samples are recommended; saving always requires your click.")))
             actionText: root.recommendedAction
             actionIcon: root.needsAttention ? "tools-report-bug" : (root.readyToTest ? "view-preview" : "go-next")
             onPrimaryAction: root.primaryAction()

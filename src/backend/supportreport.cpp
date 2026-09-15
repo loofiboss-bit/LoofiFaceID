@@ -102,10 +102,16 @@ void SupportReport::setTransientIssueCode(const QString &code)
     };
     static const QSet<QString> protocolCodes = {
         QStringLiteral("protocol-error"),
+        QStringLiteral("invalid-frame"),
+        QStringLiteral("stale-response"),
         QStringLiteral("identity-protocol-error"),
     };
     if (walletCodes.contains(code))
         normalized = QStringLiteral("kwallet-unavailable");
+    else if (code == QLatin1String("analysis-error-11"))
+        normalized = QStringLiteral("model-unavailable");
+    else if (code == QLatin1String("analysis-error-12"))
+        normalized = QStringLiteral("worker-crashed");
     else if (timeoutCodes.contains(code))
         normalized = QStringLiteral("worker-timeout");
     else if (workerCodes.contains(code))
@@ -127,6 +133,7 @@ void SupportReport::setTransientIssueCode(const QString &code)
         QStringLiteral("identity-protocol-error"),
         QStringLiteral("protocol-error"),
         QStringLiteral("vault-unavailable"),
+        QStringLiteral("unsupported-platform"),
     };
     m_transientIssueCode = allowedCodes.contains(normalized) ? normalized : QString();
     rebuild();
@@ -202,6 +209,8 @@ QString SupportReport::titleForCode(const QString &code)
         return translate("The camera is in use");
     if (code == QLatin1String("camera-unavailable"))
         return translate("The camera is unavailable");
+    if (code == QLatin1String("unsupported-platform"))
+        return translate("This system is not qualified");
     if (code == QLatin1String("native-engine-unavailable"))
         return translate("The native engine is unavailable");
     if (code == QLatin1String("native-protocol-unavailable"))
@@ -231,6 +240,9 @@ QString SupportReport::actionForCode(const QString &code)
         return translate("Close applications using the camera, then retry the preview.");
     if (code == QLatin1String("camera-unavailable"))
         return translate("Reconnect or re-enable the camera, then refresh camera discovery.");
+    if (code == QLatin1String("unsupported-platform"))
+        return translate(
+            "This build is qualified only for Fedora 44 with KDE Plasma. Detected values are shown in Diagnostics.");
     if (code == QLatin1String("native-engine-unavailable") || code == QLatin1String("native-protocol-unavailable"))
         return translate("Verify the installed local identity worker and model inventory. PAM and system "
                          "authentication remain unsupported.");
@@ -271,23 +283,25 @@ void SupportReport::rebuild()
                        "This report contains bounded local status only. It excludes device identifiers, images, "
                        "biometric data, paths, and credentials.\n\n"
                        "- Data source: %1\n"
-                       "- Fedora: %2\n"
-                       "- Plasma: %3\n"
-                       "- Display manager: %4\n"
-                       "- Native engine: %5\n"
-                       "- Engine version: %6\n"
-                       "- Vision: %7\n"
-                       "- Enrollment: %8\n"
-                       "- Authentication decisions: %9\n"
-                       "- PAM configuration: %10\n"
-                       "- Template persistence: %11\n"
-                       "- Secure Boot: %12\n"
-                       "- Diagnostic code: %13\n"
-                       "- Native cameras: total=%14 rgb=%15 ir=%16 unknown=%17\n"
-                       "- Native preview error: %18\n"
-                       "- Native preview dropped frames: %19\n")
-            .arg(redactedValue(m_systemState->dataSource()), redactedValue(m_systemState->fedoraVersion()),
-                 redactedValue(m_systemState->plasmaVersion()), redactedValue(m_systemState->activeDisplayManager()),
+                       "- Distribution: %2\n"
+                       "- Fedora version: %3\n"
+                       "- Plasma: %4\n"
+                       "- Display manager: %5\n"
+                       "- Native engine: %6\n"
+                       "- Engine version: %7\n"
+                       "- Vision: %8\n"
+                       "- Enrollment: %9\n"
+                       "- Authentication decisions: %10\n"
+                       "- PAM configuration: %11\n"
+                       "- Template persistence: %12\n"
+                       "- Secure Boot: %13\n"
+                       "- Diagnostic code: %14\n"
+                       "- Native cameras: total=%15 rgb=%16 ir=%17 unknown=%18\n"
+                       "- Native preview error: %19\n"
+                       "- Native preview dropped frames: %20\n")
+            .arg(redactedValue(m_systemState->dataSource()), redactedValue(m_systemState->distribution()),
+                 redactedValue(m_systemState->fedoraVersion()), redactedValue(m_systemState->plasmaVersion()),
+                 redactedValue(m_systemState->activeDisplayManager()),
                  redactedValue(m_systemState->engineStatusLabel()), redactedValue(m_systemState->engineVersion()),
                  redactedValue(m_systemState->visionStatusLabel()),
                  redactedValue(m_systemState->enrollmentStatusLabel()),

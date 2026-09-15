@@ -93,6 +93,7 @@ SystemStateSnapshot SystemProbe::evaluate(const SystemProbeInputs &inputs)
     state.scenarioId = QStringLiteral("native-local-identity-mvp");
     state.dataSource = translate("Live local system");
     state.liveData = true;
+    state.distribution = parseOsReleaseValue(inputs.osRelease, QStringLiteral("ID"));
     state.fedoraVersion = parseOsReleaseValue(inputs.osRelease, QStringLiteral("VERSION_ID"));
     state.plasmaVersion = inputs.plasmaVersion;
     state.activeDisplayManager = displayManagerLabel(inputs.displayManagerTarget);
@@ -126,6 +127,20 @@ SystemStateSnapshot SystemProbe::evaluate(const SystemProbeInputs &inputs)
                                                      : SystemStateSnapshot::VaultStatus::Unknown)));
         state.profileEnrolled = status.profileEnrolled;
         state.profileSampleCount = status.sampleCount;
+    }
+
+    if (state.distribution.compare(QStringLiteral("fedora"), Qt::CaseInsensitive) != 0 ||
+        state.fedoraVersion != QStringLiteral("44"))
+    {
+        state.headline = translate("This system is not qualified");
+        state.summary =
+            translate("LoofiFace-ID is qualified only for Fedora 44 with KDE Plasma. Detected system: %1 %2.")
+                .arg(state.distribution.isEmpty() ? translate("unknown distribution") : state.distribution,
+                     state.fedoraVersion.isEmpty() ? translate("unknown version") : state.fedoraVersion);
+        state.issueCode = QStringLiteral("unsupported-platform");
+        state.engineStatus = inputs.engine.engineAvailable ? SystemStateSnapshot::EngineStatus::LocalIdentityAvailable
+                                                           : SystemStateSnapshot::EngineStatus::Unavailable;
+        return state;
     }
 
     if (!inputs.engine.engineAvailable)
