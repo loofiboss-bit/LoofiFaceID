@@ -502,20 +502,29 @@ int kfaceauth_set_socket_permissions(const char *path, uint32_t mode, const char
     if (path == NULL)
         return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
 
-    if (chmod(path, (mode_t)mode) != 0)
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+
+    if (fchmod(fd, (mode_t)mode) != 0)
+    {
+        close(fd);
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    }
 
     if (groupname != NULL && groupname[0] != '\0')
     {
         struct group *gr = getgrnam(groupname);
         if (gr != NULL)
         {
-            if (chown(path, (uid_t)-1, gr->gr_gid) != 0)
+            if (fchown(fd, (uid_t)-1, gr->gr_gid) != 0)
             {
                 // Non-fatal if unprivileged
             }
         }
     }
+
+    close(fd);
     return KFACEAUTH_CRYPTO_OK;
 }
 
