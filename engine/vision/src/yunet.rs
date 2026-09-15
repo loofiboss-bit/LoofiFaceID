@@ -5,7 +5,9 @@
 use std::fmt;
 use std::path::Path;
 
-use kfaceauth_vision_opencv_sys::{BridgeError, Detector, RawDetection, opencv_version};
+use kfaceauth_vision_opencv_sys::{
+    BridgeError, Detector, InferenceBackend, RawDetection, opencv_version,
+};
 
 use crate::model::{ManifestEntry, ModelError, VerifiedArtifact, load_and_verify_model_inventory};
 use crate::{
@@ -25,7 +27,15 @@ pub const YUNET_MINIMUM_RUNTIME_DIMENSION: u32 = 64;
 
 const INITIAL_WIDTH: u32 = 320;
 const INITIAL_HEIGHT: u32 = 320;
+pub const TRACKING_WIDTH: u32 = 320;
+pub const TRACKING_HEIGHT: u32 = 320;
 const SCORE_TOLERANCE: f32 = 1.0e-5;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InferenceMode {
+    Tracking,
+    FullResolution,
+}
 
 pub struct YuNetProvider {
     detector: Detector,
@@ -75,10 +85,21 @@ impl YuNetProvider {
         opencv_version()
     }
 
+    #[must_use]
+    pub fn backend(&self) -> InferenceBackend {
+        self.detector.backend()
+    }
+
+    #[must_use]
+    pub fn uses_vulkan(&self) -> bool {
+        self.backend() == InferenceBackend::Vulkan
+    }
+
     pub(crate) fn detect_raw(
         &self,
         image: ImageView<'_>,
         control: ProcessingControl<'_>,
+        mode: InferenceMode,
     ) -> Result<(RuntimeInput, SensitiveDetections, crate::QualityMetrics), VisionError> {
         control.check()?;
         let quality = calculate_quality(image, control)?;
@@ -88,9 +109,20 @@ impl YuNetProvider {
             .ok()
             .and_then(|width| width.checked_mul(3))
             .ok_or(VisionError::InvalidRuntimeOutput)?;
+        let (inference_width, inference_height) = match mode {
+            InferenceMode::Tracking => (TRACKING_WIDTH, TRACKING_HEIGHT),
+            InferenceMode::FullResolution => (bgr.width, bgr.height),
+        };
         let raw = self
             .detector
-            .detect(&bgr.bytes.0, bgr.width, bgr.height, stride, YUNET_TOP_K)
+            .detect_at_resolution(
+                &bgr.bytes.0,
+                bgr.width,
+                bgr.height,
+                stride,
+                (inference_width, inference_height),
+                YUNET_TOP_K,
+            )
             .map_err(map_bridge_error)?;
         let raw = SensitiveDetections(raw);
         control.check()?;
@@ -106,7 +138,7 @@ impl VisionProvider for YuNetProvider {
         image: ImageView<'_>,
         control: ProcessingControl<'_>,
     ) -> Result<VisionAnalysis, VisionError> {
-        let (_bgr, raw, quality) = self.detect_raw(image, control)?;
+        let (_bgr, raw, quality) = self.detect_raw(image, control, InferenceMode::Tracking)?;
         let faces = validate_detections(&raw.0, image.width, image.height)?;
         control.check()?;
         Ok(VisionAnalysis { faces, quality })
@@ -383,13 +415,13 @@ mod tests {
         assert_eq!(smallest.height, YUNET_MINIMUM_RUNTIME_DIMENSION);
         assert_eq!(smallest.bytes.0.len(), 64 * 64 * 3);
 
-        let largest_bytes = vec![0; 640 * 480 * 4];
+        let largest_bytes = vec![0; 1920 * 1080 * 4];
         let largest =
-            ImageView::new(PixelFormat::Rgba8, 640, 480, 640 * 4, &largest_bytes).unwrap();
+            ImageView::new(PixelFormat::Rgba8, 1920, 1080, 1920 * 4, &largest_bytes).unwrap();
         let largest = convert_to_bgr(largest, control(&token)).unwrap();
-        assert_eq!(largest.width, 640);
-        assert_eq!(largest.height, 480);
-        assert_eq!(largest.bytes.0.len(), 640 * 480 * 3);
+        assert_eq!(largest.width, 1920);
+        assert_eq!(largest.height, 1080);
+        assert_eq!(largest.bytes.0.len(), 1920 * 1080 * 3);
     }
 
     #[test]
@@ -467,8 +499,9 @@ mod tests {
                 .is_empty()
         );
 
-        let largest_bytes = vec![0; 640 * 480 * 3];
-        let largest = ImageView::new(PixelFormat::Rgb8, 640, 480, 640 * 3, &largest_bytes).unwrap();
+        let largest_bytes = vec![0; 1920 * 1080 * 3];
+        let largest =
+            ImageView::new(PixelFormat::Rgb8, 1920, 1080, 1920 * 3, &largest_bytes).unwrap();
         assert!(
             provider
                 .analyze(largest, control(&token))

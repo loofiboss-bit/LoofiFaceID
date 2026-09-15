@@ -32,7 +32,7 @@ void CameraProviderTest::selectsBestBoundedFormat()
         {QSize(640, 480), 8.0},
         {QSize(640, 480), 5.0},
     };
-    QCOMPARE(CameraProvider::selectFormatIndex(formats), 2);
+    QCOMPARE(CameraProvider::selectFormatIndex(formats), 0);
     QCOMPARE(CameraProvider::selectFormatIndex({}), -1);
 }
 

@@ -20,6 +20,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CXXFLAGS");
     println!("cargo:rerun-if-env-changed=AR");
     println!("cargo:rerun-if-env-changed=KFACEAUTH_SOURCE_ROOT");
+    println!("cargo:rerun-if-env-changed=KFACEAUTH_HAS_OPENVINO");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR");
 
@@ -33,8 +34,8 @@ fn main() {
         .next()
         .and_then(|value| value.parse::<u32>().ok());
     assert!(
-        major == Some(4) && minor == Some(13),
-        "KFaceAuth 4.0.0 requires the reviewed Fedora OpenCV 4.13.x runtime, found {}",
+        major == Some(4) && minor.is_some_and(|minor| minor >= 8),
+        "KFaceAuth requires OpenCV >= 4.8.0, found {}",
         version.trim()
     );
 
@@ -73,6 +74,11 @@ fn main() {
         for flag in flags.to_string_lossy().split_whitespace() {
             compile.arg(flag);
         }
+    }
+    let has_openvino = env::var("KFACEAUTH_HAS_OPENVINO").is_ok_and(|value| value == "1")
+        || command_succeeded("pkg-config", ["--exists", "openvino"]);
+    if has_openvino {
+        compile.arg("-DKFACEAUTH_COMPILED_OPENVINO=1");
     }
     run(&mut compile, "compile the reviewed YuNet C ABI bridge");
 
@@ -139,4 +145,15 @@ fn run(command: &mut Command, purpose: &str) {
         .status()
         .unwrap_or_else(|error| panic!("failed to {purpose}: {error}"));
     assert!(status.success(), "failed to {purpose}");
+}
+
+fn command_succeeded<I, S>(program: &str, arguments: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    Command::new(program)
+        .args(arguments)
+        .status()
+        .is_ok_and(|status| status.success())
 }

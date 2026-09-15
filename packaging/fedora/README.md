@@ -2,7 +2,8 @@
 
 The Fedora 44 RPM builds the KCM and three ordinary-user workers. It installs
 the exact verified YuNet FP32 and SFace FP32 artifacts with manifest, licenses,
-and immutable provenance. Fedora supplies OpenCV 4.13, OpenSSL 3, and KF6
+and immutable provenance. Fedora supplies OpenCV 4.13 (the package contract
+accepts OpenCV >= 4.8), OpenSSL 3, and KF6
 KWallet; none is bundled.
 
 ## Package transition

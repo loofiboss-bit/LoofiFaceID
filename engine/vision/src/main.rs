@@ -3,7 +3,23 @@
 #![forbid(unsafe_code)]
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use kfaceauth_vision_opencv_sys::{configure_worker_sandbox, install_seccomp};
+
+fn initialize_provider(
+    model_root: &Path,
+) -> Result<kfaceauth_vision::yunet::YuNetProvider, kfaceauth_vision::worker::WorkerErrorCode> {
+    configure_worker_sandbox(model_root, None)
+        .map_err(|_| kfaceauth_vision::worker::WorkerErrorCode::InternalError)?;
+    let provider = kfaceauth_vision::yunet::YuNetProvider::from_model_root(model_root)
+        .map_err(|_| kfaceauth_vision::worker::WorkerErrorCode::ModelUnavailable)?;
+    if std::env::var_os("KFACEAUTH_ENABLE_SECCOMP_SANDBOX").is_some() {
+        install_seccomp(provider.uses_vulkan())
+            .map_err(|_| kfaceauth_vision::worker::WorkerErrorCode::InternalError)?;
+    }
+    Ok(provider)
+}
 
 fn main() {
     let arguments: Vec<_> = std::env::args_os().collect();
@@ -34,8 +50,7 @@ fn main() {
             &mut output,
             move || {
                 hardening.map_err(|_| kfaceauth_vision::worker::WorkerErrorCode::InternalError)?;
-                kfaceauth_vision::yunet::YuNetProvider::from_model_root(&model_root)
-                    .map_err(|_| kfaceauth_vision::worker::WorkerErrorCode::ModelUnavailable)
+                initialize_provider(&model_root)
             },
         )
     } else {
@@ -44,8 +59,7 @@ fn main() {
             &mut output,
             move || {
                 hardening.map_err(|_| kfaceauth_vision::worker::WorkerErrorCode::InternalError)?;
-                kfaceauth_vision::yunet::YuNetProvider::from_model_root(&model_root)
-                    .map_err(|_| kfaceauth_vision::worker::WorkerErrorCode::ModelUnavailable)
+                initialize_provider(&model_root)
             },
         )
     };

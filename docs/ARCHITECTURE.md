@@ -15,7 +15,7 @@ KDE System Settings / KFaceAuthKcm
   +-- KWalletKeyProvider
 
 Rust identity worker
-  -> vision -> vision-opencv-sys -> Fedora OpenCV 4.13
+  -> vision -> vision-opencv-sys -> OpenCV >=4.8 (Fedora baseline: 4.13)
   -> identity-types
   -> templates -> crypto-openssl-sys -> Fedora OpenSSL 3
 ```

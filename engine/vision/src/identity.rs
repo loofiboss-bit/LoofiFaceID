@@ -18,7 +18,7 @@ use kfaceauth_vision_opencv_sys::{
 };
 
 use crate::model::{ManifestEntry, ModelError, load_and_verify_model_inventory};
-use crate::yunet::{ProviderLoadError as DetectorLoadError, YuNetProvider};
+use crate::yunet::{InferenceMode, ProviderLoadError as DetectorLoadError, YuNetProvider};
 use crate::{ImageView, ProcessingControl, VisionError};
 
 pub const SFACE_ARTIFACT_ID: &str = "sface-2021dec";
@@ -83,7 +83,9 @@ impl IdentityProvider {
         image: ImageView<'_>,
         control: ProcessingControl<'_>,
     ) -> Result<NormalizedEmbedding, IdentityError> {
-        let (bgr, detections, quality) = self.detector.detect_raw(image, control)?;
+        let (bgr, detections, quality) =
+            self.detector
+                .detect_raw(image, control, InferenceMode::FullResolution)?;
         if detections.0.is_empty() {
             return Err(IdentityError::NoFace);
         }

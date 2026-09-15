@@ -175,11 +175,21 @@ QByteArray CameraProvider::encodeFrame(const QImage &source)
     if (image.width() > PreviewProtocol::MaxWidth || image.height() > PreviewProtocol::MaxHeight)
         image = image.scaled(PreviewProtocol::MaxWidth, PreviewProtocol::MaxHeight, Qt::KeepAspectRatio,
                              Qt::SmoothTransformation);
-    QByteArray jpeg;
-    QBuffer buffer(&jpeg);
-    if (buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "JPEG", 75) &&
-        jpeg.size() <= PreviewProtocol::MaxJpegBytes)
-        return jpeg;
+    for (int scaleAttempt = 0; scaleAttempt < 4; ++scaleAttempt)
+    {
+        for (const int quality : {75, 60, 45, 30})
+        {
+            QByteArray jpeg;
+            QBuffer buffer(&jpeg);
+            if (buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "JPEG", quality) &&
+                jpeg.size() <= PreviewProtocol::MaxJpegBytes)
+                return jpeg;
+        }
+        if (image.width() <= 640 && image.height() <= 480)
+            break;
+        image = image.scaled(std::max(1, image.width() * 3 / 4), std::max(1, image.height() * 3 / 4),
+                             Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    }
     return {};
 }
 

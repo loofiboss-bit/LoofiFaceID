@@ -1,22 +1,21 @@
 # Runtime selection
 
-Status: Milestone 3 production decision, reviewed 2026-07-29.
+Status: Milestone 3 production decision, reviewed 2026-09-15.
 
 ## Decision
 
-KFaceAuth uses Fedora 44's OpenCV 4.13 packages and
+KFaceAuth uses OpenCV 4.8 or newer (Fedora 44's release baseline is 4.13) and
 `cv::FaceDetectorYN` through a small, project-owned C ABI bridge. The Rust
 worker remains the protocol, model-verification, preprocessing,
 postprocessing, cancellation, and result-validation owner. The bridge owns
 only the OpenCV C++ detector object and transfers fixed-layout rows containing
 15 `float` values.
 
-Fedora 44 provides OpenCV 4.13.0 in the official repositories. Builds require
-`opencv-devel >= 4.13.0`; the installed worker links only the OpenCV core, DNN,
-image-processing, and object-detection libraries that it uses. The build
-rejects another OpenCV minor release until that implementation has been
-reviewed. There is no bundled OpenCV binary, runtime downloader, Python
-process, shell command, or network operation.
+Builds require `opencv-devel >= 4.8.0`; the installed worker links only the
+OpenCV core, DNN, image-processing, and object-detection libraries that it
+uses. OpenVINO and Vulkan are probed opportunistically at runtime. There is no
+bundled OpenCV binary, runtime downloader, Python process, shell command, or
+network operation.
 
 This is the smallest integration that keeps inference on Fedora-supported
 system libraries without importing a large generated binding surface.
@@ -29,12 +28,23 @@ C ABI. The C++ side:
 
 - copies the caller's BGR pixels into an OpenCV-owned matrix;
 - initializes `FaceDetectorYN` from the already verified in-memory ONNX bytes;
-- selects the OpenCV CPU backend and target;
+- selects OpenVINO, Vulkan, or the OpenCV CPU backend with runtime fallback;
 - accepts no filenames, URLs, device handles, or arbitrary operations;
 - catches C++ exceptions before they can cross the C ABI;
 - returns stable status values and bounded POD rows;
 - disables process core dumps before model or frame processing;
-- clears temporary model, pixel, and detection buffers where practical.
+- clears temporary model, pixel, caller-owned activation, and detection buffers
+  where practical; the public OpenCV face APIs do not expose a per-request
+  reset for graph-internal activation storage, which is released with the
+  worker graph;
+- attempts `mlock2(MLOCK_ONFAULT)` on inference buffers and can make that
+  hardening requirement strict through an environment switch;
+- applies Landlock rules before acceleration when the kernel supports them;
+  the vision worker receives only the model/GPU paths, while the identity
+  worker additionally receives the explicitly derived XDG data subtree needed
+  for vault commits;
+- keeps the seccomp DRM-ioctl filter opt-in because its syscall surface must be
+  qualified with the deployed OpenCV build.
 
 Configure and build use the system compiler, `pkg-config`, and already
 installed Fedora packages. Cargo has no registry dependencies, so locked

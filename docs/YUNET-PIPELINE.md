@@ -7,7 +7,7 @@ in `engine/vision-opencv-sys/native/yunet_bridge.cpp`.
 ## Input and conversion
 
 The worker accepts exactly one bounded frame in `RGB8`, `RGBA8`, or `Gray8`
-format. Width is `1..640`, height is `1..480`, and stride may contain padding
+format. Width is `1..1920`, height is `1..1080`, and stride may contain padding
 but must cover every packed row. Protocol parsing validates the exact payload
 length and all multiplication and addition before preprocessing.
 
@@ -27,10 +27,21 @@ subtraction, scale factor, alpha blending, or color-space heuristic.
 
 ## OpenCV inference
 
-The bridge initializes OpenCV 4.13 `FaceDetectorYN` directly from the verified
-FP32 ONNX bytes. Immediately before detection, the detector input size is set
-to the BGR buffer size: the original frame size unless the documented
-64-pixel minimum padding applies.
+The bridge initializes `FaceDetectorYN` directly from the verified FP32 ONNX
+bytes. It accepts OpenCV 4.8 or newer. Backend selection probes OpenVINO first,
+then Vulkan when the worker sandbox is active, and finally the OpenCV CPU
+backend. Any accelerator initialization or inference failure is retried on
+CPU. The default OpenCV thread pool is bounded to two threads on small CPUs or
+four otherwise.
+
+Tracking analysis letterboxes the source frame into a 320×320 inference image
+and maps validated coordinates back to the source dimensions. Identity
+extraction uses the source resolution directly, bounded at 1920×1080, so the
+five landmarks and the subsequent 112×112 SFace crop retain full-frame
+precision.
+
+For full-resolution detection, the detector input size is set to the BGR
+buffer size unless the documented 64-pixel minimum padding applies.
 
 OpenCV's YuNet implementation creates its DNN blob with scale `1.0`, zero mean,
 no channel swap, and no crop. Internally it pads only the right and bottom
@@ -47,7 +58,7 @@ The fixed production parameters are:
 | NMS threshold | `0.3` |
 | OpenCV `topK` | `5000` |
 | emitted face limit | `8` |
-| backend/target | OpenCV CPU |
+| backend/target | OpenVINO, Vulkan, or OpenCV CPU with runtime fallback |
 
 OpenCV performs score filtering and non-maximum suppression. Thresholds are
 finite, compiled constants; the benchmark and user configuration cannot
@@ -92,7 +103,7 @@ liveness confidence, anti-spoof evidence, or authentication confidence.
 
 ## Upstream parity
 
-The implementation follows OpenCV 4.13's `FaceDetectorYN` buffer-loading path,
+The implementation follows the supported OpenCV `FaceDetectorYN` buffer-loading path,
 input-size update, blob parameters, right/bottom multiple-of-32 padding, score
 thresholding, and NMS. KFaceAuth's additional below-64 right/bottom padding is
 explicitly tested at the smallest accepted frame. Native tests exercise model

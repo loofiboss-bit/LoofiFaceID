@@ -4,6 +4,9 @@
 |---|---|
 | Model supply chain | exact YuNet/SFace names, sizes, hashes, licenses, provenance; missing/renamed/modified/duplicate/unlisted rejection |
 | OpenCV bridge | owned input copies, five-landmark alignment, 112×112 BGR crop, 1×128 FP32 feature, exception containment, malformed/non-finite rejection |
+| M3 inference selection | OpenCV thread cap and 1/2/4/8/16 sweep schema, OpenVINO/Vulkan probing, forced accelerator-failure CPU fallback, 320×320 tracking, source-resolution detection, 1920×1080 bounds |
+| M3 memory/sandbox | best-effort `mlock2(MLOCK_ONFAULT)`, zeroized native matrices/model copies, optional Landlock policy, opt-in DRM-filtered seccomp path |
+| M3 quantization audit | offline model metadata, embedding parity, LFW/IJB-C aggregate FAR/FRR drift report; actual data-dependent result requires permissioned INT8 weights and datasets |
 | Embeddings | zero norm, non-finite/range failure, deterministic L2 normalization and cosine, model/version binding |
 | Identity protocol | closed operations, positive generations, exact bounds, malformed/trailing/oversized frames, fixed response types, no scores |
 | Vault crypto | AES-GCM round trip, wrong key, tag/ciphertext/AAD tamper, nonce uniqueness, plaintext/key absence |

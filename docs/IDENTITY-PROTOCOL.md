@@ -15,11 +15,11 @@ sensitive buffers where practical, and exits.
 - Protocol version: `1`
 - Request common header: 16 bytes
 - Maximum request payload:
-  `64 + 640*480*4 + 8*128*4 = 1,232,960` bytes
+  `64 + 1920*1080*4 + 8*128*4 = 8,298,560` bytes
 - Maximum response payload: `64 + 128*4 = 576` bytes
 - Generation: positive big-endian `u64`
 - Timeout: big-endian `u32`, `1..=10,000` milliseconds
-- Image maximum: 640×480, exact packed RGB8/RGBA8/Gray8 payload
+- Image maximum: 1920×1080, exact packed RGB8/RGBA8/Gray8 payload
 - Key: exactly 32 bytes
 - Embedding: exactly 128 little-endian FP32 values
 - Profile samples: 3..=8; an enrollment transaction recommends 5

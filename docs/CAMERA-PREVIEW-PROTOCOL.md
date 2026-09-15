@@ -2,8 +2,9 @@
 
 The KCM starts `/usr/libexec/kfaceauth-camera-preview-worker` directly,
 without a shell. Commands travel on stdin and responses on stdout. Each record
-is a four-byte unsigned big-endian length followed by one CBOR map. The
-maximum CBOR payload is 135,168 bytes.
+is a four-byte unsigned big-endian length followed by one CBOR map. The JPEG
+field is limited to 512 KiB; the parser also applies the raw-frame record bound
+from `PreviewProtocol::MaxRecordBytes`.
 
 Every record contains:
 
@@ -32,8 +33,8 @@ invalid CBOR, zero lengths, and oversized records produce `protocol-error`.
 - `stopped`: bounded reason and whether capture had been active.
 - `error`: a stable error code.
 
-Labels are UTF-8 and limited to 128 bytes. Frames are at most 640×480 and
-128 KiB. Capture is throttled to 8 fps. Only one pending frame is retained;
+Labels are UTF-8 and limited to 128 bytes. Frames are at most 1920×1080 and
+512 KiB JPEG. Capture is throttled to 30 fps. Only one pending frame is retained;
 new frames replace an older pending frame and increment the drop counter.
 Control responses take priority over a pending frame.
 

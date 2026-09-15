@@ -5,21 +5,41 @@
 
 #include <opencv2/core/version.hpp>
 #include <opencv2/dnn.hpp>
+#include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect/face.hpp>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
+#include <cerrno>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <new>
+#include <string>
 #include <vector>
 
 #if defined(__linux__)
+#include <fcntl.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
+#if __has_include(<linux/landlock.h>)
+#include <linux/landlock.h>
+#define KFACEAUTH_HAS_LANDLOCK_HEADER 1
+#endif
+#include <linux/seccomp.h>
+#include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
 #endif
 
 namespace
@@ -28,15 +48,55 @@ constexpr size_t ExpectedModelBytes = 232589;
 constexpr size_t ExpectedSFaceModelBytes = 38696353;
 constexpr int32_t MaximumTopK = 5000;
 constexpr size_t MaximumDetections = 5000;
+constexpr int32_t MaximumWidth = 1920;
+constexpr int32_t MaximumHeight = 1080;
+constexpr int32_t MaximumThreadCount = 16;
+constexpr int32_t TrackingWidth = 320;
+constexpr int32_t TrackingHeight = 320;
+
+enum class Backend : int32_t
+{
+    Cpu = KFACEAUTH_YUNET_BACKEND_CPU,
+    OpenVino = KFACEAUTH_YUNET_BACKEND_OPENVINO,
+    Vulkan = KFACEAUTH_YUNET_BACKEND_VULKAN,
+};
+
+struct BackendSpec
+{
+    Backend kind;
+    int backendId;
+    int targetId;
+};
+
+constexpr BackendSpec CpuBackend{Backend::Cpu, cv::dnn::DNN_BACKEND_OPENCV, cv::dnn::DNN_TARGET_CPU};
+constexpr BackendSpec OpenVinoBackend{Backend::OpenVino, cv::dnn::DNN_BACKEND_INFERENCE_ENGINE,
+                                      cv::dnn::DNN_TARGET_CPU};
+constexpr BackendSpec VulkanBackend{Backend::Vulkan, cv::dnn::DNN_BACKEND_VKCOM, cv::dnn::DNN_TARGET_VULKAN};
+
+std::mutex ThreadMutex;
+int32_t ConfiguredThreadCount = 0;
+std::atomic<bool> WorkerSandboxApplied{false};
+std::atomic<bool> SeccompInstalled{false};
+
+class PinnedRegion;
 
 struct Detector
 {
     cv::Ptr<cv::FaceDetectorYN> value;
+    Backend backend = Backend::Cpu;
+    std::vector<uint8_t> model;
+    std::unique_ptr<PinnedRegion> pinnedModel;
+    float scoreThreshold = 0.9F;
+    float nmsThreshold = 0.3F;
+    int32_t topK = MaximumTopK;
 };
 
 struct Recognizer
 {
     cv::Ptr<cv::FaceRecognizerSF> value;
+    Backend backend = Backend::Cpu;
+    std::vector<uint8_t> model;
+    std::unique_ptr<PinnedRegion> pinnedModel;
 };
 
 static_assert(sizeof(KFaceAuthYuNetDetection) == sizeof(float) * 15);
@@ -44,7 +104,7 @@ static_assert(alignof(KFaceAuthYuNetDetection) == alignof(float));
 
 bool validGeometry(int32_t width, int32_t height)
 {
-    return width > 0 && width <= 640 && height > 0 && height <= 480;
+    return width > 0 && width <= MaximumWidth && height > 0 && height <= MaximumHeight;
 }
 
 bool validThreshold(float value)
@@ -65,16 +125,275 @@ bool validPackedBgr(size_t bgrSize, int32_t width, int32_t height, size_t stride
            bgrSize == stride * heightSize;
 }
 
+void secureClear(void *data, size_t size)
+{
+    if (!data || size == 0)
+        return;
+    auto *bytes = static_cast<volatile uint8_t *>(data);
+    for (size_t index = 0; index < size; ++index)
+        bytes[index] = 0;
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+}
+
 void clearBytes(std::vector<uint8_t> *bytes)
 {
-    if (bytes)
-        std::fill(bytes->begin(), bytes->end(), uint8_t{0});
+    if (bytes && !bytes->empty())
+        secureClear(bytes->data(), bytes->size());
 }
 
 void clearMat(cv::Mat *matrix)
 {
-    if (matrix && !matrix->empty())
-        matrix->setTo(0);
+    if (!matrix || matrix->empty() || !matrix->data)
+        return;
+    const size_t rowBytes = matrix->step[0];
+    for (int row = 0; row < matrix->rows; ++row)
+        secureClear(matrix->ptr<uint8_t>(row), rowBytes);
+}
+
+class MatClearGuard
+{
+  public:
+    MatClearGuard(cv::Mat *first, cv::Mat *second, cv::Mat *third, cv::Mat *fourth = nullptr)
+        : matrices_{first, second, third, fourth}
+    {
+    }
+
+    ~MatClearGuard()
+    {
+        for (cv::Mat *matrix : matrices_)
+            clearMat(matrix);
+    }
+
+    MatClearGuard(const MatClearGuard &) = delete;
+    MatClearGuard &operator=(const MatClearGuard &) = delete;
+
+  private:
+    std::array<cv::Mat *, 4> matrices_;
+};
+
+class PinnedRegion
+{
+  public:
+    PinnedRegion() = default;
+
+    PinnedRegion(void *data, size_t size) : data_(data), size_(size), locked_(tryLock(data, size)) {}
+
+    PinnedRegion(const PinnedRegion &) = delete;
+    PinnedRegion &operator=(const PinnedRegion &) = delete;
+
+    PinnedRegion(PinnedRegion &&other) noexcept : data_(other.data_), size_(other.size_), locked_(other.locked_)
+    {
+        other.data_ = nullptr;
+        other.size_ = 0;
+        other.locked_ = false;
+    }
+
+    PinnedRegion &operator=(PinnedRegion &&other) noexcept
+    {
+        if (this != &other)
+        {
+            unlock();
+            data_ = other.data_;
+            size_ = other.size_;
+            locked_ = other.locked_;
+            other.data_ = nullptr;
+            other.size_ = 0;
+            other.locked_ = false;
+        }
+        return *this;
+    }
+
+    ~PinnedRegion()
+    {
+        unlock();
+    }
+
+    [[nodiscard]] bool locked() const
+    {
+        return locked_;
+    }
+
+    void unlock()
+    {
+#if defined(__linux__)
+        if (locked_ && data_ && size_ > 0)
+            ::munlock(data_, size_);
+#endif
+        locked_ = false;
+    }
+
+  private:
+    static bool tryLock(void *data, size_t size)
+    {
+#if defined(__linux__) && defined(SYS_mlock2)
+        if (!data || size == 0)
+            return false;
+        struct rlimit limit{};
+        if (::getrlimit(RLIMIT_MEMLOCK, &limit) == 0 && limit.rlim_cur < limit.rlim_max)
+        {
+            struct rlimit raised = limit;
+            raised.rlim_cur = limit.rlim_max;
+            (void)::setrlimit(RLIMIT_MEMLOCK, &raised);
+        }
+        return ::syscall(SYS_mlock2, data, size, MLOCK_ONFAULT) == 0;
+#else
+        (void)data;
+        (void)size;
+        return false;
+#endif
+    }
+
+    void *data_ = nullptr;
+    size_t size_ = 0;
+    bool locked_ = false;
+};
+
+bool requireMemoryPinning()
+{
+    const char *value = std::getenv("KFACEAUTH_REQUIRE_MEMLOCK");
+    return value && std::strcmp(value, "1") == 0;
+}
+
+int32_t defaultThreadCount()
+{
+    const char *overrideValue = std::getenv("KFACEAUTH_OPENCV_THREADS");
+    if (overrideValue)
+    {
+        char *end = nullptr;
+        const long parsed = std::strtol(overrideValue, &end, 10);
+        if (end != overrideValue && *end == '\0' && parsed >= 1 && parsed <= MaximumThreadCount)
+            return static_cast<int32_t>(parsed);
+    }
+    return cv::getNumberOfCPUs() <= 4 ? 2 : 4;
+}
+
+void configureThreads()
+{
+    std::lock_guard lock(ThreadMutex);
+    if (ConfiguredThreadCount == 0)
+    {
+        ConfiguredThreadCount = defaultThreadCount();
+        cv::setNumThreads(ConfiguredThreadCount);
+    }
+}
+
+bool environmentFlag(const char *name)
+{
+    const char *value = std::getenv(name);
+    return value && (std::strcmp(value, "1") == 0 || std::strcmp(value, "true") == 0 || std::strcmp(value, "yes") == 0);
+}
+
+bool backendDisabled(Backend backend)
+{
+    if (backend == Backend::OpenVino)
+        return environmentFlag("KFACEAUTH_TEST_FAIL_OPENVINO");
+    if (backend == Backend::Vulkan)
+        return environmentFlag("KFACEAUTH_TEST_FAIL_VULKAN");
+    return false;
+}
+
+bool backendAvailable(Backend backend)
+{
+    if (backend == Backend::Cpu)
+        return true;
+#if !defined(KFACEAUTH_COMPILED_OPENVINO)
+    if (backend == Backend::OpenVino)
+        return false;
+#endif
+    if (backendDisabled(backend))
+        return false;
+    if (backend == Backend::Vulkan && !WorkerSandboxApplied.load(std::memory_order_acquire) &&
+        !environmentFlag("KFACEAUTH_ALLOW_UNSANDBOXED_ACCELERATION"))
+        return false;
+
+    const BackendSpec requested = backend == Backend::OpenVino ? OpenVinoBackend : VulkanBackend;
+    try
+    {
+        const auto available = cv::dnn::getAvailableBackends();
+        return std::any_of(available.cbegin(), available.cend(), [&requested](const auto &entry)
+                           { return entry.first == requested.backendId && entry.second == requested.targetId; });
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+struct BackendRequest
+{
+    Backend requested = Backend::Cpu;
+    bool automatic = true;
+};
+
+BackendRequest requestedBackend()
+{
+    const char *value = std::getenv("KFACEAUTH_INFERENCE_BACKEND");
+    if (!value)
+        value = std::getenv("KFACEAUTH_ACCELERATION");
+    if (!value || std::strcmp(value, "auto") == 0)
+        return {};
+    if (std::strcmp(value, "openvino") == 0)
+        return {Backend::OpenVino, false};
+    if (std::strcmp(value, "vulkan") == 0)
+        return {Backend::Vulkan, false};
+    return {Backend::Cpu, false};
+}
+
+std::array<BackendSpec, 3> backendCandidates()
+{
+    const BackendRequest request = requestedBackend();
+    if (!request.automatic)
+    {
+        if (request.requested == Backend::OpenVino)
+            return {OpenVinoBackend, CpuBackend, CpuBackend};
+        if (request.requested == Backend::Vulkan)
+            return {VulkanBackend, CpuBackend, CpuBackend};
+        return {CpuBackend, CpuBackend, CpuBackend};
+    }
+    return {OpenVinoBackend, VulkanBackend, CpuBackend};
+}
+
+template <typename Factory>
+auto createWithFallback(Factory factory, Backend *selected, std::vector<uint8_t> *modelForFallback)
+    -> decltype(factory(CpuBackend))
+{
+    for (const BackendSpec &candidate : backendCandidates())
+    {
+        if (!backendAvailable(candidate.kind))
+            continue;
+        try
+        {
+            auto value = factory(candidate);
+            if (!value.empty())
+            {
+                *selected = candidate.kind;
+                if (candidate.kind == Backend::Cpu)
+                    clearBytes(modelForFallback);
+                return value;
+            }
+        }
+        catch (...)
+        {
+            // An unavailable accelerator is an expected runtime condition.
+        }
+    }
+    return {};
+}
+
+template <typename Factory>
+auto createCpu(Factory factory, std::vector<uint8_t> *modelForFallback) -> decltype(factory(CpuBackend))
+{
+    try
+    {
+        auto value = factory(CpuBackend);
+        if (!value.empty())
+            return value;
+    }
+    catch (...)
+    {
+    }
+    clearBytes(modelForFallback);
+    return {};
 }
 } // namespace
 
@@ -95,6 +414,253 @@ extern "C" const char *kfaceauth_yunet_opencv_version(void)
     return CV_VERSION;
 }
 
+extern "C" int kfaceauth_yunet_set_thread_count(int32_t thread_count)
+{
+    if (thread_count < 1 || thread_count > MaximumThreadCount)
+        return KFACEAUTH_YUNET_INVALID_ARGUMENT;
+    std::lock_guard lock(ThreadMutex);
+    cv::setNumThreads(thread_count);
+    ConfiguredThreadCount = thread_count;
+    return KFACEAUTH_YUNET_OK;
+}
+
+extern "C" int32_t kfaceauth_yunet_thread_count(void)
+{
+    configureThreads();
+    return cv::getNumThreads();
+}
+
+#if defined(__linux__) && defined(KFACEAUTH_HAS_LANDLOCK_HEADER) && defined(SYS_landlock_create_ruleset) &&            \
+    defined(SYS_landlock_add_rule) && defined(SYS_landlock_restrict_self)
+namespace
+{
+constexpr __u64 LandlockReadAccess =
+    LANDLOCK_ACCESS_FS_EXECUTE | LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_READ_DIR;
+constexpr __u64 LandlockWriteAccess = LANDLOCK_ACCESS_FS_WRITE_FILE;
+
+__u64 landlockHandledAccess(__u32 abi)
+{
+    __u64 handled = LandlockReadAccess | LandlockWriteAccess;
+#ifdef LANDLOCK_ACCESS_FS_REMOVE_DIR
+    handled |= LANDLOCK_ACCESS_FS_REMOVE_DIR | LANDLOCK_ACCESS_FS_REMOVE_FILE | LANDLOCK_ACCESS_FS_MAKE_CHAR |
+               LANDLOCK_ACCESS_FS_MAKE_DIR | LANDLOCK_ACCESS_FS_MAKE_REG | LANDLOCK_ACCESS_FS_MAKE_SOCK |
+               LANDLOCK_ACCESS_FS_MAKE_FIFO | LANDLOCK_ACCESS_FS_MAKE_BLOCK | LANDLOCK_ACCESS_FS_MAKE_SYM;
+#endif
+#ifdef LANDLOCK_ACCESS_FS_REFER
+    if (abi >= 2)
+        handled |= LANDLOCK_ACCESS_FS_REFER;
+#endif
+#ifdef LANDLOCK_ACCESS_FS_TRUNCATE
+    if (abi >= 3)
+        handled |= LANDLOCK_ACCESS_FS_TRUNCATE;
+#endif
+    return handled;
+}
+
+bool addLandlockRule(int ruleset, const char *path, __u64 access, bool required)
+{
+    const int descriptor = ::open(path, O_PATH | O_CLOEXEC);
+    if (descriptor < 0)
+        return !required;
+    struct landlock_path_beneath_attr rule{static_cast<__u64>(access), descriptor};
+    const long result = ::syscall(SYS_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &rule, 0);
+    const int savedErrno = errno;
+    ::close(descriptor);
+    return result == 0 || (!required && savedErrno == ENOENT);
+}
+
+bool applyLandlock(const char *modelRoot, const char *writableRoot)
+{
+    if (!modelRoot || *modelRoot == '\0')
+        return false;
+    struct landlock_ruleset_attr probe{};
+    const long abiResult =
+        ::syscall(SYS_landlock_create_ruleset, &probe, sizeof(probe), LANDLOCK_CREATE_RULESET_VERSION);
+    if (abiResult < 0)
+        return false;
+    const auto abi = static_cast<__u32>(abiResult);
+    probe.handled_access_fs = landlockHandledAccess(abi);
+    const int ruleset = static_cast<int>(::syscall(SYS_landlock_create_ruleset, &probe, sizeof(probe), 0));
+    if (ruleset < 0)
+        return false;
+
+    const __u64 modelAccess = LandlockReadAccess;
+    bool valid = addLandlockRule(ruleset, modelRoot, modelAccess, true);
+    if (writableRoot && *writableRoot)
+        valid = addLandlockRule(ruleset, writableRoot, landlockHandledAccess(abi), true) && valid;
+    const bool allowGpuPaths = requestedBackend().automatic || requestedBackend().requested == Backend::Vulkan;
+    if (allowGpuPaths)
+    {
+        valid = addLandlockRule(ruleset, "/usr/share/vulkan/icd.d", modelAccess, false) && valid;
+        valid = addLandlockRule(ruleset, "/usr/lib64/dri", modelAccess, false) && valid;
+        valid = addLandlockRule(ruleset, "/usr/lib/dri", modelAccess, false) && valid;
+        valid = addLandlockRule(ruleset, "/usr/lib64", modelAccess, false) && valid;
+        valid = addLandlockRule(ruleset, "/usr/lib", modelAccess, false) && valid;
+        valid = addLandlockRule(ruleset, "/dev/dri", modelAccess | LandlockWriteAccess, false) && valid;
+    }
+    if (!valid)
+    {
+        ::close(ruleset);
+        return false;
+    }
+    if (::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 || ::syscall(SYS_landlock_restrict_self, ruleset, 0) != 0)
+    {
+        ::close(ruleset);
+        return false;
+    }
+    ::close(ruleset);
+    WorkerSandboxApplied.store(true, std::memory_order_release);
+    return true;
+}
+} // namespace
+#endif
+
+extern "C" int kfaceauth_yunet_configure_worker_sandbox(const char *model_root, const char *writable_root)
+{
+    if (WorkerSandboxApplied.load(std::memory_order_acquire))
+        return KFACEAUTH_YUNET_SANDBOX_ALREADY_APPLIED;
+#if defined(__linux__) && defined(KFACEAUTH_HAS_LANDLOCK_HEADER) && defined(SYS_landlock_create_ruleset) &&            \
+    defined(SYS_landlock_add_rule) && defined(SYS_landlock_restrict_self)
+    if (applyLandlock(model_root, writable_root))
+        return KFACEAUTH_YUNET_SANDBOX_APPLIED;
+    if (!model_root || ::access(model_root, R_OK | X_OK) != 0)
+        return KFACEAUTH_YUNET_SANDBOX_FAILURE;
+    return KFACEAUTH_YUNET_SANDBOX_UNAVAILABLE;
+#else
+    (void)model_root;
+    (void)writable_root;
+    return KFACEAUTH_YUNET_SANDBOX_UNAVAILABLE;
+#endif
+}
+
+#if defined(__linux__)
+namespace
+{
+void appendAllowedSyscall(std::vector<sock_filter> *filter, int syscallNumber)
+{
+    filter->push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, static_cast<__u32>(syscallNumber), 0, 1));
+    filter->push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
+}
+
+bool installSeccompFilter(bool allowDrmIoctl)
+{
+    if (SeccompInstalled.load(std::memory_order_acquire))
+        return true;
+    std::vector<sock_filter> filter;
+    filter.reserve(64);
+    filter.push_back(BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)));
+#if defined(__x86_64__)
+    filter.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 1, 0));
+#elif defined(__aarch64__)
+    filter.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 1, 0));
+#else
+    return false;
+#endif
+    filter.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS));
+    filter.push_back(BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)));
+
+#define KFACEAUTH_ALLOW_SYSCALL(name) appendAllowedSyscall(&filter, __NR_##name)
+    KFACEAUTH_ALLOW_SYSCALL(read);
+    KFACEAUTH_ALLOW_SYSCALL(write);
+    KFACEAUTH_ALLOW_SYSCALL(close);
+    KFACEAUTH_ALLOW_SYSCALL(fstat);
+    KFACEAUTH_ALLOW_SYSCALL(newfstatat);
+    KFACEAUTH_ALLOW_SYSCALL(openat);
+    KFACEAUTH_ALLOW_SYSCALL(readlinkat);
+    KFACEAUTH_ALLOW_SYSCALL(lseek);
+    KFACEAUTH_ALLOW_SYSCALL(mmap);
+    KFACEAUTH_ALLOW_SYSCALL(mprotect);
+    KFACEAUTH_ALLOW_SYSCALL(munmap);
+    KFACEAUTH_ALLOW_SYSCALL(brk);
+    KFACEAUTH_ALLOW_SYSCALL(madvise);
+    KFACEAUTH_ALLOW_SYSCALL(mremap);
+    KFACEAUTH_ALLOW_SYSCALL(futex);
+    KFACEAUTH_ALLOW_SYSCALL(clock_gettime);
+    KFACEAUTH_ALLOW_SYSCALL(getpid);
+    KFACEAUTH_ALLOW_SYSCALL(gettid);
+    KFACEAUTH_ALLOW_SYSCALL(getrandom);
+    KFACEAUTH_ALLOW_SYSCALL(rt_sigaction);
+    KFACEAUTH_ALLOW_SYSCALL(rt_sigprocmask);
+    KFACEAUTH_ALLOW_SYSCALL(rt_sigreturn);
+    KFACEAUTH_ALLOW_SYSCALL(set_robust_list);
+    KFACEAUTH_ALLOW_SYSCALL(rseq);
+    KFACEAUTH_ALLOW_SYSCALL(sched_getaffinity);
+    KFACEAUTH_ALLOW_SYSCALL(sched_yield);
+    KFACEAUTH_ALLOW_SYSCALL(prctl);
+#ifdef __NR_io_uring_setup
+    KFACEAUTH_ALLOW_SYSCALL(io_uring_setup);
+#endif
+    KFACEAUTH_ALLOW_SYSCALL(exit);
+    KFACEAUTH_ALLOW_SYSCALL(exit_group);
+#ifdef __NR_clone
+    KFACEAUTH_ALLOW_SYSCALL(clone);
+#endif
+#ifdef __NR_clone3
+    KFACEAUTH_ALLOW_SYSCALL(clone3);
+#endif
+#ifdef __NR_getdents64
+    KFACEAUTH_ALLOW_SYSCALL(getdents64);
+#endif
+#undef KFACEAUTH_ALLOW_SYSCALL
+
+    filter.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, static_cast<__u8>(allowDrmIoctl ? 1 : 0), 0));
+    filter.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS));
+    if (allowDrmIoctl)
+    {
+        filter.push_back(BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])));
+        filter.push_back(BPF_STMT(BPF_ALU | BPF_RSH | BPF_K, 8));
+        filter.push_back(BPF_STMT(BPF_ALU | BPF_AND | BPF_K, 0xff));
+        filter.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0x64, 1, 0));
+        filter.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS));
+        filter.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
+    }
+    struct sock_fprog program{static_cast<unsigned short>(filter.size()), filter.data()};
+    if (::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0)
+        return false;
+#ifdef SYS_seccomp
+    if (::syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program) != 0)
+        return false;
+#else
+    if (::prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) != 0)
+        return false;
+#endif
+    SeccompInstalled.store(true, std::memory_order_release);
+    return true;
+}
+} // namespace
+#endif
+
+extern "C" int kfaceauth_yunet_install_seccomp(int allow_drm_ioctl)
+{
+#if defined(__linux__)
+    return installSeccompFilter(allow_drm_ioctl != 0) ? KFACEAUTH_YUNET_OK : KFACEAUTH_YUNET_HARDENING_FAILURE;
+#else
+    (void)allow_drm_ioctl;
+    return KFACEAUTH_YUNET_HARDENING_FAILURE;
+#endif
+}
+
+extern "C" int kfaceauth_yunet_backend(void *engine)
+{
+    if (!engine)
+        return KFACEAUTH_YUNET_BACKEND_CPU;
+    return static_cast<int>(static_cast<Detector *>(engine)->backend);
+}
+
+extern "C" const char *kfaceauth_yunet_backend_name(int backend)
+{
+    switch (backend)
+    {
+    case KFACEAUTH_YUNET_BACKEND_OPENVINO:
+        return "openvino";
+    case KFACEAUTH_YUNET_BACKEND_VULKAN:
+        return "vulkan";
+    case KFACEAUTH_YUNET_BACKEND_CPU:
+    default:
+        return "cpu";
+    }
+}
+
 extern "C" int kfaceauth_yunet_create(const uint8_t *model_bytes, size_t model_size, int32_t width, int32_t height,
                                       float score_threshold, float nms_threshold, int32_t top_k, void **detector_out)
 {
@@ -103,23 +669,49 @@ extern "C" int kfaceauth_yunet_create(const uint8_t *model_bytes, size_t model_s
         top_k <= 0 || top_k > MaximumTopK)
         return KFACEAUTH_YUNET_INVALID_ARGUMENT;
 
+    configureThreads();
     std::vector<uint8_t> model;
     try
     {
         model.assign(model_bytes, model_bytes + model_size);
         const std::vector<uint8_t> emptyConfig;
-        auto detector =
-            cv::FaceDetectorYN::create("ONNX", model, emptyConfig, cv::Size(width, height), score_threshold,
-                                       nms_threshold, top_k, cv::dnn::DNN_BACKEND_OPENCV, cv::dnn::DNN_TARGET_CPU);
-        clearBytes(&model);
+        Backend selected = Backend::Cpu;
+        auto detector = createWithFallback(
+            [&model, &emptyConfig, width, height, score_threshold, nms_threshold, top_k](const BackendSpec &backend)
+            {
+                return cv::FaceDetectorYN::create("ONNX", model, emptyConfig, cv::Size(width, height), score_threshold,
+                                                  nms_threshold, top_k, backend.backendId, backend.targetId);
+            },
+            &selected, &model);
         if (detector.empty())
+        {
+            clearBytes(&model);
             return KFACEAUTH_YUNET_RUNTIME_FAILURE;
+        }
         constexpr float ThresholdTolerance = 1.0e-6F;
         if (std::abs(detector->getScoreThreshold() - score_threshold) > ThresholdTolerance ||
             std::abs(detector->getNMSThreshold() - nms_threshold) > ThresholdTolerance || detector->getTopK() != top_k)
+        {
+            clearBytes(&model);
             return KFACEAUTH_YUNET_RUNTIME_FAILURE;
+        }
         auto result = std::make_unique<Detector>();
         result->value = std::move(detector);
+        result->backend = selected;
+        result->scoreThreshold = score_threshold;
+        result->nmsThreshold = nms_threshold;
+        result->topK = top_k;
+        if (selected != Backend::Cpu)
+        {
+            result->model = std::move(model);
+            result->pinnedModel = std::make_unique<PinnedRegion>(result->model.data(), result->model.size());
+            if (requireMemoryPinning() && !result->pinnedModel->locked())
+            {
+                clearBytes(&result->model);
+                return KFACEAUTH_YUNET_HARDENING_FAILURE;
+            }
+        }
+        clearBytes(&model);
         *detector_out = result.release();
         return KFACEAUTH_YUNET_OK;
     }
@@ -134,69 +726,189 @@ extern "C" int kfaceauth_yunet_detect(void *detector, const uint8_t *bgr_bytes, 
                                       int32_t height, size_t stride, KFaceAuthYuNetDetection *detections,
                                       size_t detection_capacity, size_t *detection_count)
 {
-    if (!detector || !bgr_bytes || !detections || !detection_count ||
-        !validPackedBgr(bgr_size, width, height, stride) || detection_capacity == 0 ||
-        detection_capacity > MaximumDetections)
-        return KFACEAUTH_YUNET_INVALID_ARGUMENT;
+    return kfaceauth_yunet_detect_scaled(detector, bgr_bytes, bgr_size, width, height, stride, 0, 0, detections,
+                                         detection_capacity, detection_count);
+}
 
-    *detection_count = 0;
+namespace
+{
+int detectOnce(Detector *detector, const uint8_t *bgrBytes, int32_t width, int32_t height, size_t stride,
+               int32_t inferenceWidth, int32_t inferenceHeight, KFaceAuthYuNetDetection *detections,
+               size_t detectionCapacity, size_t *detectionCount)
+{
+    *detectionCount = 0;
     cv::Mat image;
+    cv::Mat inference;
     cv::Mat faces;
+    PinnedRegion pinnedInput;
+    PinnedRegion pinnedInference;
+    PinnedRegion pinnedFaces;
+    MatClearGuard clearOnExit(&image, &inference, &faces);
     try
     {
-        auto *typedDetector = static_cast<Detector *>(detector);
-        typedDetector->value->setInputSize(cv::Size(width, height));
         image.create(height, width, CV_8UC3);
         for (int32_t row = 0; row < height; ++row)
         {
             const auto rowOffset = static_cast<size_t>(row) * stride;
-            std::copy_n(bgr_bytes + rowOffset, stride, image.ptr<uint8_t>(row));
+            std::copy_n(bgrBytes + rowOffset, stride, image.ptr<uint8_t>(row));
         }
-        typedDetector->value->detect(image, faces);
+        pinnedInput = PinnedRegion(image.data, image.total() * image.elemSize());
+        if (requireMemoryPinning() && !pinnedInput.locked())
+            return KFACEAUTH_YUNET_HARDENING_FAILURE;
+
+        const bool scaled =
+            inferenceWidth > 0 && inferenceHeight > 0 && (inferenceWidth != width || inferenceHeight != height);
+        float scaleX = 1.0F;
+        float scaleY = 1.0F;
+        int32_t offsetX = 0;
+        int32_t offsetY = 0;
+        if (scaled)
+        {
+            const double scale =
+                std::min(static_cast<double>(inferenceWidth) / width, static_cast<double>(inferenceHeight) / height);
+            const int32_t resizedWidth = std::max(1, static_cast<int32_t>(std::lround(width * scale)));
+            const int32_t resizedHeight = std::max(1, static_cast<int32_t>(std::lround(height * scale)));
+            scaleX = static_cast<float>(resizedWidth) / static_cast<float>(width);
+            scaleY = static_cast<float>(resizedHeight) / static_cast<float>(height);
+            offsetX = (inferenceWidth - resizedWidth) / 2;
+            offsetY = (inferenceHeight - resizedHeight) / 2;
+            cv::Mat resized;
+            cv::resize(image, resized, cv::Size(resizedWidth, resizedHeight), 0.0, 0.0, cv::INTER_AREA);
+            inference = cv::Mat::zeros(inferenceHeight, inferenceWidth, CV_8UC3);
+            resized.copyTo(inference(cv::Rect(offsetX, offsetY, resizedWidth, resizedHeight)));
+            clearMat(&resized);
+        }
+        else
+        {
+            inference = image;
+        }
+        pinnedInference = PinnedRegion(inference.data, inference.total() * inference.elemSize());
+        if (requireMemoryPinning() && !pinnedInference.locked())
+        {
+            clearMat(&image);
+            if (scaled)
+                clearMat(&inference);
+            return KFACEAUTH_YUNET_HARDENING_FAILURE;
+        }
+
+        detector->value->setInputSize(inference.size());
+        detector->value->detect(inference, faces);
         if (faces.empty())
         {
-            image.setTo(0);
+            clearMat(&image);
+            if (scaled)
+                clearMat(&inference);
             return KFACEAUTH_YUNET_OK;
+        }
+        pinnedFaces = PinnedRegion(faces.data, faces.total() * faces.elemSize());
+        if (requireMemoryPinning() && !pinnedFaces.locked())
+        {
+            clearMat(&image);
+            if (scaled)
+                clearMat(&inference);
+            clearMat(&faces);
+            return KFACEAUTH_YUNET_HARDENING_FAILURE;
         }
         if (!KFaceAuthYuNet::validOutputShape(faces.dims, faces.type(), CV_32FC1, faces.rows, faces.cols))
         {
-            image.setTo(0);
-            faces.setTo(0);
+            clearMat(&image);
+            if (scaled)
+                clearMat(&inference);
+            clearMat(&faces);
             return KFACEAUTH_YUNET_MALFORMED_OUTPUT;
         }
         const auto count = static_cast<size_t>(faces.rows);
-        if (count > detection_capacity)
+        if (count > detectionCapacity)
         {
-            image.setTo(0);
-            faces.setTo(0);
+            clearMat(&image);
+            if (scaled)
+                clearMat(&inference);
+            clearMat(&faces);
             return KFACEAUTH_YUNET_OUTPUT_TOO_LARGE;
         }
         for (size_t row = 0; row < count; ++row)
         {
             const float *source = faces.ptr<float>(static_cast<int>(row));
-            std::copy_n(source, 15, detections[row].values);
+            auto &destination = detections[row].values;
+            destination[0] = (source[0] - static_cast<float>(offsetX)) / scaleX;
+            destination[1] = (source[1] - static_cast<float>(offsetY)) / scaleY;
+            destination[2] = source[2] / scaleX;
+            destination[3] = source[3] / scaleY;
+            for (int landmark = 0; landmark < 5; ++landmark)
+            {
+                destination[4 + landmark * 2] = (source[4 + landmark * 2] - static_cast<float>(offsetX)) / scaleX;
+                destination[5 + landmark * 2] = (source[5 + landmark * 2] - static_cast<float>(offsetY)) / scaleY;
+            }
+            destination[14] = source[14];
         }
-        *detection_count = count;
-        image.setTo(0);
-        faces.setTo(0);
+        *detectionCount = count;
+        clearMat(&image);
+        if (scaled)
+            clearMat(&inference);
+        clearMat(&faces);
         return KFACEAUTH_YUNET_OK;
     }
     catch (...)
     {
-        if (!image.empty())
-            image.setTo(0);
-        if (!faces.empty())
-            faces.setTo(0);
-        *detection_count = 0;
+        clearMat(&image);
+        if (!inference.empty() && inference.data != image.data)
+            clearMat(&inference);
+        clearMat(&faces);
+        *detectionCount = 0;
         return KFACEAUTH_YUNET_RUNTIME_FAILURE;
     }
+}
+} // namespace
+
+extern "C" int kfaceauth_yunet_detect_scaled(void *detector, const uint8_t *bgr_bytes, size_t bgr_size, int32_t width,
+                                             int32_t height, size_t stride, int32_t inference_width,
+                                             int32_t inference_height, KFaceAuthYuNetDetection *detections,
+                                             size_t detection_capacity, size_t *detection_count)
+{
+    if (!detector || !bgr_bytes || !detections || !detection_count ||
+        !validPackedBgr(bgr_size, width, height, stride) || detection_capacity == 0 ||
+        detection_capacity > MaximumDetections || (inference_width == 0) != (inference_height == 0) ||
+        (inference_width != 0 && !validGeometry(inference_width, inference_height)))
+        return KFACEAUTH_YUNET_INVALID_ARGUMENT;
+
+    auto *typedDetector = static_cast<Detector *>(detector);
+    int status = detectOnce(typedDetector, bgr_bytes, width, height, stride, inference_width, inference_height,
+                            detections, detection_capacity, detection_count);
+    if (status == KFACEAUTH_YUNET_RUNTIME_FAILURE && typedDetector->backend != Backend::Cpu &&
+        !typedDetector->model.empty())
+    {
+        const std::vector<uint8_t> model = typedDetector->model;
+        const std::vector<uint8_t> emptyConfig;
+        if (typedDetector->pinnedModel)
+            typedDetector->pinnedModel->unlock();
+        auto cpu = createCpu(
+            [&model, &emptyConfig, width, height, typedDetector](const BackendSpec &backend)
+            {
+                return cv::FaceDetectorYN::create("ONNX", model, emptyConfig, cv::Size(width, height),
+                                                  typedDetector->scoreThreshold, typedDetector->nmsThreshold,
+                                                  typedDetector->topK, backend.backendId, backend.targetId);
+            },
+            &typedDetector->model);
+        if (!cpu.empty())
+        {
+            typedDetector->value = std::move(cpu);
+            typedDetector->backend = Backend::Cpu;
+            clearBytes(&typedDetector->model);
+            status = detectOnce(typedDetector, bgr_bytes, width, height, stride, inference_width, inference_height,
+                                detections, detection_capacity, detection_count);
+        }
+    }
+    return status;
 }
 
 extern "C" void kfaceauth_yunet_destroy(void *detector)
 {
     try
     {
-        delete static_cast<Detector *>(detector);
+        auto *typedDetector = static_cast<Detector *>(detector);
+        if (typedDetector)
+            clearBytes(&typedDetector->model);
+        delete typedDetector;
     }
     catch (...)
     {
@@ -209,18 +921,36 @@ extern "C" int kfaceauth_sface_create(const uint8_t *model_bytes, size_t model_s
     if (!model_bytes || model_size != ExpectedSFaceModelBytes || !recognizer_out || *recognizer_out)
         return KFACEAUTH_YUNET_INVALID_ARGUMENT;
 
+    configureThreads();
     std::vector<uint8_t> model;
     try
     {
         model.assign(model_bytes, model_bytes + model_size);
         const std::vector<uint8_t> emptyConfig;
-        auto recognizer = cv::FaceRecognizerSF::create("ONNX", model, emptyConfig, cv::dnn::DNN_BACKEND_OPENCV,
-                                                       cv::dnn::DNN_TARGET_CPU);
-        clearBytes(&model);
+        Backend selected = Backend::Cpu;
+        auto recognizer = createWithFallback(
+            [&model, &emptyConfig](const BackendSpec &backend)
+            { return cv::FaceRecognizerSF::create("ONNX", model, emptyConfig, backend.backendId, backend.targetId); },
+            &selected, &model);
         if (recognizer.empty())
+        {
+            clearBytes(&model);
             return KFACEAUTH_YUNET_RUNTIME_FAILURE;
+        }
         auto result = std::make_unique<Recognizer>();
         result->value = std::move(recognizer);
+        result->backend = selected;
+        if (selected != Backend::Cpu)
+        {
+            result->model = std::move(model);
+            result->pinnedModel = std::make_unique<PinnedRegion>(result->model.data(), result->model.size());
+            if (requireMemoryPinning() && !result->pinnedModel->locked())
+            {
+                clearBytes(&result->model);
+                return KFACEAUTH_YUNET_HARDENING_FAILURE;
+            }
+        }
+        clearBytes(&model);
         *recognizer_out = result.release();
         return KFACEAUTH_YUNET_OK;
     }
@@ -230,6 +960,82 @@ extern "C" int kfaceauth_sface_create(const uint8_t *model_bytes, size_t model_s
         return KFACEAUTH_YUNET_RUNTIME_FAILURE;
     }
 }
+
+namespace
+{
+int extractOnce(Recognizer *recognizer, const uint8_t *bgrBytes, int32_t width, int32_t height, size_t stride,
+                const KFaceAuthYuNetDetection *detection, float *embedding, size_t embeddingCapacity,
+                size_t *embeddingCount)
+{
+    *embeddingCount = 0;
+    std::fill_n(embedding, embeddingCapacity, 0.0F);
+    cv::Mat image;
+    cv::Mat faceRow;
+    cv::Mat aligned;
+    cv::Mat feature;
+    PinnedRegion pinnedInput;
+    PinnedRegion pinnedFaceRow;
+    PinnedRegion pinnedAligned;
+    PinnedRegion pinnedFeature;
+    MatClearGuard clearOnExit(&image, &faceRow, &aligned, &feature);
+    try
+    {
+        image.create(height, width, CV_8UC3);
+        for (int32_t row = 0; row < height; ++row)
+        {
+            const auto rowOffset = static_cast<size_t>(row) * stride;
+            std::copy_n(bgrBytes + rowOffset, stride, image.ptr<uint8_t>(row));
+        }
+        pinnedInput = PinnedRegion(image.data, image.total() * image.elemSize());
+        if (requireMemoryPinning() && !pinnedInput.locked())
+            return KFACEAUTH_YUNET_HARDENING_FAILURE;
+
+        faceRow.create(1, 15, CV_32FC1);
+        std::copy_n(detection->values, 15, faceRow.ptr<float>(0));
+        pinnedFaceRow = PinnedRegion(faceRow.data, faceRow.total() * faceRow.elemSize());
+        if (requireMemoryPinning() && !pinnedFaceRow.locked())
+            return KFACEAUTH_YUNET_HARDENING_FAILURE;
+
+        recognizer->value->alignCrop(image, faceRow, aligned);
+        if (aligned.dims != 2 || aligned.type() != CV_8UC3 || aligned.rows != KFACEAUTH_SFACE_ALIGNED_HEIGHT ||
+            aligned.cols != KFACEAUTH_SFACE_ALIGNED_WIDTH)
+            return KFACEAUTH_YUNET_MALFORMED_OUTPUT;
+        pinnedAligned = PinnedRegion(aligned.data, aligned.total() * aligned.elemSize());
+        if (requireMemoryPinning() && !pinnedAligned.locked())
+            return KFACEAUTH_YUNET_HARDENING_FAILURE;
+
+        recognizer->value->feature(aligned, feature);
+        if (feature.dims != 2 || feature.type() != CV_32FC1 || feature.rows != 1 ||
+            feature.cols != KFACEAUTH_SFACE_EMBEDDING_DIMENSION || !feature.isContinuous())
+            return KFACEAUTH_YUNET_MALFORMED_OUTPUT;
+        pinnedFeature = PinnedRegion(feature.data, feature.total() * feature.elemSize());
+        if (requireMemoryPinning() && !pinnedFeature.locked())
+            return KFACEAUTH_YUNET_HARDENING_FAILURE;
+
+        const float *source = feature.ptr<float>(0);
+        if (!std::all_of(source, source + KFACEAUTH_SFACE_EMBEDDING_DIMENSION,
+                         [](float value) { return std::isfinite(value); }))
+            return KFACEAUTH_YUNET_MALFORMED_OUTPUT;
+        std::copy_n(source, KFACEAUTH_SFACE_EMBEDDING_DIMENSION, embedding);
+        *embeddingCount = KFACEAUTH_SFACE_EMBEDDING_DIMENSION;
+        clearMat(&image);
+        clearMat(&faceRow);
+        clearMat(&aligned);
+        clearMat(&feature);
+        return KFACEAUTH_YUNET_OK;
+    }
+    catch (...)
+    {
+        clearMat(&image);
+        clearMat(&faceRow);
+        clearMat(&aligned);
+        clearMat(&feature);
+        std::fill_n(embedding, embeddingCapacity, 0.0F);
+        *embeddingCount = 0;
+        return KFACEAUTH_YUNET_RUNTIME_FAILURE;
+    }
+}
+} // namespace
 
 extern "C" int kfaceauth_sface_extract(void *recognizer, const uint8_t *bgr_bytes, size_t bgr_size, int32_t width,
                                        int32_t height, size_t stride, const KFaceAuthYuNetDetection *detection,
@@ -242,71 +1048,30 @@ extern "C" int kfaceauth_sface_extract(void *recognizer, const uint8_t *bgr_byte
                      [](float value) { return std::isfinite(value); }))
         return KFACEAUTH_YUNET_INVALID_ARGUMENT;
 
-    *embedding_count = 0;
-    std::fill_n(embedding, embedding_capacity, 0.0F);
-    cv::Mat image;
-    cv::Mat faceRow;
-    cv::Mat aligned;
-    cv::Mat feature;
-    try
+    auto *typedRecognizer = static_cast<Recognizer *>(recognizer);
+    int status = extractOnce(typedRecognizer, bgr_bytes, width, height, stride, detection, embedding,
+                             embedding_capacity, embedding_count);
+    if (status == KFACEAUTH_YUNET_RUNTIME_FAILURE && typedRecognizer->backend != Backend::Cpu &&
+        !typedRecognizer->model.empty())
     {
-        image.create(height, width, CV_8UC3);
-        for (int32_t row = 0; row < height; ++row)
+        const std::vector<uint8_t> model = typedRecognizer->model;
+        const std::vector<uint8_t> emptyConfig;
+        if (typedRecognizer->pinnedModel)
+            typedRecognizer->pinnedModel->unlock();
+        auto cpu = createCpu(
+            [&model, &emptyConfig](const BackendSpec &backend)
+            { return cv::FaceRecognizerSF::create("ONNX", model, emptyConfig, backend.backendId, backend.targetId); },
+            &typedRecognizer->model);
+        if (!cpu.empty())
         {
-            const auto rowOffset = static_cast<size_t>(row) * stride;
-            std::copy_n(bgr_bytes + rowOffset, stride, image.ptr<uint8_t>(row));
+            typedRecognizer->value = std::move(cpu);
+            typedRecognizer->backend = Backend::Cpu;
+            clearBytes(&typedRecognizer->model);
+            status = extractOnce(typedRecognizer, bgr_bytes, width, height, stride, detection, embedding,
+                                 embedding_capacity, embedding_count);
         }
-        faceRow.create(1, 15, CV_32FC1);
-        std::copy_n(detection->values, 15, faceRow.ptr<float>(0));
-
-        auto *typedRecognizer = static_cast<Recognizer *>(recognizer);
-        typedRecognizer->value->alignCrop(image, faceRow, aligned);
-        if (aligned.dims != 2 || aligned.type() != CV_8UC3 || aligned.rows != KFACEAUTH_SFACE_ALIGNED_HEIGHT ||
-            aligned.cols != KFACEAUTH_SFACE_ALIGNED_WIDTH)
-        {
-            clearMat(&image);
-            clearMat(&faceRow);
-            clearMat(&aligned);
-            return KFACEAUTH_YUNET_MALFORMED_OUTPUT;
-        }
-        typedRecognizer->value->feature(aligned, feature);
-        if (feature.dims != 2 || feature.type() != CV_32FC1 || feature.rows != 1 ||
-            feature.cols != KFACEAUTH_SFACE_EMBEDDING_DIMENSION || !feature.isContinuous())
-        {
-            clearMat(&image);
-            clearMat(&faceRow);
-            clearMat(&aligned);
-            clearMat(&feature);
-            return KFACEAUTH_YUNET_MALFORMED_OUTPUT;
-        }
-        const float *source = feature.ptr<float>(0);
-        if (!std::all_of(source, source + KFACEAUTH_SFACE_EMBEDDING_DIMENSION,
-                         [](float value) { return std::isfinite(value); }))
-        {
-            clearMat(&image);
-            clearMat(&faceRow);
-            clearMat(&aligned);
-            clearMat(&feature);
-            return KFACEAUTH_YUNET_MALFORMED_OUTPUT;
-        }
-        std::copy_n(source, KFACEAUTH_SFACE_EMBEDDING_DIMENSION, embedding);
-        *embedding_count = KFACEAUTH_SFACE_EMBEDDING_DIMENSION;
-        clearMat(&image);
-        clearMat(&faceRow);
-        clearMat(&aligned);
-        clearMat(&feature);
-        return KFACEAUTH_YUNET_OK;
     }
-    catch (...)
-    {
-        clearMat(&image);
-        clearMat(&faceRow);
-        clearMat(&aligned);
-        clearMat(&feature);
-        std::fill_n(embedding, embedding_capacity, 0.0F);
-        *embedding_count = 0;
-        return KFACEAUTH_YUNET_RUNTIME_FAILURE;
-    }
+    return status;
 }
 
 extern "C" int kfaceauth_sface_cosine(void *recognizer, const float *left, size_t left_count, const float *right,
@@ -337,11 +1102,21 @@ extern "C" int kfaceauth_sface_cosine(void *recognizer, const float *left, size_
     }
 }
 
+extern "C" int kfaceauth_sface_backend(void *recognizer)
+{
+    if (!recognizer)
+        return KFACEAUTH_YUNET_BACKEND_CPU;
+    return static_cast<int>(static_cast<Recognizer *>(recognizer)->backend);
+}
+
 extern "C" void kfaceauth_sface_destroy(void *recognizer)
 {
     try
     {
-        delete static_cast<Recognizer *>(recognizer);
+        auto *typedRecognizer = static_cast<Recognizer *>(recognizer);
+        if (typedRecognizer)
+            clearBytes(&typedRecognizer->model);
+        delete typedRecognizer;
     }
     catch (...)
     {

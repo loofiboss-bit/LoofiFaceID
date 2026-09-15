@@ -7,10 +7,11 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::fmt;
 use std::marker::PhantomData;
-use std::ptr::NonNull;
+use std::path::Path;
+use std::ptr::{NonNull, null};
 use std::rc::Rc;
 
 const STATUS_OK: c_int = 0;
@@ -19,6 +20,14 @@ const STATUS_RUNTIME_FAILURE: c_int = 2;
 const STATUS_OUTPUT_TOO_LARGE: c_int = 3;
 const STATUS_MALFORMED_OUTPUT: c_int = 4;
 const STATUS_HARDENING_FAILURE: c_int = 5;
+const SANDBOX_UNAVAILABLE: c_int = 0;
+const SANDBOX_APPLIED: c_int = 1;
+const SANDBOX_ALREADY_APPLIED: c_int = 2;
+const SANDBOX_FAILURE: c_int = 3;
+
+const BACKEND_CPU: c_int = 0;
+const BACKEND_OPENVINO: c_int = 1;
+const BACKEND_VULKAN: c_int = 2;
 
 pub const SFACE_EMBEDDING_DIMENSION: usize = 128;
 pub const SFACE_ALIGNED_WIDTH: u32 = 112;
@@ -33,6 +42,14 @@ pub struct RawDetection {
 unsafe extern "C" {
     fn kfaceauth_yunet_disable_core_dumps() -> c_int;
     fn kfaceauth_yunet_opencv_version() -> *const c_char;
+    fn kfaceauth_yunet_set_thread_count(thread_count: i32) -> c_int;
+    fn kfaceauth_yunet_thread_count() -> i32;
+    fn kfaceauth_yunet_configure_worker_sandbox(
+        model_root: *const c_char,
+        writable_root: *const c_char,
+    ) -> c_int;
+    fn kfaceauth_yunet_install_seccomp(allow_drm_ioctl: c_int) -> c_int;
+    fn kfaceauth_yunet_backend(engine: *mut c_void) -> c_int;
     fn kfaceauth_yunet_create(
         model_bytes: *const u8,
         model_size: usize,
@@ -43,13 +60,15 @@ unsafe extern "C" {
         top_k: i32,
         detector_out: *mut *mut c_void,
     ) -> c_int;
-    fn kfaceauth_yunet_detect(
+    fn kfaceauth_yunet_detect_scaled(
         detector: *mut c_void,
         bgr_bytes: *const u8,
         bgr_size: usize,
         width: i32,
         height: i32,
         stride: usize,
+        inference_width: i32,
+        inference_height: i32,
         detections: *mut RawDetection,
         detection_capacity: usize,
         detection_count: *mut usize,
@@ -80,6 +99,7 @@ unsafe extern "C" {
         right_count: usize,
         similarity: *mut f64,
     ) -> c_int;
+    fn kfaceauth_sface_backend(recognizer: *mut c_void) -> c_int;
     fn kfaceauth_sface_destroy(recognizer: *mut c_void);
 }
 
@@ -108,6 +128,46 @@ impl fmt::Display for BridgeError {
 
 impl std::error::Error for BridgeError {}
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(i32)]
+pub enum InferenceBackend {
+    Cpu = BACKEND_CPU,
+    OpenVino = BACKEND_OPENVINO,
+    Vulkan = BACKEND_VULKAN,
+}
+
+impl InferenceBackend {
+    fn from_raw(value: c_int) -> Self {
+        match value {
+            BACKEND_OPENVINO => Self::OpenVino,
+            BACKEND_VULKAN => Self::Vulkan,
+            BACKEND_CPU => Self::Cpu,
+            _ => Self::Cpu,
+        }
+    }
+
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Cpu => "cpu",
+            Self::OpenVino => "openvino",
+            Self::Vulkan => "vulkan",
+        }
+    }
+
+    #[must_use]
+    pub const fn allows_drm_ioctl(self) -> bool {
+        matches!(self, Self::Vulkan)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SandboxStatus {
+    Unavailable,
+    Applied,
+    AlreadyApplied,
+}
+
 fn status_result(status: c_int) -> Result<(), BridgeError> {
     match status {
         STATUS_OK => Ok(()),
@@ -130,6 +190,59 @@ pub fn disable_core_dumps() -> Result<(), BridgeError> {
     status_result(unsafe { kfaceauth_yunet_disable_core_dumps() })
 }
 
+/// Caps OpenCV's global worker pool to a bounded value for inference.
+///
+/// # Errors
+///
+/// Returns [`BridgeError::InvalidArgument`] outside the reviewed range 1..=16.
+pub fn set_thread_count(thread_count: u32) -> Result<(), BridgeError> {
+    let thread_count = i32::try_from(thread_count).map_err(|_| BridgeError::InvalidArgument)?;
+    status_result(unsafe { kfaceauth_yunet_set_thread_count(thread_count) })
+}
+
+#[must_use]
+pub fn thread_count() -> u32 {
+    let count = unsafe { kfaceauth_yunet_thread_count() };
+    u32::try_from(count).unwrap_or(0)
+}
+
+/// Applies the optional Landlock worker policy before OpenCV initializes an
+/// accelerator. `writable_root` is an explicit application-data subtree for
+/// workers that must commit local state. Unsupported kernels are reported as
+/// [`SandboxStatus::Unavailable`] so the caller can retain the verified CPU
+/// path.
+pub fn configure_worker_sandbox(
+    model_root: &Path,
+    writable_root: Option<&Path>,
+) -> Result<SandboxStatus, BridgeError> {
+    let root = model_root.to_str().ok_or(BridgeError::InvalidArgument)?;
+    let root = CString::new(root).map_err(|_| BridgeError::InvalidArgument)?;
+    let writable = writable_root
+        .map(|path| path.to_str().ok_or(BridgeError::InvalidArgument))
+        .transpose()?
+        .map(CString::new)
+        .transpose()
+        .map_err(|_| BridgeError::InvalidArgument)?;
+    let writable_ptr = writable.as_ref().map_or(null(), |value| value.as_ptr());
+    let status = unsafe { kfaceauth_yunet_configure_worker_sandbox(root.as_ptr(), writable_ptr) };
+    match status {
+        SANDBOX_UNAVAILABLE => Ok(SandboxStatus::Unavailable),
+        SANDBOX_APPLIED => Ok(SandboxStatus::Applied),
+        SANDBOX_ALREADY_APPLIED => Ok(SandboxStatus::AlreadyApplied),
+        SANDBOX_FAILURE => Err(BridgeError::HardeningFailure),
+        _ => Err(BridgeError::UnknownStatus),
+    }
+}
+
+/// Installs the opt-in syscall policy after model/provider initialization.
+///
+/// # Errors
+///
+/// Returns [`BridgeError::HardeningFailure`] if the kernel rejects the policy.
+pub fn install_seccomp(allow_drm_ioctl: bool) -> Result<(), BridgeError> {
+    status_result(unsafe { kfaceauth_yunet_install_seccomp(if allow_drm_ioctl { 1 } else { 0 }) })
+}
+
 #[must_use]
 pub fn opencv_version() -> String {
     // SAFETY: OpenCV returns a process-lifetime static NUL-terminated string.
@@ -149,7 +262,7 @@ pub struct Detector {
 }
 
 impl Detector {
-    /// Constructs an OpenCV CPU YuNet detector from already verified bytes.
+    /// Constructs a YuNet detector from already verified bytes.
     ///
     /// # Errors
     ///
@@ -188,6 +301,11 @@ impl Detector {
         })
     }
 
+    #[must_use]
+    pub fn backend(&self) -> InferenceBackend {
+        InferenceBackend::from_raw(unsafe { kfaceauth_yunet_backend(self.handle.as_ptr()) })
+    }
+
     /// Runs one bounded BGR frame and returns raw 15-float YuNet rows.
     ///
     /// # Errors
@@ -202,8 +320,34 @@ impl Detector {
         stride: usize,
         maximum_detections: usize,
     ) -> Result<Vec<RawDetection>, BridgeError> {
+        self.detect_at_resolution(
+            bgr_bytes,
+            width,
+            height,
+            stride,
+            (width, height),
+            maximum_detections,
+        )
+    }
+
+    /// Runs one BGR frame at a bounded inference resolution and maps output
+    /// coordinates back to the source frame. Passing the source dimensions
+    /// selects full-resolution inference.
+    pub fn detect_at_resolution(
+        &self,
+        bgr_bytes: &[u8],
+        width: u32,
+        height: u32,
+        stride: usize,
+        inference_size: (u32, u32),
+        maximum_detections: usize,
+    ) -> Result<Vec<RawDetection>, BridgeError> {
         let width = i32::try_from(width).map_err(|_| BridgeError::InvalidArgument)?;
         let height = i32::try_from(height).map_err(|_| BridgeError::InvalidArgument)?;
+        let inference_width =
+            i32::try_from(inference_size.0).map_err(|_| BridgeError::InvalidArgument)?;
+        let inference_height =
+            i32::try_from(inference_size.1).map_err(|_| BridgeError::InvalidArgument)?;
         if maximum_detections == 0 || maximum_detections > 5_000 {
             return Err(BridgeError::InvalidArgument);
         }
@@ -212,13 +356,23 @@ impl Detector {
         // SAFETY: all buffers remain alive and uniquely writable as required
         // for the call; the opaque handle originated from the same bridge.
         status_result(unsafe {
-            kfaceauth_yunet_detect(
+            kfaceauth_yunet_detect_scaled(
                 self.handle.as_ptr(),
                 bgr_bytes.as_ptr(),
                 bgr_bytes.len(),
                 width,
                 height,
                 stride,
+                if inference_width == width && inference_height == height {
+                    0
+                } else {
+                    inference_width
+                },
+                if inference_width == width && inference_height == height {
+                    0
+                } else {
+                    inference_height
+                },
                 detections.as_mut_ptr(),
                 detections.len(),
                 &mut count,
@@ -246,7 +400,7 @@ pub struct Recognizer {
 }
 
 impl Recognizer {
-    /// Constructs an OpenCV CPU SFace recognizer from already verified bytes.
+    /// Constructs an SFace recognizer from already verified bytes.
     ///
     /// # Errors
     ///
@@ -264,6 +418,11 @@ impl Recognizer {
             handle,
             _not_send_or_sync: PhantomData,
         })
+    }
+
+    #[must_use]
+    pub fn backend(&self) -> InferenceBackend {
+        InferenceBackend::from_raw(unsafe { kfaceauth_sface_backend(self.handle.as_ptr()) })
     }
 
     /// Aligns the five YuNet landmarks, crops a 112x112 BGR face, and extracts

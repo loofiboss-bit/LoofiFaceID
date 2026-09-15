@@ -29,7 +29,7 @@ BuildRequires:  kf6-ki18n-devel >= 6.10.0
 BuildRequires:  kf6-kirigami-devel >= 6.10.0
 BuildRequires:  kf6-kwallet-devel >= 6.10.0
 BuildRequires:  ninja-build
-BuildRequires:  opencv-devel >= 4.13.0
+BuildRequires:  opencv-devel >= 4.8.0
 BuildRequires:  openssl-devel >= 3.0.0
 BuildRequires:  python3
 BuildRequires:  qt6-qtbase-devel >= 6.8.0
@@ -42,10 +42,10 @@ BuildRequires:  systemd-devel
 Requires:       kf6-kcmutils >= 6.10.0
 Requires:       kf6-kirigami >= 6.10.0
 Requires:       kf6-kwallet >= 6.10.0
-Requires:       opencv-core >= 4.13.0
-Requires:       opencv-dnn >= 4.13.0
-Requires:       opencv-imgproc >= 4.13.0
-Requires:       opencv-objdetect >= 4.13.0
+Requires:       opencv-core >= 4.8.0
+Requires:       opencv-dnn >= 4.8.0
+Requires:       opencv-imgproc >= 4.8.0
+Requires:       opencv-objdetect >= 4.8.0
 Requires:       openssl-libs >= 3.0.0
 Requires:       plasma-systemsettings
 Requires:       qt6-qtdeclarative >= 6.8.0

@@ -33,12 +33,17 @@ The v4.0.0 experimental release candidate is prepared for:
 | Distribution | Fedora 44 |
 | Desktop | KDE Plasma 6 / System Settings |
 | Qt / KDE Frameworks | Qt 6.8 or newer / KF6 6.10 or newer |
-| Vision runtime | Fedora OpenCV 4.13.x |
+| Vision runtime | OpenCV >= 4.8 (Fedora 44 release baseline: 4.13.x) |
 | Profile key storage | KDE KWallet in the logged-in session |
 
 Other combinations may build, but are not release-qualified. Physical RGB/IR
 coverage, accessibility, latency, memory, and representative identity
 qualification remain manual review gates for this experimental candidate.
+
+Milestone 3 selects OpenVINO when the OpenCV build exposes it, then Vulkan
+when the worker sandbox permits it, and otherwise uses the verified OpenCV CPU
+path. Acceleration is opportunistic; the installed package does not require a
+vendor-specific runtime or claim hardware qualification.
 
 ## Install a release RPM
 

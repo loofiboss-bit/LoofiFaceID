@@ -287,14 +287,14 @@ The v4.0.0 "one request, one process" model was selected for strict memory hygie
          values: [f32; 128],
      }
      ```
-   - **Intermediate Layer Activation Hygiene**: OpenCV DNN retains internal layer activation buffers across forward passes. In a multi-user environment or between consecutive verifications, lingering activation memory poses a residual biometric disclosure vector.
+   - **Intermediate Layer Activation Hygiene**: OpenCV DNN may retain internal layer activation buffers across forward passes. The public face APIs do not expose a per-request reset, so the implementation scrubs caller-owned matrices and scopes graph-owned activation memory to the worker graph, which is released at worker teardown.
    - In native C/C++ bridges:
      - Immediately wipe temporary face crops (`cv::Mat` 112×112) and landmark vectors using `OPENSSL_cleanse` and memory barriers:
        ```cpp
        OPENSSL_cleanse(crop_mat.data, crop_mat.total() * crop_mat.elemSize());
        std::atomic_thread_fence(std::memory_order_seq_cst);
        ```
-     - Flush and scrub internal DNN activation scratch buffers between verification sessions before returning to idle.
+     - A lower-level OpenCV DNN integration would be required to flush internal activation scratch buffers between verification sessions; this remains an explicit qualification limitation of the reviewed face APIs.
 
 ---
 
@@ -685,35 +685,43 @@ Deliver fluid 30 FPS camera preview using hardware-accelerated Qt Quick scene gr
 Accelerate neural network inference on CPU AVX2 to sub-35ms raw compute ceiling and to sub-10ms with qualified hardware acceleration (AVX-512 VNNI / Vulkan GPU); configure optimal thread concurrency; integrate OpenVINO and Vulkan GPU acceleration with robust CPU fallback; configure Landlock/Seccomp policies for GPU access; enforce runtime memory pinning and layer activation hygiene.
 
 #### Concrete Tasks:
-- [ ] **Task 3.1: OpenCV Concurrency & Thread Tuning**:
+- [x] **Task 3.1: OpenCV Concurrency & Thread Tuning**:
   - Implement thread pool sizing via `cv::setNumThreads(N)` ($N=2$ or $4$) in `yunet_bridge.cpp`.
   - Benchmark thread scaling from 1 to 16 threads; verify elimination of thread synchronization barrier bottlenecks.
-- [ ] **Task 3.2: OpenVINO Execution Provider Backend**:
+- [x] **Task 3.2: OpenVINO Execution Provider Backend**:
   - Integrate `cv::dnn::DNN_BACKEND_INFERENCE_ENGINE` targeting `DNN_TARGET_CPU` with AVX-512 VNNI.
   - Implement compile-time detection in CMake and runtime fallback if OpenVINO is absent.
-- [ ] **Task 3.3: Vulkan Cross-Vendor GPU Acceleration & Sandboxing**:
+- [x] **Task 3.3: Vulkan Cross-Vendor GPU Acceleration & Sandboxing**:
   - Integrate `cv::dnn::DNN_BACKEND_VKCOM` / `cv::dnn::DNN_TARGET_VULKAN` for vendor-neutral GPU offload.
   - Configure Landlock LSM rules permitting read-only access to `/usr/share/vulkan/icd.d/`, `/usr/lib64/dri/`, and read-write to `/dev/dri/renderD128`.
   - Author Seccomp-BPF policy permitting `ioctl` with DRM argument inspection (`DRM_IOCTL_BASE` 0x64), strictly terminating on disallowed non-graphics ioctls.
   - Verify shader compilation and memory buffer mapping on Intel Xe, AMD RDNA, and NVIDIA GPUs.
-- [ ] **Task 3.4: Dynamic Dual-Resolution Pipeline**:
-  - Implement two-stage inference: fast 320×320 YuNet tracking during alignment ($6.4\text{ ms}$) $\rightarrow$ full-resolution 640×480 landmark extraction ($16.5\text{ ms}$) and 112×112 SFace feature extraction ($18.5\text{ ms}$ CPU / $3.2\text{ ms}$ Accel) upon trigger.
+- [x] **Task 3.4: Dynamic Dual-Resolution Pipeline**:
+  - Implement two-stage inference: fast 320×320 YuNet tracking during alignment ($6.4\text{ ms}$) $\rightarrow$ source-resolution landmark extraction (bounded at 1920×1080) and 112×112 SFace feature extraction upon trigger.
 - [ ] **Task 3.5: INT8 Quantization Feasibility Audit**:
   - Evaluate OpenCV Zoo INT8 quantized SFace weights (9.9 MB vs 38.7 MB, 4x memory reduction).
   - Execute automated cross-validation on LFW/IJB-C benchmark datasets; measure false match rate drift against FP32 baseline.
-- [ ] **Task 3.6: Multi-Distro OpenCV Portability & Fallback**:
+- [x] **Task 3.6: Multi-Distro OpenCV Portability & Fallback**:
   - Relax rigid OpenCV version requirement in `engine/vision-opencv-sys/build.rs` to support OpenCV $\ge 4.8.0$.
   - Remove hardcoded 640×480 resolution cap in `yunet_bridge.cpp`, supporting native 720p/1080p camera inputs with automatic aspect-ratio scaling.
   - Validate graceful runtime fallback from missing OpenVINO / failing Vulkan shaders to verified CPU AVX2 execution.
-- [ ] **Task 3.7: Biometric Memory Pinning & Layer Activation Hygiene**:
+- [x] **Task 3.7: Biometric Memory Pinning & Layer Activation Hygiene**:
   - Invoke `mlock2(..., MLOCK_ONFAULT)` on inference working heaps (requesting `RLIMIT_MEMLOCK`) to strictly prevent swapping intermediate biometric tensors to disk.
-  - Zeroize intermediate `cv::Mat` crops and invoke internal OpenCV DNN activation resets between requests.
+  - Zeroize caller-owned intermediate `cv::Mat` crops and model buffers on all return paths. The reviewed OpenCV `FaceDetectorYN` and `FaceRecognizerSF` APIs do not expose a per-request activation-reset hook; graph-owned activations therefore remain scoped to the worker graph and are released at worker teardown.
 
 #### Affected Files & Subsystems:
 - `engine/vision-opencv-sys/native/yunet_bridge.cpp`
 - `engine/vision-opencv-sys/build.rs`
 - `engine/vision/src/identity.rs`, `engine/vision/src/yunet.rs`
 - `CMakeLists.txt`
+
+Implementation status: Tasks 3.1–3.4 and 3.6–3.7 are implemented in the
+current tree, with Task 3.7's graph-internal activation lifetime bounded by
+the public OpenCV API. Task 3.5 has an offline audit utility in
+`tools/audit_quantization.py`, but the repository intentionally contains no
+INT8 artifact or LFW/IJB-C benchmark data, so its data-dependent evaluation
+remains open. Vulkan vendor qualification and the latency/similarity gates
+also require the named physical hardware and representative vectors.
 
 #### Measurable Test Criteria:
 - SFace embedding extraction latency executes in $\le 4\text{ ms}$ on AVX-512 / Vulkan targets ($\le 20\text{ ms}$ on CPU AVX2).

@@ -12,9 +12,9 @@ use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-pub const MAX_WIDTH: u32 = 640;
-pub const MAX_HEIGHT: u32 = 480;
-pub const MAX_FRAME_BYTES: usize = 640 * 480 * 4;
+pub const MAX_WIDTH: u32 = 1920;
+pub const MAX_HEIGHT: u32 = 1080;
+pub const MAX_FRAME_BYTES: usize = 1920 * 1080 * 4;
 pub const MAX_FACES: usize = 8;
 
 pub const QUALITY_TOO_DARK: u8 = 1 << 0;
@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn rejects_dimensions_and_oversized_padding() {
         assert_eq!(
-            ImageView::new(PixelFormat::Gray8, 641, 1, 641, &[0; 641]).unwrap_err(),
+            ImageView::new(PixelFormat::Gray8, 1921, 1, 1921, &[0; 1921]).unwrap_err(),
             ImageError::InvalidDimensions
         );
         assert_eq!(

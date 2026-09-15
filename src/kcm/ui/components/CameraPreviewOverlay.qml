@@ -14,10 +14,10 @@ Item {
 
     readonly property real frameW: (analysisSession && analysisSession.frameWidth > 0)
         ? analysisSession.frameWidth
-        : ((cameraPreviewSession && cameraPreviewSession.frameWidth > 0) ? cameraPreviewSession.frameWidth : 640)
+        : ((cameraPreviewSession && cameraPreviewSession.frameWidth > 0) ? cameraPreviewSession.frameWidth : 1920)
     readonly property real frameH: (analysisSession && analysisSession.frameHeight > 0)
         ? analysisSession.frameHeight
-        : ((cameraPreviewSession && cameraPreviewSession.frameHeight > 0) ? cameraPreviewSession.frameHeight : 480)
+        : ((cameraPreviewSession && cameraPreviewSession.frameHeight > 0) ? cameraPreviewSession.frameHeight : 1080)
 
     readonly property real scaleFactor: Math.min(width / frameW, height / frameH)
     readonly property real displayedW: frameW * scaleFactor

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -34,19 +35,51 @@ int main()
 
     if (kfaceauth_yunet_disable_core_dumps() != KFACEAUTH_YUNET_OK)
         return 2;
+    unsetenv("KFACEAUTH_INFERENCE_BACKEND");
+    unsetenv("KFACEAUTH_ACCELERATION");
+    if (kfaceauth_yunet_set_thread_count(0) != KFACEAUTH_YUNET_INVALID_ARGUMENT ||
+        kfaceauth_yunet_set_thread_count(17) != KFACEAUTH_YUNET_INVALID_ARGUMENT ||
+        kfaceauth_yunet_set_thread_count(1) != KFACEAUTH_YUNET_OK || kfaceauth_yunet_thread_count() != 1)
+        return 3;
 
     auto model = readModel(KFACEAUTH_YUNET_MODEL_PATH);
     if (model.size() != 232589)
-        return 3;
+        return 4;
     void *detector = nullptr;
+    setenv("KFACEAUTH_INFERENCE_BACKEND", "openvino", 1);
+    setenv("KFACEAUTH_TEST_FAIL_OPENVINO", "1", 1);
+    if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.9F, 0.3F, 5000, &detector) !=
+            KFACEAUTH_YUNET_OK ||
+        !detector || kfaceauth_yunet_backend(detector) != KFACEAUTH_YUNET_BACKEND_CPU)
+    {
+        kfaceauth_yunet_destroy(detector);
+        return 5;
+    }
+    kfaceauth_yunet_destroy(detector);
+    detector = nullptr;
+    unsetenv("KFACEAUTH_INFERENCE_BACKEND");
+    unsetenv("KFACEAUTH_TEST_FAIL_OPENVINO");
+    setenv("KFACEAUTH_INFERENCE_BACKEND", "vulkan", 1);
+    setenv("KFACEAUTH_TEST_FAIL_VULKAN", "1", 1);
+    if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.9F, 0.3F, 5000, &detector) !=
+            KFACEAUTH_YUNET_OK ||
+        !detector || kfaceauth_yunet_backend(detector) != KFACEAUTH_YUNET_BACKEND_CPU)
+    {
+        kfaceauth_yunet_destroy(detector);
+        return 6;
+    }
+    kfaceauth_yunet_destroy(detector);
+    detector = nullptr;
+    unsetenv("KFACEAUTH_INFERENCE_BACKEND");
+    unsetenv("KFACEAUTH_TEST_FAIL_VULKAN");
     if (kfaceauth_yunet_create(model.data(), model.size() - 1, Width, Height, 0.9F, 0.3F, 5000, &detector) !=
             KFACEAUTH_YUNET_INVALID_ARGUMENT ||
         detector)
-        return 4;
+        return 7;
     if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.9F, 0.3F, 5000, &detector) !=
             KFACEAUTH_YUNET_OK ||
         !detector)
-        return 5;
+        return 8;
 
     std::vector<uint8_t> frame(Stride * Height, 0);
     const auto original = frame;
@@ -56,14 +89,24 @@ int main()
                                detections.size(), &count) != KFACEAUTH_YUNET_INVALID_ARGUMENT)
     {
         kfaceauth_yunet_destroy(detector);
-        return 6;
+        return 9;
     }
     if (kfaceauth_yunet_detect(detector, frame.data(), frame.size(), Width, Height, Stride, detections.data(),
                                detections.size(), &count) != KFACEAUTH_YUNET_OK ||
         count > detections.size() || frame != original)
     {
         kfaceauth_yunet_destroy(detector);
-        return 7;
+        return 10;
+    }
+
+    std::vector<uint8_t> highResolution(1920 * 1080 * 3, 0);
+    if (kfaceauth_yunet_detect_scaled(detector, highResolution.data(), highResolution.size(), 1920, 1080, 1920 * 3, 320,
+                                      320, detections.data(), detections.size(), &count) != KFACEAUTH_YUNET_OK ||
+        kfaceauth_yunet_detect_scaled(detector, frame.data(), frame.size(), 1921, Height, Stride, 320, 320,
+                                      detections.data(), detections.size(), &count) != KFACEAUTH_YUNET_INVALID_ARGUMENT)
+    {
+        kfaceauth_yunet_destroy(detector);
+        return 11;
     }
 
     std::fill(model.begin(), model.end(), uint8_t{0});
@@ -73,14 +116,14 @@ int main()
 
     auto sfaceModel = readModel(KFACEAUTH_SFACE_MODEL_PATH);
     if (sfaceModel.size() != 38696353)
-        return 8;
+        return 12;
     void *recognizer = nullptr;
     if (kfaceauth_sface_create(sfaceModel.data(), sfaceModel.size() - 1, &recognizer) !=
             KFACEAUTH_YUNET_INVALID_ARGUMENT ||
         recognizer)
-        return 9;
+        return 13;
     if (kfaceauth_sface_create(sfaceModel.data(), sfaceModel.size(), &recognizer) != KFACEAUTH_YUNET_OK || !recognizer)
-        return 10;
+        return 14;
 
     constexpr int FaceWidth = 112;
     constexpr int FaceHeight = 112;
@@ -97,7 +140,7 @@ int main()
         !std::all_of(embedding.begin(), embedding.end(), [](float value) { return std::isfinite(value); }))
     {
         kfaceauth_sface_destroy(recognizer);
-        return 11;
+        return 15;
     }
 
     double similarity = 0.0;
@@ -106,7 +149,7 @@ int main()
         !std::isfinite(similarity) || std::abs(similarity - 1.0) > 1.0e-5)
     {
         kfaceauth_sface_destroy(recognizer);
-        return 12;
+        return 16;
     }
 
     face.values[4] = std::numeric_limits<float>::quiet_NaN();
@@ -116,7 +159,7 @@ int main()
                                 &embeddingCount) != KFACEAUTH_YUNET_INVALID_ARGUMENT)
     {
         kfaceauth_sface_destroy(recognizer);
-        return 13;
+        return 17;
     }
     std::fill(sfaceModel.begin(), sfaceModel.end(), uint8_t{0});
     std::fill(alignedInput.begin(), alignedInput.end(), uint8_t{0});

@@ -69,7 +69,7 @@ void IdentityProtocolTest::imageAndEnrollmentBoundsAreEnforced()
     const QByteArray key(IdentityProtocol::KeyBytes, 2);
     QVERIFY(!IdentityProtocol::verifyRequest(2, key, valid, &error).isEmpty());
 
-    QImage oversized(641, 480, QImage::Format_RGB888);
+    QImage oversized(1921, 1080, QImage::Format_RGB888);
     QVERIFY(IdentityProtocol::verifyRequest(3, key, oversized, &error).isEmpty());
     QCOMPARE(error, QStringLiteral("invalid-frame"));
 

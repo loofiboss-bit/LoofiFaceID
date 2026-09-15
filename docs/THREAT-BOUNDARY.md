@@ -10,7 +10,7 @@ not an authentication system and has no liveness or spoof resistance.
 - private inherited pipes and finite process deadlines;
 - closed model inventory and exact YuNet/SFace SHA-256 verification;
 - Rust frame, native-output, embedding, and model-identity validation;
-- the narrow exception-catching OpenCV 4.13 bridge;
+- the narrow exception-catching OpenCV >=4.8 bridge (Fedora 44 baseline: 4.13);
 - Fedora OpenSSL 3 AES-256-GCM and CSPRNG;
 - KWallet as the only production master-key provider;
 - versioned, UID/model-bound vault validation and atomic filesystem rules.

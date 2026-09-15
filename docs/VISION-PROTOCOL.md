@@ -19,14 +19,14 @@ authentication decisions on the wire.
 | 3 | 1 | pixel format | `1` RGB8, `2` RGBA8, `3` Gray8 |
 | 4 | 8 | generation | positive and chosen by the parent |
 | 12 | 4 | timeout, milliseconds | `1..5000` |
-| 16 | 2 | width | `1..640` |
-| 18 | 2 | height | `1..480` |
+| 16 | 2 | width | `1..1920` |
+| 18 | 2 | height | `1..1080` |
 | 20 | 4 | stride | at least packed row bytes, bounded by payload |
 | 24 | remaining | pixel bytes | exactly `stride * height` |
 
 All size, channel, row, stride, and payload calculations are checked before
 allocation or indexing. The largest permitted request payload is
-`1,228,824` bytes (`24 + 640 * 480 * 4`). Truncated, oversized, trailing,
+`8,294,424` bytes (`24 + 1920 * 1080 * 4`). Truncated, oversized, trailing,
 overflowing, or unsupported input is rejected.
 
 ## Success response

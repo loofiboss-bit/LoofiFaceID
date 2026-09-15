@@ -14,7 +14,7 @@
 namespace
 {
 constexpr qsizetype RequestHeaderBytes = 24;
-constexpr qsizetype MaxPayloadBytes = 640 * 480 * 4 + RequestHeaderBytes;
+constexpr qsizetype MaxPayloadBytes = 1920 * 1080 * 4 + RequestHeaderBytes;
 
 quint16 readU16(QByteArrayView bytes, qsizetype offset)
 {
@@ -125,7 +125,7 @@ class FakeVisionWorker final : public QObject
         const quint16 height = readU16(payload, 18);
         const quint32 stride = readU32(payload, 20);
         if (declaredSize != payload.size() || readU16(payload, 0) != 1 || static_cast<quint8>(payload.at(2)) != 1 ||
-            static_cast<quint8>(payload.at(3)) != 1 || width == 0 || width > 640 || height == 0 || height > 480 ||
+            static_cast<quint8>(payload.at(3)) != 1 || width == 0 || width > 1920 || height == 0 || height > 1080 ||
             stride < static_cast<quint32>(width) * 3 || stride > static_cast<quint32>(width) * 4 ||
             payload.size() != RequestHeaderBytes + static_cast<qsizetype>(stride) * height)
         {

@@ -47,7 +47,8 @@ CPU support in Fedora's OpenCV stack, and output that maps directly to bounded
 face-presence results. The FP32 artifact is preferred over the smaller
 quantized variant until target-hardware accuracy has been measured.
 
-Milestone 3 enables the verified weight through Fedora OpenCV 4.13 and a narrow
+Milestone 3 enables the verified weight through OpenCV >=4.8 (Fedora baseline:
+4.13) and a narrow
 reviewed C ABI bridge. There is no silent fallback: production always attempts
 the real provider, and any inventory or runtime failure is a stable error.
 Deterministic inference is compiled only for Rust tests and injected fake worker

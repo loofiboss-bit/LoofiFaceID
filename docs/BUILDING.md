@@ -11,9 +11,13 @@ sudo dnf install \
   opencv-devel openssl-devel systemd-devel
 ```
 
-KFaceAuth links Fedora OpenCV 4.13, OpenSSL 3, and KWallet. It does not bundle
-those system libraries. `systemd-devel` supplies libudev headers only; no
-systemd unit or runtime service is added.
+KFaceAuth builds against OpenCV 4.8 or newer and is release-baselined on
+Fedora OpenCV 4.13, OpenSSL 3, and KWallet. OpenVINO is optional: when the
+OpenCV build exposes its inference-engine backend, the worker probes it at
+runtime and falls back to CPU if it is unavailable. Vulkan is also optional
+and is enabled only after the worker sandbox is applied. Neither accelerator
+runtime is bundled. `systemd-devel` supplies libudev headers only; no systemd
+unit or runtime service is added.
 
 ## Full local gates
 
@@ -36,12 +40,48 @@ find src tests/unit engine/vision-opencv-sys/native \
   -type f \( -name '*.cpp' -o -name '*.h' \) -print0 \
   | xargs -0 clang-format --dry-run --Werror
 python3 tools/verify_models.py --root models
+python3 tools/audit_quantization.py --help
 git diff --check
 ```
 
 Cargo has no registry dependencies. Model weights are present in the complete
 prepared source set. All Cargo operations use `--locked --offline`; no
 configure, build, test, install, or runtime step downloads data.
+
+## Milestone 3 benchmarking and sandbox controls
+
+The benchmark emits schema `kfaceauth-yunet-benchmark-v2`, including the
+selected backend, OpenCV thread count, and optional 1/2/4/8/16 thread sweep.
+Use an absolute model path:
+
+```bash
+cargo run --manifest-path engine/Cargo.toml --offline \
+  --bin kfaceauth-yunet-benchmark -- \
+  --model-root "$PWD/models" --width 320 --height 320 \
+  --warm-up 3 --iterations 20 --thread-sweep
+```
+
+The worker defaults to two OpenCV threads on systems with at most four CPUs
+and four otherwise. `--threads N` or `KFACEAUTH_OPENCV_THREADS=N` may select a
+reviewed value from 1 through 16. `KFACEAUTH_INFERENCE_BACKEND=cpu|openvino|vulkan|auto`
+controls selection; the default is `auto`. For the vision worker,
+`KFACEAUTH_ENABLE_SECCOMP_SANDBOX=1` enables the opt-in syscall filter after
+provider initialization, while
+`KFACEAUTH_REQUIRE_MEMLOCK=1` turns best-effort `mlock2(MLOCK_ONFAULT)` into a
+hardening requirement.
+
+The INT8 audit is offline and aggregate-only. It requires permissioned JSONL
+embeddings and pair labels when data-dependent qualification is authorized;
+without those inputs it reports `not-run`:
+
+```bash
+python3 tools/audit_quantization.py \
+  --fp32-model /path/to/sface-fp32.onnx \
+  --int8-model /path/to/sface-int8.onnx \
+  --pairs /path/to/lfw-ijbc-pairs.jsonl \
+  --fp32-embeddings /path/to/fp32-embeddings.jsonl \
+  --int8-embeddings /path/to/int8-embeddings.jsonl
+```
 
 For native ASan/UBSan coverage:
 

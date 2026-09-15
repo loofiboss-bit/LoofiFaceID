@@ -19,7 +19,7 @@ use kfaceauth_vision::identity::{IdentityProvider, NormalizedEmbedding, cosine_s
 use kfaceauth_vision::{CancellationToken, ImageView, PixelFormat, ProcessingControl};
 
 const MAXIMUM_DATASET_SAMPLES: usize = 64;
-const MAXIMUM_PPM_BYTES: usize = 640 * 480 * 3 + 256;
+const MAXIMUM_PPM_BYTES: usize = 1920 * 1080 * 3 + 256;
 const EVALUATION_THRESHOLDS: [f64; 9] = [0.30, 0.35, 0.40, 0.41, 0.45, 0.49, 0.50, 0.60, 0.70];
 const EVALUATION_WORKER_MODE: &str = "--evaluation-worker-once";
 const WORKER_RSS_PREFIX: &str = "kfaceauth-evaluation-worker-peak-rss-kib=";
@@ -357,7 +357,12 @@ fn load_ppm(group: u32, path: &Path) -> Result<SourceSample, &'static str> {
         .parse::<u32>()
         .map_err(|_| "invalid-ppm")?;
     let maximum = ppm_token(&bytes, &mut offset)?;
-    if magic != "P6" || maximum != "255" || width == 0 || width > 640 || height == 0 || height > 480
+    if magic != "P6"
+        || maximum != "255"
+        || width == 0
+        || width > 1920
+        || height == 0
+        || height > 1080
     {
         return Err("invalid-ppm");
     }

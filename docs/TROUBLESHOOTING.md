@@ -44,6 +44,6 @@ permits no faster than one request every two seconds.
 
 ## Build dependencies
 
-`opencv-devel` must provide OpenCV 4.13, `openssl-devel` OpenSSL 3, and
+`opencv-devel` must provide OpenCV >=4.8, `openssl-devel` OpenSSL 3, and
 `kf6-kwallet-devel` KF6 Wallet. KFaceAuth rejects another OpenCV minor until
 reviewed.

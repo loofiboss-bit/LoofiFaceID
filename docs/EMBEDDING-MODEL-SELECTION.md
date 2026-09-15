@@ -47,7 +47,8 @@ SFace receives the five landmarks from the single selected YuNet row in this
 order: right eye, left eye, nose tip, right mouth corner, left mouth corner.
 OpenCV `FaceRecognizerSF::alignCrop` applies the SFace reference similarity
 transformation and produces a 112×112 BGR `CV_8UC3` crop. The reviewed Fedora
-OpenCV 4.13 `feature` operation then produces exactly 128 finite FP32 values.
+The supported OpenCV `feature` operation (Fedora baseline 4.13) then produces
+exactly 128 finite FP32 values.
 Rust rejects an unexpected shape, type, range, or zero norm and performs the
 only stored normalization.
 
