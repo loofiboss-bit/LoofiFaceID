@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# RPMLint configuration for KFaceAuth
+# Filters expected messages for biometric PAM module and restricted directories
+
+Filters = [
+    ".*pam-unauthorized-module.*",
+    ".*non-standard-dir-perm.*",
+]
