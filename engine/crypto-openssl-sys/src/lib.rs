@@ -88,18 +88,30 @@ fn status_result(status: c_int) -> Result<(), CryptoError> {
     }
 }
 
-/// Fills a fixed-size buffer with OpenSSL CSPRNG bytes.
+/// Fills a fixed-size buffer with cryptographically secure random bytes from OS entropy and OpenSSL.
 ///
 /// # Errors
 ///
-/// Returns a stable provider error if OpenSSL rejects the request.
+/// Returns a stable provider error if the system CSPRNG or OpenSSL rejects the request.
 pub fn random<const N: usize>() -> Result<[u8; N], CryptoError> {
     if N == 0 {
         return Err(CryptoError::InvalidArgument);
     }
+    let mut file = std::fs::File::open("/dev/urandom").map_err(|_| CryptoError::ProviderFailure)?;
     let mut output = [0_u8; N];
+    use std::io::Read;
+    file.read_exact(&mut output)
+        .map_err(|_| CryptoError::ProviderFailure)?;
+
+    let mut openssl_buf = [0_u8; N];
     // SAFETY: the fixed array is uniquely writable for exactly N bytes.
-    status_result(unsafe { kfaceauth_crypto_random(output.as_mut_ptr(), output.len()) })?;
+    status_result(unsafe {
+        kfaceauth_crypto_random(openssl_buf.as_mut_ptr(), openssl_buf.len())
+    })?;
+
+    for (out, open) in output.iter_mut().zip(openssl_buf.iter()) {
+        *out ^= *open;
+    }
     Ok(output)
 }
 
