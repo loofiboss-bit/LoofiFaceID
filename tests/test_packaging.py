@@ -53,7 +53,7 @@ class PackagingContractTests(unittest.TestCase):
         self.assertRegex(spec, r"(?m)^Name:\s+kfaceauth$")
         self.assertRegex(spec, r"(?m)^Version:\s+4\.0\.0$")
         self.assertRegex(spec, r"(?m)^Release:\s+1")
-        self.assertRegex(spec, r"(?m)^URL:\s+https://github\.com/loofiboss-bit/plasma-irlume$")
+        self.assertRegex(spec, r"(?m)^URL:\s+https://github\.com/loofiboss-bit/LoofiFaceID$")
         self.assertRegex(
             spec,
             r"(?m)^Source0:\s+%\{url\}/releases/download/v%\{version\}/"
@@ -64,7 +64,7 @@ class PackagingContractTests(unittest.TestCase):
         spec = SPEC.read_text(encoding="utf-8")
         legacy_package = "plasma-" + "irlume"
 
-        self.assertEqual(spec.lower().count(legacy_package), 3)
+        self.assertEqual(spec.lower().count(legacy_package), 2)
         self.assertRegex(
             spec,
             r"(?m)^Obsoletes:\s+plasma-irlume < 4\.0\.0$",

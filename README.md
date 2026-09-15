@@ -106,9 +106,9 @@ and authentication suitability are `UNQUALIFIED`. A physical camera run,
 keyboard/Orca run, and real Fedora 44 screenshots are release follow-ups; no
 screenshots are fabricated or included in this repository.
 
-The optional external follow-up is renaming the GitHub repository from
-`plasma-irlume` to `kfaceauth`. The current URL is intentionally retained until
-that repository operation is actually performed.
+The GitHub repository is `LoofiFaceID`. The remaining `plasma-irlume` names are
+limited to Fedora transition compatibility. A future rename to `kfaceauth`
+would be a separate optional repository operation.
 
 ## Development and verification
 

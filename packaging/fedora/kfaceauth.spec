@@ -8,7 +8,7 @@ Release:        1%{?dist}
 Summary:        Experimental KDE local identity and comparison preview
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
-URL:            https://github.com/loofiboss-bit/plasma-irlume
+URL:            https://github.com/loofiboss-bit/LoofiFaceID
 Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 
 Obsoletes:      plasma-irlume < 4.0.0

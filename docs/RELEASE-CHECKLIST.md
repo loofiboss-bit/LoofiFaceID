@@ -52,8 +52,10 @@ Section B remains `UNQUALIFIED` for v4.0.0, even if Section A passes.
 
 ## External follow-ups
 
-- [ ] Optional manual GitHub repository rename from `plasma-irlume` to
-      `kfaceauth`; retain the current URL until it is actually completed.
+- [x] GitHub repository identity is `LoofiFaceID`; the legacy
+      `plasma-irlume` name remains only in Fedora transition compatibility.
+- [ ] Optional manual GitHub repository rename from `LoofiFaceID` to
+      `kfaceauth`.
 - [ ] Capture real Fedora 44 screenshots only after the UI is launched and
       visually reviewed; never add fabricated screenshots.
 - [ ] Obtain direct physical RGB/IR and keyboard/Orca evidence.
