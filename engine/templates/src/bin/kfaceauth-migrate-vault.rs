@@ -115,8 +115,7 @@ fn main() -> ExitCode {
     match migrate_legacy_vault(&legacy_vault, &system_vault, &master_key) {
         Ok(summary) => {
             println!(
-                "Successfully migrated vault to {} (sample_count: {})",
-                system_vault.root().display(),
+                "Successfully migrated vault (sample_count: {})",
                 summary.sample_count
             );
             ExitCode::SUCCESS
