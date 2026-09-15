@@ -136,6 +136,7 @@ required_paths=(
     "/usr/libexec/kfaceauth-camera-preview-worker"
     "/usr/libexec/kfaceauth-vision-worker"
     "/usr/libexec/kfaceauth-identity-worker"
+    "/usr/libexec/kfaceauthd"
     "/usr/share/applications/kcm_kfaceauth.desktop"
     "/usr/share/kfaceauth/models/manifest.kfaceauth"
     "/usr/share/kfaceauth/models/files/face_detection_yunet_2023mar.onnx"
@@ -153,6 +154,7 @@ if find \
     "${smoke_root}/usr/libexec/kfaceauth-camera-preview-worker" \
     "${smoke_root}/usr/libexec/kfaceauth-vision-worker" \
     "${smoke_root}/usr/libexec/kfaceauth-identity-worker" \
+    "${smoke_root}/usr/libexec/kfaceauthd" \
     -perm /6000 -print -quit | grep -q .; then
     echo "KFaceAuth workers must not be setuid or setgid" >&2
     exit 1
@@ -161,7 +163,8 @@ if command -v getcap >/dev/null 2>&1 &&
     getcap \
         "${smoke_root}/usr/libexec/kfaceauth-camera-preview-worker" \
         "${smoke_root}/usr/libexec/kfaceauth-vision-worker" \
-        "${smoke_root}/usr/libexec/kfaceauth-identity-worker" | grep -q .; then
+        "${smoke_root}/usr/libexec/kfaceauth-identity-worker" \
+        "${smoke_root}/usr/libexec/kfaceauthd" | grep -q .; then
     echo "KFaceAuth workers must not have file capabilities" >&2
     exit 1
 fi
@@ -172,9 +175,7 @@ for pattern in \
     '/dbus-1/system-services/' \
     '/dbus-1/system.d/' \
     '/polkit-1/actions/' \
-    '/systemd/' \
-    'kfaceauth-auth-helper' \
-    'pam_kfaceauth'; do
+    'kfaceauth-auth-helper'; do
     if grep -Fq "${pattern}" <<<"${payload}"; then
         echo "Installed payload contains forbidden privileged path: ${pattern}" >&2
         exit 1

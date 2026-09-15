@@ -31,6 +31,7 @@ jobs:
         run: |
           dnf install -y \
             cargo \
+            checkpolicy \
             clang-tools-extra \
             clippy \
             cmake \
@@ -47,6 +48,7 @@ jobs:
             ninja-build \
             opencv-devel \
             openssl-devel \
+            pam-devel \
             python3 \
             qt6-qtbase-devel \
             qt6-qtdeclarative-devel \

@@ -28,10 +28,11 @@ jobs:
       - name: Install build dependencies
         run: |
           dnf install -y \
-            clang-tools-extra \
-            cmake \
             cargo \
+            checkpolicy \
+            clang-tools-extra \
             clippy \
+            cmake \
             extra-cmake-modules \
             gcc-c++ \
             gettext \
@@ -45,6 +46,7 @@ jobs:
             ninja-build \
             opencv-devel \
             openssl-devel \
+            pam-devel \
             python3 \
             rust \
             rustfmt \
