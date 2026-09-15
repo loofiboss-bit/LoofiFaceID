@@ -107,15 +107,11 @@ pub fn random<const N: usize>() -> Result<[u8; N], CryptoError> {
     if bytes.len() != N {
         return Err(CryptoError::ProviderFailure);
     }
-    let mut output: [u8; N] = bytes
-        .try_into()
-        .map_err(|_| CryptoError::ProviderFailure)?;
+    let mut output: [u8; N] = bytes.try_into().map_err(|_| CryptoError::ProviderFailure)?;
 
     let mut openssl_buf = vec![0_u8; N];
     // SAFETY: openssl_buf is allocated with exactly N bytes and has valid pointer.
-    status_result(unsafe {
-        kfaceauth_crypto_random(openssl_buf.as_mut_ptr(), openssl_buf.len())
-    })?;
+    status_result(unsafe { kfaceauth_crypto_random(openssl_buf.as_mut_ptr(), openssl_buf.len()) })?;
 
     for i in 0..N {
         output[i] ^= openssl_buf[i];
