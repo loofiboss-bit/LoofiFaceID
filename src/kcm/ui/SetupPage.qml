@@ -31,6 +31,7 @@ Kirigami.ScrollablePage {
         if (visible) {
             root.cameraPreviewSession.refreshDevices()
         } else {
+            root.visionAnalysisSession.continuousTracking = false
             root.visionAnalysisSession.cancelAnalysis()
             root.cameraPreviewSession.stopPreview()
         }
@@ -128,6 +129,14 @@ Kirigami.ScrollablePage {
             cardTitle: i18n("Step 1 and 2: camera and frame check")
         }
 
+        Components.EnrollmentWizard {
+            Layout.fillWidth: true
+            visible: root.enrollmentSession !== null && (root.enrollmentSession.enrollmentActive || root.enrollmentSession.sampleCount > 0)
+            enrollmentSession: root.enrollmentSession
+            visionAnalysisSession: root.visionAnalysisSession
+            cameraPreviewSession: root.cameraPreviewSession
+        }
+
         Kirigami.AbstractCard {
             Layout.fillWidth: true
             Accessible.role: Accessible.Grouping
@@ -177,8 +186,11 @@ Kirigami.ScrollablePage {
                         activeFocusOnTab: true
                         Accessible.name: text
                         onClicked: {
-                            if (root.enrollmentSession !== null)
+                            if (root.enrollmentSession !== null) {
                                 root.enrollmentSession.startEnrollment()
+                                if (root.visionAnalysisSession !== null)
+                                    root.visionAnalysisSession.continuousTracking = true
+                            }
                         }
                     }
                 }
@@ -260,6 +272,8 @@ Kirigami.ScrollablePage {
                         onClicked: {
                             if (root.enrollmentSession !== null)
                                 root.enrollmentSession.cancel()
+                            if (root.visionAnalysisSession !== null)
+                                root.visionAnalysisSession.continuousTracking = false
                         }
                     }
 
@@ -274,6 +288,8 @@ Kirigami.ScrollablePage {
                         onClicked: {
                             if (root.enrollmentSession !== null)
                                 root.enrollmentSession.finishAndSave()
+                            if (root.visionAnalysisSession !== null)
+                                root.visionAnalysisSession.continuousTracking = false
                         }
                     }
                 }

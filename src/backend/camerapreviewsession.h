@@ -7,6 +7,7 @@
 #include <QAbstractListModel>
 #include <QImage>
 #include <QProcess>
+#include <QSharedMemory>
 #include <QString>
 #include <QTimer>
 #include <QVector>
@@ -25,6 +26,8 @@ class CameraPreviewSession final : public QAbstractListModel
     Q_PROPERTY(int deviceCount READ deviceCount NOTIFY devicesChanged)
     Q_PROPERTY(int selectedDeviceIndex READ selectedDeviceIndex WRITE setSelectedDeviceIndex NOTIFY selectionChanged)
     Q_PROPERTY(bool frameAvailable READ frameAvailable NOTIFY frameChanged)
+    Q_PROPERTY(int frameWidth READ frameWidth NOTIFY frameChanged)
+    Q_PROPERTY(int frameHeight READ frameHeight NOTIFY frameChanged)
     Q_PROPERTY(QString spectrum READ spectrum NOTIFY frameChanged)
     Q_PROPERTY(int remainingSeconds READ remainingSeconds NOTIFY stateChanged)
     Q_PROPERTY(quint64 droppedFrames READ droppedFrames NOTIFY stateChanged)
@@ -70,6 +73,8 @@ class CameraPreviewSession final : public QAbstractListModel
     [[nodiscard]] int selectedDeviceIndex() const;
     void setSelectedDeviceIndex(int index);
     [[nodiscard]] bool frameAvailable() const;
+    [[nodiscard]] int frameWidth() const;
+    [[nodiscard]] int frameHeight() const;
     [[nodiscard]] QString spectrum() const;
     [[nodiscard]] int remainingSeconds() const;
     [[nodiscard]] quint64 droppedFrames() const;
@@ -133,4 +138,5 @@ class CameraPreviewSession final : public QAbstractListModel
     QTimer m_stallTimer;
     QTimer m_stopTimer;
     QTimer m_countdownTimer;
+    QSharedMemory m_sharedMemory;
 };

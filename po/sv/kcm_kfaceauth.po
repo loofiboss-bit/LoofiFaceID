@@ -1271,3 +1271,96 @@ msgstr "LoofiFace-ID initieras fortfarande. Stäng och öppna Systeminställning
 
 msgid "Camera service is initializing…"
 msgstr "Kameratjänsten initieras…"
+
+msgid "Reset corrupt profile?"
+msgstr "Återställ skadad profil?"
+
+msgid "Reset corrupt profile"
+msgstr "Återställ skadad profil"
+
+msgid "Start guided enrollment to create your biometric profile."
+msgstr "Starta guidad registrering för att skapa din biometriska profil."
+
+msgid "Position your face in front of the camera."
+msgstr "Placera ansiktet framför kameran."
+
+msgid "Ensure only one face is visible."
+msgstr "Se till att endast ett ansikte är synligt."
+
+msgid "Move slightly further away from the camera."
+msgstr "Flytta dig lite längre bort från kameran."
+
+msgid "Move slightly closer to the camera."
+msgstr "Flytta dig lite närmare kameran."
+
+msgid "Center your face in the preview."
+msgstr "Centrera ansiktet i förhandsvisningen."
+
+msgid "Lighting is too low. Move to a brighter area."
+msgstr "Belysningen är för svag. Flytta till en ljusare plats."
+
+msgid "Lighting is too bright or glare is present."
+msgstr "Belysningen är för stark eller reflexer förekommer."
+
+msgid "Hold steady… Frontal pose detected"
+msgstr "Håll still… Frontalt ansikte identifierat"
+
+msgid "Look straight into the camera."
+msgstr "Titta rakt in i kameran."
+
+msgid "Hold steady… Left pose detected"
+msgstr "Håll still… Vänsterpose identifierad"
+
+msgid "Turn your head slightly to the left."
+msgstr "Vrid huvudet lite åt vänster."
+
+msgid "Hold steady… Right pose detected"
+msgstr "Håll still… Högerpose identifierad"
+
+msgid "Turn your head slightly to the right."
+msgstr "Vrid huvudet lite åt höger."
+
+msgid "Hold steady… Tilt pose detected"
+msgstr "Håll still… Lutningspose identifierad"
+
+msgid "Tilt your head slightly up or down."
+msgstr "Luta huvudet lite uppåt eller nedåt."
+
+msgid "Hold steady… Neutral expression detected"
+msgstr "Håll still… Neutralt uttryck identifierat"
+
+msgid "Look straight with a relaxed, natural expression."
+msgstr "Titta rakt fram med ett avslappnat, naturligt uttryck."
+
+msgid "All poses captured. Finishing enrollment…"
+msgstr "Alla poser registrerade. Slutför registrering…"
+
+msgid "Automated guided enrollment wizard"
+msgstr "Automatiserad guide för ansiktsregistrering"
+
+msgid "Guided Biometric Enrollment"
+msgstr "Guidad biometrisk registrering"
+
+msgid "%1 s remaining"
+msgstr "%1 s återstår"
+
+msgid "Frontal"
+msgstr "Frontal"
+
+msgid "Left"
+msgstr "Vänster"
+
+msgid "Right"
+msgstr "Höger"
+
+msgid "Tilt"
+msgstr "Luta"
+
+msgid "Natural"
+msgstr "Naturlig"
+
+msgid "Guided enrollment progress"
+msgstr "Förlopp för guidad registrering"
+
+msgid "Automatic pose capture (recommended)"
+msgstr "Automatisk fångst av poser (rekommenderas)"

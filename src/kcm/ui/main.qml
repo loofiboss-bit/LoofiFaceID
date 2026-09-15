@@ -120,6 +120,7 @@ KCMUtils.SimpleKCM {
             systemState: kcm.systemState
             supportReport: kcm.supportReport
             cameraPreviewSession: kcm.cameraPreviewSession
+            enrollmentSession: kcm.enrollmentSession
             refreshActive: kcm.refreshing
             refresh: () => kcm.refresh()
         }

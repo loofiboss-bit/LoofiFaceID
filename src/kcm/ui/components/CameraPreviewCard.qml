@@ -37,6 +37,7 @@ Kirigami.AbstractCard {
             }
 
             CameraPreview {
+                id: previewItem
                 anchors.fill: parent
                 session: root.cameraPreviewSession
                 mirrored: true
@@ -45,6 +46,15 @@ Kirigami.AbstractCard {
                     : (root.sessionReady && root.cameraPreviewSession.spectrum === "rgb"
                         ? i18n("RGB camera preview")
                         : i18n("Camera preview"))
+            }
+
+            CameraPreviewOverlay {
+                id: trackingOverlay
+                anchors.fill: parent
+                cameraPreviewSession: root.cameraPreviewSession
+                analysisSession: root.analysisSession
+                mirrored: previewItem.mirrored
+                visible: root.sessionReady && root.cameraPreviewSession.frameAvailable
             }
 
             Rectangle {

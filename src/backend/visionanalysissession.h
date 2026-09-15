@@ -4,10 +4,13 @@
 
 #include <QByteArray>
 #include <QObject>
+#include <QPointF>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QRectF>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
 
 #include <optional>
 
@@ -20,7 +23,14 @@ class VisionAnalysisSession final : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
     Q_PROPERTY(bool canAnalyze READ canAnalyze NOTIFY availabilityChanged)
     Q_PROPERTY(bool resultAvailable READ resultAvailable NOTIFY resultChanged)
+    Q_PROPERTY(int frameWidth READ frameWidth NOTIFY resultChanged)
+    Q_PROPERTY(int frameHeight READ frameHeight NOTIFY resultChanged)
     Q_PROPERTY(bool hasFace READ hasFace NOTIFY resultChanged)
+    Q_PROPERTY(bool faceDetected READ faceDetected NOTIFY resultChanged)
+    Q_PROPERTY(QRectF faceRect READ faceRect NOTIFY resultChanged)
+    Q_PROPERTY(QVariantList landmarks READ landmarks NOTIFY resultChanged)
+    Q_PROPERTY(
+        bool continuousTracking READ continuousTracking WRITE setContinuousTracking NOTIFY continuousTrackingChanged)
     Q_PROPERTY(bool noFace READ noFace NOTIFY resultChanged)
     Q_PROPERTY(bool multipleFaces READ multipleFaces NOTIFY resultChanged)
     Q_PROPERTY(bool framingSuitable READ framingSuitable NOTIFY resultChanged)
@@ -93,10 +103,17 @@ class VisionAnalysisSession final : public QObject
     [[nodiscard]] bool busy() const;
     [[nodiscard]] bool canAnalyze() const;
     [[nodiscard]] bool resultAvailable() const;
+    [[nodiscard]] int frameWidth() const;
+    [[nodiscard]] int frameHeight() const;
     [[nodiscard]] bool hasFace() const;
     [[nodiscard]] bool noFace() const;
     [[nodiscard]] bool multipleFaces() const;
     [[nodiscard]] bool framingSuitable() const;
+    [[nodiscard]] bool faceDetected() const;
+    [[nodiscard]] QRectF faceRect() const;
+    [[nodiscard]] QVariantList landmarks() const;
+    [[nodiscard]] bool continuousTracking() const;
+    void setContinuousTracking(bool enabled);
     [[nodiscard]] FaceFinding faceFinding() const;
     [[nodiscard]] int faceCount() const;
     [[nodiscard]] Position position() const;
@@ -117,6 +134,7 @@ class VisionAnalysisSession final : public QObject
     void stateChanged();
     void availabilityChanged();
     void resultChanged();
+    void continuousTrackingChanged();
 
   private:
     struct Result
@@ -132,6 +150,7 @@ class VisionAnalysisSession final : public QObject
         quint16 height = 0;
         quint16 frameWidth = 0;
         quint16 frameHeight = 0;
+        QVector<QPointF> landmarks;
     };
 
     void startWorker(QByteArray request);
@@ -174,4 +193,9 @@ class VisionAnalysisSession final : public QObject
     QTimer m_startupTimer;
     QTimer m_inferenceTimer;
     QTimer m_shutdownTimer;
+    QRectF m_faceRect;
+    QVariantList m_landmarks;
+    int m_frameWidth = 0;
+    int m_frameHeight = 0;
+    bool m_continuousTracking = false;
 };

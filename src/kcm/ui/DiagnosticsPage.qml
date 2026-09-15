@@ -13,6 +13,7 @@ Kirigami.ScrollablePage {
     property var systemState: null
     property var supportReport: null
     property var cameraPreviewSession: null
+    property var enrollmentSession: null
     property bool backendReady: root.systemState !== null
         && root.supportReport !== null
         && root.cameraPreviewSession !== null
@@ -21,6 +22,28 @@ Kirigami.ScrollablePage {
 
     title: i18n("Diagnostics")
     padding: Kirigami.Units.largeSpacing
+
+    QQC2.Dialog {
+        id: diagnosticsResetConfirmation
+        objectName: "diagnosticsResetProfileConfirmation"
+        parent: QQC2.Overlay.overlay
+        modal: true
+        title: i18n("Reset corrupt profile?")
+        standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
+        onAccepted: {
+            if (root.enrollmentSession !== null)
+                root.enrollmentSession.resetUnreadable()
+        }
+        onClosed: diagnosticsResetButton.forceActiveFocus()
+
+        QQC2.Label {
+            width: Math.min(Kirigami.Units.gridUnit * 28, root.width)
+            text: i18n("The unreadable vault and its KWallet key will be removed. This cannot recover the profile; you must enroll again.")
+            wrapMode: Text.Wrap
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
+        }
+    }
 
     ColumnLayout {
         width: root.availableWidth
@@ -110,14 +133,32 @@ Kirigami.ScrollablePage {
                     tone: root.systemState !== null && root.systemState.profileEnrolled ? 1 : 0
                 }
 
-                QQC2.Button {
-                    objectName: "diagnosticsRefreshButton"
+                Flow {
+                    Layout.fillWidth: true
                     Layout.alignment: Qt.AlignRight
-                    text: root.refreshActive ? i18n("Updating…") : i18n("Refresh diagnostics")
-                    icon.name: "view-refresh"
-                    enabled: !root.refreshActive
-                    Accessible.name: text
-                    onClicked: root.refresh()
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.Button {
+                        id: diagnosticsResetButton
+                        objectName: "diagnosticsResetProfileButton"
+                        text: i18n("Reset corrupt profile")
+                        icon.name: "edit-clear-all"
+                        visible: root.enrollmentSession !== null && root.enrollmentSession.profileNeedsAttention
+                        enabled: root.enrollmentSession !== null && !root.enrollmentSession.busy
+                        activeFocusOnTab: true
+                        Accessible.name: text
+                        onClicked: diagnosticsResetConfirmation.open()
+                    }
+
+                    QQC2.Button {
+                        objectName: "diagnosticsRefreshButton"
+                        text: root.refreshActive ? i18n("Updating…") : i18n("Refresh diagnostics")
+                        icon.name: "view-refresh"
+                        enabled: !root.refreshActive
+                        activeFocusOnTab: true
+                        Accessible.name: text
+                        onClicked: root.refresh()
+                    }
                 }
             }
         }

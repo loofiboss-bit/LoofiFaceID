@@ -8,6 +8,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QQueue>
+#include <QSharedMemory>
 #include <QString>
 #include <QTimer>
 
@@ -50,4 +51,5 @@ class PreviewWorker final : public QObject
     quint64 m_sequence = 0;
     quint64 m_droppedFrames = 0;
     QTimer m_previewLimit;
+    QSharedMemory m_sharedMemory;
 };

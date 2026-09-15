@@ -39,6 +39,28 @@ Kirigami.ScrollablePage {
             root.openSetup()
     }
 
+    QQC2.Dialog {
+        id: homeResetConfirmation
+        objectName: "homeResetProfileConfirmation"
+        parent: QQC2.Overlay.overlay
+        modal: true
+        title: i18n("Reset corrupt profile?")
+        standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
+        onAccepted: {
+            if (root.enrollmentSession !== null)
+                root.enrollmentSession.resetUnreadable()
+        }
+        onClosed: homeResetButton.forceActiveFocus()
+
+        QQC2.Label {
+            width: Math.min(Kirigami.Units.gridUnit * 28, root.width)
+            text: i18n("The unreadable vault and its KWallet key will be removed. This cannot recover the profile; you must enroll again.")
+            wrapMode: Text.Wrap
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
+        }
+    }
+
     ColumnLayout {
         width: root.availableWidth
         spacing: Kirigami.Units.largeSpacing
@@ -92,6 +114,18 @@ Kirigami.ScrollablePage {
                 activeFocusOnTab: true
                 Accessible.name: text
                 onClicked: root.openSetup()
+            }
+
+            QQC2.Button {
+                id: homeResetButton
+                objectName: "homeResetProfileButton"
+                text: i18n("Reset corrupt profile")
+                icon.name: "edit-clear-all"
+                visible: root.enrollmentSession !== null && root.enrollmentSession.profileNeedsAttention
+                enabled: root.enrollmentSession !== null && !root.enrollmentSession.busy
+                activeFocusOnTab: true
+                Accessible.name: text
+                onClicked: homeResetConfirmation.open()
             }
         }
 

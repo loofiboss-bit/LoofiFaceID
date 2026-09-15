@@ -183,15 +183,13 @@ void KWalletKeyProvider::performRead()
             finish(Result{State::Unavailable, {}});
             return;
         }
-        m_wallet->sync();
         finish(Result{State::Absent, {}});
         return;
     }
 
     if (m_action == PendingAction::Store)
     {
-        if (m_wallet->hasEntry(Entry) || m_wallet->writeEntry(Entry, m_pendingKey, KWallet::Wallet::Stream) != 0 ||
-            m_wallet->sync() != 0)
+        if (m_wallet->hasEntry(Entry) || m_wallet->writeEntry(Entry, m_pendingKey, KWallet::Wallet::Stream) != 0)
         {
             finish(Result{State::Unavailable, {}});
             return;

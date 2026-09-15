@@ -635,27 +635,27 @@ Achieve sub-35ms raw engine compute latency and 55–75 ms end-to-end user-perce
 Deliver fluid 30 FPS camera preview using hardware-accelerated Qt Quick scene graph rendering; expose dynamic face tracking bounding boxes and 5-point landmarks to Kirigami QML; implement an automated guided enrollment wizard; modernize KF6 6.30 API usage.
 
 #### Concrete Tasks:
-- [ ] **Task 2.1: Hardware-Accelerated Scene Graph Preview (`QSGSimpleTextureNode`)**:
+- [x] **Task 2.1: Hardware-Accelerated Scene Graph Preview (`QSGSimpleTextureNode`)**:
   - Refactor `CameraPreviewItem` (`src/kcm/camerapreviewitem.cpp`) from `QQuickPaintedItem` to `QQuickItem`.
   - Implement `updatePaintNode()` using `QSGSimpleTextureNode` with hardware texture uploads.
   - Increase preview ceiling in `previewprotocol.h` from 8 FPS to 30 FPS.
-- [ ] **Task 2.2: Elimination of GUI-Thread JPEG Ping-Pong**:
+- [x] **Task 2.2: Elimination of GUI-Thread JPEG Ping-Pong**:
   - Remove brute-force JPEG compression loop in `CameraProvider::encodeFrame` (`cameraprovider.cpp:178-186`).
   - Stream raw uncompressed RGB888 / NV12 frames directly through shared memory; eliminate `QImage::fromData` decoding on Qt GUI thread (`camerapreviewsession.cpp:506`).
-- [ ] **Task 2.3: Expose Face Bounding Box & 5-Point Landmarks to QML**:
+- [x] **Task 2.3: Expose Face Bounding Box & 5-Point Landmarks to QML**:
   - Extend `VisionAnalysisSession` to expose `faceDetected`, `faceRect` (`QRectF`), and `landmarks` (`QVariantList` of 5 points) as reactive `Q_PROPERTY` items.
   - Wire continuous tracking coordinates from the vision engine during preview.
-- [ ] **Task 2.4: Kirigami Dynamic Tracking Overlay (`CameraPreviewOverlay.qml`)**:
+- [x] **Task 2.4: Kirigami Dynamic Tracking Overlay (`CameraPreviewOverlay.qml`)**:
   - Create QML overlay rendering a smooth bounding box around the detected face with corner accents themed with `Kirigami.Theme.highlightColor`.
   - Render subtle, non-intrusive landmark indicators over eye, nose, and mouth positions.
-- [ ] **Task 2.5: Automated Guided Enrollment Wizard (`EnrollmentWizard.qml`)**:
+- [x] **Task 2.5: Automated Guided Enrollment Wizard (`EnrollmentWizard.qml`)**:
   - Replace 5-click manual enrollment with an automated state machine detecting pose diversity (Frontal $\rightarrow$ Yaw Left $\rightarrow$ Yaw Right $\rightarrow$ Pitch Up/Down $\rightarrow$ Expression/Verification).
   - Tag each captured sample with pose class metadata, dispatching to `kfaceauth-templates` for top-K / pose-clustered profile enrollment (Task 1.7).
   - Implement real-time user coaching prompts ("Turn head slightly left", "Move slightly closer") and progress bar.
   - Extend session timeout to 300 seconds; pause gracefully on focus loss instead of aborting.
-- [ ] **Task 2.6: Contextual Unreadable-Vault Recovery**:
+- [x] **Task 2.6: Contextual Unreadable-Vault Recovery**:
   - Add contextual "Reset Corrupt Profile" action buttons to `HomePage.qml` and `DiagnosticsPage.qml` when profile is corrupt, eliminating tab-switching friction.
-- [ ] **Task 2.7: KF6 6.30 API Modernization**:
+- [x] **Task 2.7: KF6 6.30 API Modernization**:
   - Remove deprecated `KWallet::Wallet::sync()` calls in `src/backend/kwalletkeyprovider.cpp:186,194`.
 
 #### Affected Files & Subsystems:
@@ -673,9 +673,9 @@ Deliver fluid 30 FPS camera preview using hardware-accelerated Qt Quick scene gr
 - Build compiles cleanly without KF6 6.30 deprecation warnings.
 
 #### Strict Acceptance Gate Conditions:
-- [ ] **Gate 2.1**: Camera preview achieves 30 FPS sustained playback on standard 720p/1080p webcam hardware with zero UI thread stutter.
-- [ ] **Gate 2.2**: Bounding box overlay aligns with detected facial position within $\le 2\text{ pixels}$ error margin across test video streams.
-- [ ] **Gate 2.3**: Guided enrollment wizard records 0 occurrences of `identity-error-11` (duplicate pose) across 20 test enrollments, and subsequent verification passes with 100% genuine acceptance across all 5 enrolled poses under top-K / pose-clustered matching.
+- [x] **Gate 2.1**: Camera preview achieves 30 FPS sustained playback on standard 720p/1080p webcam hardware with zero UI thread stutter.
+- [x] **Gate 2.2**: Bounding box overlay aligns with detected facial position within $\le 2\text{ pixels}$ error margin across test video streams.
+- [x] **Gate 2.3**: Guided enrollment wizard records 0 occurrences of `identity-error-11` (duplicate pose) across 20 test enrollments, and subsequent verification passes with 100% genuine acceptance across all 5 enrolled poses under top-K / pose-clustered matching.
 
 ---
 

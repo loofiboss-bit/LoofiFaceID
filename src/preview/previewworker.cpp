@@ -25,9 +25,29 @@ PreviewWorker::PreviewWorker(QObject *parent) : QObject(parent)
                 queueControl(record);
                 m_previewLimit.start();
             });
+    connect(&m_provider, &CameraProvider::rawFrameReady, this,
+            [this](const QByteArray &rgb, int width, int height, const QString &spectrum)
+            {
+                if (m_sharedMemory.isAttached() && m_sharedMemory.size() >= rgb.size())
+                {
+                    if (m_sharedMemory.lock())
+                    {
+                        std::memcpy(m_sharedMemory.data(), rgb.constData(), rgb.size());
+                        m_sharedMemory.unlock();
+                        auto record = baseRecord(QStringLiteral("frame"));
+                        record.insert(QStringLiteral("shm"), true);
+                        record.insert(QStringLiteral("width"), width);
+                        record.insert(QStringLiteral("height"), height);
+                        record.insert(QStringLiteral("spectrum"), spectrum);
+                        queueFrame(record);
+                    }
+                }
+            });
     connect(&m_provider, &CameraProvider::frameReady, this,
             [this](const QByteArray &jpeg, int width, int height, const QString &spectrum)
             {
+                if (m_sharedMemory.isAttached())
+                    return;
                 auto record = baseRecord(QStringLiteral("frame"));
                 record.insert(QStringLiteral("jpeg"), jpeg);
                 record.insert(QStringLiteral("width"), width);
@@ -169,6 +189,11 @@ void PreviewWorker::startPreview(const QString &token)
     }
     m_droppedFrames = 0;
     m_pendingFrame.clear();
+    if (!m_sessionId.isEmpty())
+    {
+        m_sharedMemory.setKey(QStringLiteral("kfaceauth_preview_%1").arg(m_sessionId));
+        m_sharedMemory.attach();
+    }
     QString errorCode;
     if (!m_provider.start(token, &errorCode))
         sendError(errorCode);
@@ -180,6 +205,8 @@ void PreviewWorker::stopPreview(const QString &reason)
     m_previewLimit.stop();
     m_provider.stop();
     m_pendingFrame.clear();
+    if (m_sharedMemory.isAttached())
+        m_sharedMemory.detach();
     auto record = baseRecord(QStringLiteral("stopped"));
     record.insert(QStringLiteral("reason"), reason);
     record.insert(QStringLiteral("was_active"), wasActive);

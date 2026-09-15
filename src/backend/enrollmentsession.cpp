@@ -56,7 +56,15 @@ EnrollmentSession::EnrollmentSession(CameraPreviewSession *preview, IdentityWork
             [this](Qt::ApplicationState state)
             {
                 if (state != Qt::ApplicationActive)
-                    cancel();
+                {
+                    if (m_sessionTimer.isActive())
+                        m_sessionTimer.stop();
+                }
+                else
+                {
+                    if (enrollmentActive() && m_remainingSeconds > 0 && !m_sessionTimer.isActive())
+                        m_sessionTimer.start();
+                }
             });
 }
 
@@ -271,7 +279,7 @@ void EnrollmentSession::startEnrollment()
                 return;
             }
             result.clear();
-            m_remainingSeconds = 120;
+            m_remainingSeconds = 300;
             m_sessionTimer.start();
             setState(State::Enrolling, translate("Capture three to five deliberate appearance samples."));
         });

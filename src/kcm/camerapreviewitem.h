@@ -4,9 +4,9 @@
 
 #include "camerapreviewsession.h"
 
-#include <QQuickPaintedItem>
+#include <QQuickItem>
 
-class CameraPreviewItem : public QQuickPaintedItem
+class CameraPreviewItem : public QQuickItem
 {
     Q_OBJECT
 
@@ -20,7 +20,9 @@ class CameraPreviewItem : public QQuickPaintedItem
     void setSession(CameraPreviewSession *session);
     [[nodiscard]] bool mirrored() const;
     void setMirrored(bool mirrored);
-    void paint(QPainter *painter) override;
+
+  protected:
+    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *updatePaintNodeData) override;
 
   Q_SIGNALS:
     void sessionChanged();

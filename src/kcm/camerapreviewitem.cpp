@@ -2,12 +2,12 @@
 
 #include "camerapreviewitem.h"
 
-#include <QPainter>
+#include <QQuickWindow>
+#include <QSGSimpleTextureNode>
 
-CameraPreviewItem::CameraPreviewItem(QQuickItem *parent) : QQuickPaintedItem(parent)
+CameraPreviewItem::CameraPreviewItem(QQuickItem *parent) : QQuickItem(parent)
 {
-    setAntialiasing(false);
-    setOpaquePainting(true);
+    setFlag(ItemHasContents, true);
 }
 
 CameraPreviewSession *CameraPreviewItem::session() const
@@ -51,26 +51,36 @@ void CameraPreviewItem::setMirrored(bool mirrored)
     Q_EMIT mirroredChanged();
 }
 
-void CameraPreviewItem::paint(QPainter *painter)
+QSGNode *CameraPreviewItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
-    painter->fillRect(boundingRect(), QColor(QStringLiteral("#091016")));
-    if (!m_session)
-        return;
+    if (width() <= 0.0 || height() <= 0.0 || !m_session || !window())
+    {
+        delete oldNode;
+        return nullptr;
+    }
     const QImage frame = m_session->frame();
     if (frame.isNull())
-        return;
+    {
+        delete oldNode;
+        return nullptr;
+    }
+
+    auto *node = static_cast<QSGSimpleTextureNode *>(oldNode);
+    if (!node)
+    {
+        node = new QSGSimpleTextureNode();
+        node->setOwnsTexture(true);
+    }
+
     const QSizeF scaled = frame.size().scaled(boundingRect().size().toSize(), Qt::KeepAspectRatio);
     const QRectF target((width() - scaled.width()) / 2.0, (height() - scaled.height()) / 2.0, scaled.width(),
                         scaled.height());
-    painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-    if (m_mirrored)
-    {
-        painter->save();
-        painter->translate(target.center().x() * 2.0, 0.0);
-        painter->scale(-1.0, 1.0);
-        painter->drawImage(target, frame);
-        painter->restore();
-    }
-    else
-        painter->drawImage(target, frame);
+
+    QSGTexture *texture = window()->createTextureFromImage(frame);
+    node->setTexture(texture);
+    node->setRect(target);
+    node->setFiltering(QSGTexture::Linear);
+    node->setTextureCoordinatesTransform(m_mirrored ? QSGSimpleTextureNode::MirrorHorizontally
+                                                    : QSGSimpleTextureNode::NoTransform);
+    return node;
 }

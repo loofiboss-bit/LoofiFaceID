@@ -54,6 +54,7 @@ class CameraProvider final : public QObject
   Q_SIGNALS:
     void started();
     void frameReady(const QByteArray &jpeg, int width, int height, const QString &spectrum);
+    void rawFrameReady(const QByteArray &rgb, int width, int height, const QString &spectrum);
     void failed(const QString &errorCode);
     void deviceListChanged();
 

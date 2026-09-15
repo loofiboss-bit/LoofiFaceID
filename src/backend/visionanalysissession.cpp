@@ -119,6 +119,8 @@ VisionAnalysisSession::VisionAnalysisSession(CameraPreviewSession *previewSessio
                 Q_EMIT availabilityChanged();
                 if (!m_previewSession->frameAvailable())
                     cancelForLifecycle();
+                else if (m_continuousTracking && canAnalyze() && m_state == State::Idle)
+                    analyzeCurrentFrame();
             });
     connect(m_previewSession, &QObject::destroyed, this,
             [this]()
@@ -175,6 +177,16 @@ bool VisionAnalysisSession::resultAvailable() const
     return m_state == State::Complete && m_faceFinding != FaceFinding::Unknown;
 }
 
+int VisionAnalysisSession::frameWidth() const
+{
+    return m_frameWidth;
+}
+
+int VisionAnalysisSession::frameHeight() const
+{
+    return m_frameHeight;
+}
+
 bool VisionAnalysisSession::hasFace() const
 {
     return resultAvailable() && m_faceFinding == FaceFinding::OneFace;
@@ -194,6 +206,36 @@ bool VisionAnalysisSession::framingSuitable() const
 {
     return hasFace() && m_position == Position::Centered && m_distance == Distance::Suitable &&
            m_brightness == Quality::Suitable && m_contrast == Quality::Suitable && m_sharpness == Quality::Suitable;
+}
+
+bool VisionAnalysisSession::faceDetected() const
+{
+    return hasFace();
+}
+
+QRectF VisionAnalysisSession::faceRect() const
+{
+    return m_faceRect;
+}
+
+QVariantList VisionAnalysisSession::landmarks() const
+{
+    return m_landmarks;
+}
+
+bool VisionAnalysisSession::continuousTracking() const
+{
+    return m_continuousTracking;
+}
+
+void VisionAnalysisSession::setContinuousTracking(bool enabled)
+{
+    if (m_continuousTracking == enabled)
+        return;
+    m_continuousTracking = enabled;
+    Q_EMIT continuousTrackingChanged();
+    if (m_continuousTracking && canAnalyze() && m_state == State::Idle)
+        analyzeCurrentFrame();
 }
 
 VisionAnalysisSession::FaceFinding VisionAnalysisSession::faceFinding() const
@@ -524,6 +566,18 @@ void VisionAnalysisSession::processFinished(int exitCode, QProcess::ExitStatus e
     m_requestWidth = 0;
     m_requestHeight = 0;
     setState(State::Complete, translate("One-frame analysis is complete. No image was saved."));
+    if (m_continuousTracking && canAnalyze())
+    {
+        QTimer::singleShot(33, this,
+                           [this]()
+                           {
+                               if (m_continuousTracking && canAnalyze() && m_state == State::Complete)
+                               {
+                                   m_state = State::Idle;
+                                   analyzeCurrentFrame();
+                               }
+                           });
+    }
 }
 
 void VisionAnalysisSession::fail(const QString &errorCode)
@@ -577,6 +631,10 @@ void VisionAnalysisSession::clearResult()
     m_brightness = Quality::Unknown;
     m_contrast = Quality::Unknown;
     m_sharpness = Quality::Unknown;
+    m_faceRect = {};
+    m_landmarks.clear();
+    m_frameWidth = 0;
+    m_frameHeight = 0;
     Q_EMIT resultChanged();
 }
 
@@ -609,7 +667,8 @@ bool VisionAnalysisSession::parseResponse(QByteArrayView payload, Result *result
         return false;
 
     const quint8 faceCount = static_cast<quint8>(payload.at(3));
-    if (faceCount > 8 || payload.size() != SuccessHeaderBytes + faceCount * FaceRectangleBytes)
+    const bool withLandmarks = (payload.size() == SuccessHeaderBytes + faceCount * (FaceRectangleBytes + 20));
+    if (faceCount > 8 || (payload.size() != SuccessHeaderBytes + faceCount * FaceRectangleBytes && !withLandmarks))
         return false;
 
     result->faceCount = faceCount;
@@ -623,9 +682,10 @@ bool VisionAnalysisSession::parseResponse(QByteArrayView payload, Result *result
         return false;
     result->frameWidth = m_requestWidth;
     result->frameHeight = m_requestHeight;
+    const qsizetype stride = withLandmarks ? (FaceRectangleBytes + 20) : FaceRectangleBytes;
     for (quint8 index = 0; index < faceCount; ++index)
     {
-        const qsizetype offset = SuccessHeaderBytes + index * FaceRectangleBytes;
+        const qsizetype offset = SuccessHeaderBytes + index * stride;
         const quint16 x = readU16(payload, offset);
         const quint16 y = readU16(payload, offset + 2);
         const quint16 width = readU16(payload, offset + 4);
@@ -638,6 +698,16 @@ bool VisionAnalysisSession::parseResponse(QByteArrayView payload, Result *result
             result->y = y;
             result->width = width;
             result->height = height;
+            if (withLandmarks)
+            {
+                const qsizetype lmOffset = offset + FaceRectangleBytes;
+                for (int lm = 0; lm < 5; ++lm)
+                {
+                    const quint16 lx = readU16(payload, lmOffset + lm * 4);
+                    const quint16 ly = readU16(payload, lmOffset + lm * 4 + 2);
+                    result->landmarks.append(QPointF(lx, ly));
+                }
+            }
         }
     }
     return true;
@@ -654,9 +724,30 @@ void VisionAnalysisSession::applyResult(const Result &result)
     m_sharpness = (result.flags & 0x08) != 0 ? Quality::Low : Quality::Suitable;
     m_position = Position::Unknown;
     m_distance = Distance::Unknown;
+    m_faceRect = {};
+    m_landmarks.clear();
+    m_frameWidth = result.frameWidth;
+    m_frameHeight = result.frameHeight;
 
     if (result.faceCount == 1)
     {
+        m_faceRect = QRectF(result.x, result.y, result.width, result.height);
+        if (result.landmarks.size() == 5)
+        {
+            for (const auto &pt : result.landmarks)
+                m_landmarks.append(QVariant::fromValue(pt));
+        }
+        else
+        {
+            const qreal w = result.width;
+            const qreal h = result.height;
+            m_landmarks.append(QPointF(result.x + w * 0.30, result.y + h * 0.35));
+            m_landmarks.append(QPointF(result.x + w * 0.70, result.y + h * 0.35));
+            m_landmarks.append(QPointF(result.x + w * 0.50, result.y + h * 0.55));
+            m_landmarks.append(QPointF(result.x + w * 0.35, result.y + h * 0.75));
+            m_landmarks.append(QPointF(result.x + w * 0.65, result.y + h * 0.75));
+        }
+
         const double centerX = result.x + result.width / 2.0;
         const double centerY = result.y + result.height / 2.0;
         const bool centered = centerX >= result.frameWidth * 0.35 && centerX <= result.frameWidth * 0.65 &&

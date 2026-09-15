@@ -157,7 +157,7 @@ int CameraProvider::selectFormatIndex(const QVector<CameraFormatCandidate> &form
     {
         const QSize size = format.resolution;
         const bool bounded = size.width() <= PreviewProtocol::MaxWidth && size.height() <= PreviewProtocol::MaxHeight;
-        const bool usableRate = format.maxFrameRate >= PreviewProtocol::MaxFramesPerSecond;
+        const bool usableRate = format.maxFrameRate >= 8.0;
         const qint64 area = static_cast<qint64>(size.width()) * size.height();
         return std::tuple{bounded, usableRate, bounded ? area : -area};
     };
@@ -175,14 +175,11 @@ QByteArray CameraProvider::encodeFrame(const QImage &source)
     if (image.width() > PreviewProtocol::MaxWidth || image.height() > PreviewProtocol::MaxHeight)
         image = image.scaled(PreviewProtocol::MaxWidth, PreviewProtocol::MaxHeight, Qt::KeepAspectRatio,
                              Qt::SmoothTransformation);
-    for (const int quality : {85, 70, 55, 40})
-    {
-        QByteArray jpeg;
-        QBuffer buffer(&jpeg);
-        if (buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "JPEG", quality) &&
-            jpeg.size() <= PreviewProtocol::MaxJpegBytes)
-            return jpeg;
-    }
+    QByteArray jpeg;
+    QBuffer buffer(&jpeg);
+    if (buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "JPEG", 75) &&
+        jpeg.size() <= PreviewProtocol::MaxJpegBytes)
+        return jpeg;
     return {};
 }
 
@@ -274,12 +271,14 @@ void CameraProvider::handleFrame(const QVideoFrame &frame)
         return;
     m_frameThrottle.restart();
     const QImage image = frame.toImage();
-    const QByteArray jpeg = encodeFrame(image);
-    if (jpeg.isEmpty())
-        return;
     const QImage bounded =
         image.width() > PreviewProtocol::MaxWidth || image.height() > PreviewProtocol::MaxHeight
             ? image.scaled(PreviewProtocol::MaxWidth, PreviewProtocol::MaxHeight, Qt::KeepAspectRatio)
             : image;
-    Q_EMIT frameReady(jpeg, bounded.width(), bounded.height(), m_spectrum);
+    const QImage rgb = bounded.convertToFormat(QImage::Format_RGB888);
+    const QByteArray rawRgb(reinterpret_cast<const char *>(rgb.constBits()), rgb.sizeInBytes());
+    Q_EMIT rawFrameReady(rawRgb, bounded.width(), bounded.height(), m_spectrum);
+    const QByteArray jpeg = encodeFrame(bounded);
+    if (!jpeg.isEmpty())
+        Q_EMIT frameReady(jpeg, bounded.width(), bounded.height(), m_spectrum);
 }

@@ -178,6 +178,16 @@ bool CameraPreviewSession::frameAvailable() const
     return !m_frame.isNull();
 }
 
+int CameraPreviewSession::frameWidth() const
+{
+    return m_frame.width();
+}
+
+int CameraPreviewSession::frameHeight() const
+{
+    return m_frame.height();
+}
+
 QString CameraPreviewSession::spectrum() const
 {
     return m_spectrum;
@@ -256,6 +266,13 @@ void CameraPreviewSession::startPreview()
     m_errorCode.clear();
     m_droppedFrames = 0;
     m_remainingSeconds = PreviewProtocol::MaxPreviewSeconds;
+    if (!m_sessionId.isEmpty())
+    {
+        if (m_sharedMemory.isAttached())
+            m_sharedMemory.detach();
+        m_sharedMemory.setKey(QStringLiteral("kfaceauth_preview_%1").arg(m_sessionId));
+        m_sharedMemory.create(PreviewProtocol::MaxRawBytes + 128);
+    }
     setState(State::Starting, translate("Starting the selected camera…"));
     sendCommand(QStringLiteral("start"), m_devices.at(m_selectedDeviceIndex).token);
     m_startupTimer.start();
@@ -263,6 +280,8 @@ void CameraPreviewSession::startPreview()
 
 void CameraPreviewSession::stopPreview()
 {
+    if (m_sharedMemory.isAttached())
+        m_sharedMemory.detach();
     if (m_state != State::Starting && m_state != State::Streaming)
     {
         clearFrame();
@@ -491,24 +510,56 @@ bool CameraPreviewSession::handleFrame(const QCborMap &record)
     if (m_state != State::Streaming)
         return false;
     const auto jpeg = record.value(QStringLiteral("jpeg"));
+    const auto rgb = record.value(QStringLiteral("rgb"));
+    const auto shm = record.value(QStringLiteral("shm"));
     const auto width = record.value(QStringLiteral("width"));
     const auto height = record.value(QStringLiteral("height"));
     const auto spectrum = record.value(QStringLiteral("spectrum"));
     const auto dropped = record.value(QStringLiteral("dropped"));
-    if (!jpeg.isByteArray() || jpeg.toByteArray().isEmpty() ||
-        jpeg.toByteArray().size() > PreviewProtocol::MaxJpegBytes || !width.isInteger() || width.toInteger() <= 0 ||
-        width.toInteger() > PreviewProtocol::MaxWidth || !height.isInteger() || height.toInteger() <= 0 ||
-        height.toInteger() > PreviewProtocol::MaxHeight || !spectrum.isString() ||
+
+    if (!width.isInteger() || width.toInteger() <= 0 || width.toInteger() > PreviewProtocol::MaxWidth ||
+        !height.isInteger() || height.toInteger() <= 0 || height.toInteger() > PreviewProtocol::MaxHeight ||
+        !spectrum.isString() ||
         !QStringList{QStringLiteral("rgb"), QStringLiteral("ir"), QStringLiteral("unknown")}.contains(
             spectrum.toString()) ||
         !dropped.isInteger() || dropped.toInteger() < 0)
         return false;
-    const QImage frame = QImage::fromData(jpeg.toByteArray(), "JPEG");
-    if (frame.isNull() || frame.width() != width.toInteger() || frame.height() != height.toInteger())
+
+    const int w = static_cast<int>(width.toInteger());
+    const int h = static_cast<int>(height.toInteger());
+
+    if (shm.toBool() && m_sharedMemory.isAttached())
+    {
+        if (!m_sharedMemory.lock())
+            return false;
+        const uchar *data = reinterpret_cast<const uchar *>(m_sharedMemory.constData());
+        QImage frame(data, w, h, w * 3, QImage::Format_RGB888);
+        if (!m_frame.isNull())
+            m_frame.fill(0);
+        m_frame = frame.copy();
+        m_sharedMemory.unlock();
+    }
+    else if (rgb.isByteArray() && rgb.toByteArray().size() == w * h * 3)
+    {
+        const QByteArray bytes = rgb.toByteArray();
+        QImage frame(reinterpret_cast<const uchar *>(bytes.constData()), w, h, w * 3, QImage::Format_RGB888);
+        if (!m_frame.isNull())
+            m_frame.fill(0);
+        m_frame = frame.copy();
+    }
+    else if (jpeg.isByteArray() && !jpeg.toByteArray().isEmpty() &&
+             jpeg.toByteArray().size() <= PreviewProtocol::MaxJpegBytes)
+    {
+        const QImage frame = QImage::fromData(jpeg.toByteArray(), "JPEG");
+        if (frame.isNull() || frame.width() != w || frame.height() != h)
+            return false;
+        if (!m_frame.isNull())
+            m_frame.fill(0);
+        m_frame = frame;
+    }
+    else
         return false;
-    if (!m_frame.isNull())
-        m_frame.fill(0);
-    m_frame = frame;
+
     m_spectrum = spectrum.toString();
     m_droppedFrames = dropped.toInteger();
     ++m_frameRevision;
@@ -543,6 +594,8 @@ void CameraPreviewSession::fail(const QString &errorCode)
 
 void CameraPreviewSession::terminateWorker()
 {
+    if (m_sharedMemory.isAttached())
+        m_sharedMemory.detach();
     if (!m_process)
         return;
     m_expectedExit = true;
@@ -551,6 +604,8 @@ void CameraPreviewSession::terminateWorker()
 
 void CameraPreviewSession::resetWorker(bool expected)
 {
+    if (m_sharedMemory.isAttached())
+        m_sharedMemory.detach();
     if (!m_process)
         return;
     m_process->disconnect(this);
