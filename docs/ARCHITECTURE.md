@@ -27,8 +27,10 @@ shell, network, privileged process, or authentication interface.
 
 ## Ownership
 
-Rust owns framing, closed operations, bounds, model inventory and identity,
-frame validation, cancellation/deadlines, native-output validation,
+The shared `kfaceauth-protocol` crate owns bounded worker framing, clean EOF and
+truncated-input handling, and the worker protocol version. Rust owns closed
+operations, bounds, model inventory and identity, frame validation,
+cancellation/deadlines, native-output validation,
 normalization, matching policy, vault format, filesystem safety, and
 zeroization wrappers.
 

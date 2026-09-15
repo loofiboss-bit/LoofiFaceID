@@ -13,10 +13,13 @@ use std::process::{self, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use kfaceauth_identity::{
-    IDENTITY_PROTOCOL_VERSION, MAX_IDENTITY_RESPONSE_BYTES, OP_EXTRACT_ENROLLMENT_SAMPLE,
+    IDENTITY_PROTOCOL_VERSION, MAX_IDENTITY_REQUEST_BYTES, MAX_IDENTITY_RESPONSE_BYTES,
+    OP_EXTRACT_ENROLLMENT_SAMPLE,
 };
+use kfaceauth_protocol::write_frame;
 use kfaceauth_vision::identity::{IdentityProvider, NormalizedEmbedding, cosine_similarity};
 use kfaceauth_vision::{CancellationToken, ImageView, PixelFormat, ProcessingControl};
+use zeroize::Zeroize;
 
 const MAXIMUM_DATASET_SAMPLES: usize = 64;
 const MAXIMUM_PPM_BYTES: usize = 1920 * 1080 * 3 + 256;
@@ -237,7 +240,7 @@ fn run_evaluation_worker_process(
                 .write_all(&request)
                 .map_err(|_| "evaluation-worker-io-failed")
         });
-    request.fill(0);
+    request.zeroize();
     write_result?;
     let mut output = child
         .wait_with_output()
@@ -247,13 +250,13 @@ fn run_evaluation_worker_process(
         || output.stdout.len() < 16
         || output.stdout.len() > MAX_IDENTITY_RESPONSE_BYTES + 4
     {
-        output.stdout.fill(0);
-        output.stderr.fill(0);
+        output.stdout.zeroize();
+        output.stderr.zeroize();
         return Err("evaluation-worker-failed");
     }
     let peak_rss = parse_worker_peak_rss(&output.stderr);
-    output.stdout.fill(0);
-    output.stderr.fill(0);
+    output.stdout.zeroize();
+    output.stderr.zeroize();
     Ok((elapsed, peak_rss))
 }
 
@@ -277,13 +280,9 @@ fn evaluation_request(sample: &SourceSample, generation: u64) -> Result<Vec<u8>,
     payload.extend_from_slice(&sample.bytes);
 
     let mut framed = Vec::with_capacity(payload.len() + 4);
-    framed.extend_from_slice(
-        &u32::try_from(payload.len())
-            .map_err(|_| "invalid-frame")?
-            .to_be_bytes(),
-    );
-    framed.extend_from_slice(&payload);
-    payload.fill(0);
+    let result = write_frame(&mut framed, &payload, MAX_IDENTITY_REQUEST_BYTES);
+    payload.zeroize();
+    result.map_err(|_| "invalid-frame")?;
     Ok(framed)
 }
 

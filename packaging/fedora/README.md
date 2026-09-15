@@ -30,7 +30,8 @@ rpmbuild -ba packaging/fedora/kfaceauth.spec --define "_sourcedir $PWD"
 
 Repeat the source archive twice and compare SHA-256. Repeat SRPM/RPM builds at
 the same normalized rpmbuild path and compare bytes. The complete prepared
-source set is offline: Cargo is locked/offline and no model is downloaded.
+source set is offline: Cargo is locked/offline and the required crates are
+vendored under `engine/vendor`; no model is downloaded.
 
 ## Inspect
 

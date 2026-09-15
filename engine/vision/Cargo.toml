@@ -8,7 +8,9 @@ license.workspace = true
 [dependencies]
 kfaceauth-crypto-openssl-sys = { path = "../crypto-openssl-sys" }
 kfaceauth-identity-types = { path = "../identity-types" }
+kfaceauth-protocol = { path = "../protocol" }
 kfaceauth-vision-opencv-sys = { path = "../vision-opencv-sys" }
+zeroize.workspace = true
 
 [lints]
 workspace = true

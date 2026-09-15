@@ -8,8 +8,10 @@ use crate::{
     CancellationToken, ImageError, ImageView, MAX_FACES, MAX_FRAME_BYTES, PixelFormat,
     ProcessingControl, VisionAnalysis, VisionError, VisionProvider,
 };
+use kfaceauth_protocol::{FrameError, read_frame, read_frame_or_eof, require_eof, write_frame};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
-pub const WORKER_PROTOCOL_VERSION: u16 = 1;
+pub use kfaceauth_protocol::WORKER_PROTOCOL_VERSION;
 pub const OP_ANALYZE: u8 = 1;
 pub const RESPONSE_ANALYSIS: u8 = 0x81;
 pub const RESPONSE_ERROR: u8 = 0xff;
@@ -64,6 +66,17 @@ impl From<io::Error> for WorkerIoError {
     }
 }
 
+impl From<FrameError> for WorkerIoError {
+    fn from(error: FrameError) -> Self {
+        match error {
+            FrameError::Io(error) => Self::Io(error),
+            FrameError::EmptyFrame => Self::EmptyFrame,
+            FrameError::FrameTooLarge { .. } => Self::FrameTooLarge,
+            FrameError::TrailingData => Self::TrailingData,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct AnalyzeRequest<'a> {
     generation: u64,
@@ -89,17 +102,17 @@ pub fn serve_once_with_provider<R: Read, W: Write, P: VisionProvider>(
     writer: &mut W,
     provider: &P,
 ) -> Result<(), WorkerIoError> {
-    let mut payload = read_frame(reader)?;
+    let mut payload = SensitiveBytes(read_frame(reader, MAX_REQUEST_PAYLOAD)?);
     if let Err(error) = require_eof(reader) {
-        payload.fill(0);
-        return Err(error);
+        payload.zeroize();
+        return Err(error.into());
     }
-    let response = match parse_request(&payload) {
+    let response = match parse_request(&payload.0) {
         Ok(request) => process_request(provider, request),
         Err(error) => encode_error(error.code, error.generation),
     };
-    payload.fill(0);
-    write_frame(writer, &response)
+    payload.zeroize();
+    write_frame(writer, &response, MAX_RESPONSE_PAYLOAD).map_err(WorkerIoError::from)
 }
 
 /// Reads one request and initializes the production provider only after the
@@ -122,20 +135,20 @@ where
     P: VisionProvider,
     F: FnOnce() -> Result<P, WorkerErrorCode>,
 {
-    let mut payload = read_frame(reader)?;
+    let mut payload = SensitiveBytes(read_frame(reader, MAX_REQUEST_PAYLOAD)?);
     if let Err(error) = require_eof(reader) {
-        payload.fill(0);
-        return Err(error);
+        payload.zeroize();
+        return Err(error.into());
     }
-    let response = match parse_request(&payload) {
+    let response = match parse_request(&payload.0) {
         Ok(request) => match factory() {
             Ok(provider) => process_request(&provider, request),
             Err(code) => encode_error(code, request.generation),
         },
         Err(error) => encode_error(error.code, error.generation),
     };
-    payload.fill(0);
-    write_frame(writer, &response)
+    payload.zeroize();
+    write_frame(writer, &response, MAX_RESPONSE_PAYLOAD).map_err(WorkerIoError::from)
 }
 
 /// Serves a continuous stream of vision analysis requests over a persistent session
@@ -150,30 +163,15 @@ pub fn serve_session_with_provider<R: Read, W: Write, P: VisionProvider>(
     provider: &P,
 ) -> Result<(), WorkerIoError> {
     loop {
-        let mut header = [0_u8; 4];
-        match reader.read_exact(&mut header) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(error) => return Err(WorkerIoError::Io(error)),
-        }
-        let length = u32::from_be_bytes(header) as usize;
-        if length == 0 {
-            return Err(WorkerIoError::EmptyFrame);
-        }
-        if length > MAX_REQUEST_PAYLOAD {
-            return Err(WorkerIoError::FrameTooLarge);
-        }
-        let mut payload = vec![0_u8; length];
-        if let Err(error) = reader.read_exact(&mut payload) {
-            payload.fill(0);
-            return Err(WorkerIoError::Io(error));
-        }
+        let Some(mut payload) = read_frame_or_eof(reader, MAX_REQUEST_PAYLOAD)? else {
+            return Ok(());
+        };
         let response = match parse_request(&payload) {
             Ok(request) => process_request(provider, request),
             Err(error) => encode_error(error.code, error.generation),
         };
-        payload.fill(0);
-        write_frame(writer, &response)?;
+        payload.zeroize();
+        write_frame(writer, &response, MAX_RESPONSE_PAYLOAD)?;
     }
 }
 
@@ -193,24 +191,9 @@ where
     P: VisionProvider,
     F: FnOnce() -> Result<P, WorkerErrorCode>,
 {
-    let mut header = [0_u8; 4];
-    match reader.read_exact(&mut header) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
-        Err(error) => return Err(WorkerIoError::Io(error)),
-    }
-    let length = u32::from_be_bytes(header) as usize;
-    if length == 0 {
-        return Err(WorkerIoError::EmptyFrame);
-    }
-    if length > MAX_REQUEST_PAYLOAD {
-        return Err(WorkerIoError::FrameTooLarge);
-    }
-    let mut payload = vec![0_u8; length];
-    if let Err(error) = reader.read_exact(&mut payload) {
-        payload.fill(0);
-        return Err(WorkerIoError::Io(error));
-    }
+    let Some(mut payload) = read_frame_or_eof(reader, MAX_REQUEST_PAYLOAD)? else {
+        return Ok(());
+    };
     let (provider, response) = match parse_request(&payload) {
         Ok(request) => match factory() {
             Ok(p) => {
@@ -221,8 +204,8 @@ where
         },
         Err(error) => (None, encode_error(error.code, error.generation)),
     };
-    payload.fill(0);
-    write_frame(writer, &response)?;
+    payload.zeroize();
+    write_frame(writer, &response, MAX_RESPONSE_PAYLOAD)?;
 
     if let Some(p) = provider {
         serve_session_with_provider(reader, writer, &p)
@@ -398,49 +381,8 @@ pub fn encode_error(code: WorkerErrorCode, generation: u64) -> Vec<u8> {
     payload
 }
 
-fn read_frame<R: Read>(reader: &mut R) -> Result<Vec<u8>, WorkerIoError> {
-    let mut header = [0_u8; 4];
-    reader.read_exact(&mut header)?;
-    let length = u32::from_be_bytes(header) as usize;
-    if length == 0 {
-        return Err(WorkerIoError::EmptyFrame);
-    }
-    if length > MAX_REQUEST_PAYLOAD {
-        return Err(WorkerIoError::FrameTooLarge);
-    }
-    let mut payload = vec![0_u8; length];
-    if let Err(error) = reader.read_exact(&mut payload) {
-        payload.fill(0);
-        return Err(WorkerIoError::Io(error));
-    }
-    Ok(payload)
-}
-
-fn require_eof<R: Read>(reader: &mut R) -> Result<(), WorkerIoError> {
-    let mut trailing = [0_u8; 1];
-    loop {
-        match reader.read(&mut trailing) {
-            Ok(0) => return Ok(()),
-            Ok(_) => {
-                trailing.fill(0);
-                return Err(WorkerIoError::TrailingData);
-            }
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(WorkerIoError::Io(error)),
-        }
-    }
-}
-
-fn write_frame<W: Write>(writer: &mut W, payload: &[u8]) -> Result<(), WorkerIoError> {
-    if payload.is_empty() || payload.len() > MAX_RESPONSE_PAYLOAD {
-        return Err(WorkerIoError::FrameTooLarge);
-    }
-    let length = u32::try_from(payload.len()).map_err(|_| WorkerIoError::FrameTooLarge)?;
-    writer.write_all(&length.to_be_bytes())?;
-    writer.write_all(payload)?;
-    writer.flush()?;
-    Ok(())
-}
+#[derive(Zeroize, ZeroizeOnDrop)]
+struct SensitiveBytes(Vec<u8>);
 
 #[cfg(test)]
 mod tests {

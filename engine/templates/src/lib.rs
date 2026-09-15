@@ -21,6 +21,7 @@ use kfaceauth_identity_types::{
     DETECTOR_MODEL_ID, EMBEDDING_DIMENSION, EMBEDDING_FORMAT_ID, EMBEDDING_MODEL_ID,
     NORMALIZATION_VERSION, NormalizedEmbedding, SFACE_MODEL_SHA256, cosine_similarity,
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const MINIMUM_PROFILE_SAMPLES: usize = 3;
 pub const RECOMMENDED_PROFILE_SAMPLES: usize = 5;
@@ -41,6 +42,7 @@ const MAXIMUM_VAULT_BYTES: usize = 16 * 1024;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(2);
 const LOCK_RETRY: Duration = Duration::from_millis(10);
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct MasterKey {
     bytes: [u8; KEY_BYTES],
 }
@@ -67,12 +69,6 @@ impl MasterKey {
     #[must_use]
     pub const fn sensitive_bytes(&self) -> &[u8; KEY_BYTES] {
         &self.bytes
-    }
-}
-
-impl Drop for MasterKey {
-    fn drop(&mut self) {
-        self.bytes.fill(0);
     }
 }
 
@@ -408,13 +404,8 @@ impl From<KeyProviderError> for VaultError {
     }
 }
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 struct SensitiveBytes(Vec<u8>);
-
-impl Drop for SensitiveBytes {
-    fn drop(&mut self) {
-        self.0.fill(0);
-    }
-}
 
 fn associated_data(uid: u32) -> Vec<u8> {
     let mut data = Vec::with_capacity(256);
@@ -535,7 +526,7 @@ fn encode_vault(profile: &Profile, key: &MasterKey, uid: u32) -> Result<Vec<u8>,
     output.extend_from_slice(&tag);
     output.extend_from_slice(&ciphertext);
     if output.len() > MAXIMUM_VAULT_BYTES {
-        output.fill(0);
+        output.zeroize();
         return Err(VaultError::Oversized);
     }
     Ok(output)
@@ -693,7 +684,7 @@ fn read_secure_file(path: &Path, uid: u32) -> Result<Vec<u8>, VaultError> {
     )
     .read_to_end(&mut bytes)?;
     if bytes.len() > MAXIMUM_VAULT_BYTES {
-        bytes.fill(0);
+        bytes.zeroize();
         return Err(VaultError::Oversized);
     }
     Ok(bytes)

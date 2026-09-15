@@ -6,9 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+kfaceauth-protocol = { path = "../protocol" }
 kfaceauth-templates = { path = "../templates" }
 kfaceauth-vision = { path = "../vision" }
 kfaceauth-vision-opencv-sys = { path = "../vision-opencv-sys" }
+zeroize.workspace = true
 
 [lints]
 workspace = true

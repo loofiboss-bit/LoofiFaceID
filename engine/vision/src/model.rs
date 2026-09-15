@@ -7,6 +7,7 @@ use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
 use crate::sha256::digest_hex;
+use zeroize::Zeroize;
 
 pub const MANIFEST_FILE: &str = "manifest.kfaceauth";
 pub const MANIFEST_MAGIC: &str = "KFACEAUTH_MODEL_MANIFEST\t1";
@@ -138,7 +139,7 @@ impl VerifiedArtifact {
 
 impl Drop for VerifiedArtifact {
     fn drop(&mut self) {
-        self.bytes.fill(0);
+        self.bytes.zeroize();
     }
 }
 
@@ -202,19 +203,19 @@ pub fn load_manifest(root: &Path) -> Result<ModelManifest, ModelError> {
         .take(MAX_MANIFEST_BYTES + 1)
         .read_to_end(&mut bytes)
     {
-        bytes.fill(0);
+        bytes.zeroize();
         return Err(ModelError::Io(error));
     }
     if u64::try_from(bytes.len()) != Ok(metadata.len()) {
-        bytes.fill(0);
+        bytes.zeroize();
         return Err(ModelError::InvalidManifest);
     }
     let Ok(text) = std::str::from_utf8(&bytes) else {
-        bytes.fill(0);
+        bytes.zeroize();
         return Err(ModelError::InvalidManifest);
     };
     let result = ModelManifest::parse(text);
-    bytes.fill(0);
+    bytes.zeroize();
     result
 }
 
@@ -294,15 +295,15 @@ fn load_verified_entry(root: &Path, entry: ManifestEntry) -> Result<VerifiedArti
         .take(entry.size + 1)
         .read_to_end(&mut bytes)
     {
-        bytes.fill(0);
+        bytes.zeroize();
         return Err(ModelError::Io(error));
     }
     if u64::try_from(bytes.len()) != Ok(entry.size) {
-        bytes.fill(0);
+        bytes.zeroize();
         return Err(ModelError::ArtifactSizeMismatch);
     }
     if digest_hex(&bytes) != entry.sha256 {
-        bytes.fill(0);
+        bytes.zeroize();
         return Err(ModelError::ArtifactDigestMismatch);
     }
     Ok(VerifiedArtifact { entry, bytes })

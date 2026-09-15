@@ -7,6 +7,8 @@
 use std::ffi::c_int;
 use std::fmt;
 
+use zeroize::Zeroize;
+
 const STATUS_OK: c_int = 0;
 const STATUS_INVALID_ARGUMENT: c_int = 1;
 const STATUS_PROVIDER_FAILURE: c_int = 2;
@@ -103,19 +105,36 @@ pub fn random<const N: usize>() -> Result<[u8; N], CryptoError> {
     file.by_ref()
         .take(u64::try_from(N).map_err(|_| CryptoError::InvalidArgument)?)
         .read_to_end(&mut bytes)
-        .map_err(|_| CryptoError::ProviderFailure)?;
+        .map_err(|_| {
+            bytes.zeroize();
+            CryptoError::ProviderFailure
+        })?;
     if bytes.len() != N {
+        bytes.zeroize();
         return Err(CryptoError::ProviderFailure);
     }
-    let mut output: [u8; N] = bytes.try_into().map_err(|_| CryptoError::ProviderFailure)?;
+    let mut output: [u8; N] = match bytes.try_into() {
+        Ok(output) => output,
+        Err(mut bytes) => {
+            bytes.zeroize();
+            return Err(CryptoError::ProviderFailure);
+        }
+    };
 
     let mut openssl_buf = vec![0_u8; N];
     // SAFETY: openssl_buf is allocated with exactly N bytes and has valid pointer.
-    status_result(unsafe { kfaceauth_crypto_random(openssl_buf.as_mut_ptr(), openssl_buf.len()) })?;
+    if let Err(error) = status_result(unsafe {
+        kfaceauth_crypto_random(openssl_buf.as_mut_ptr(), openssl_buf.len())
+    }) {
+        openssl_buf.zeroize();
+        output.zeroize();
+        return Err(error);
+    }
 
     for i in 0..N {
         output[i] ^= openssl_buf[i];
     }
+    openssl_buf.zeroize();
     Ok(output)
 }
 
@@ -153,13 +172,13 @@ pub fn encrypt(
         )
     });
     if let Err(error) = result {
-        ciphertext.fill(0);
-        tag.fill(0);
+        ciphertext.zeroize();
+        tag.zeroize();
         return Err(error);
     }
     if ciphertext_size != ciphertext.len() {
-        ciphertext.fill(0);
-        tag.fill(0);
+        ciphertext.zeroize();
+        tag.zeroize();
         return Err(CryptoError::ProviderFailure);
     }
     Ok((ciphertext, tag))
@@ -199,11 +218,11 @@ pub fn decrypt(
         )
     });
     if let Err(error) = result {
-        plaintext.fill(0);
+        plaintext.zeroize();
         return Err(error);
     }
     if plaintext_size != plaintext.len() {
-        plaintext.fill(0);
+        plaintext.zeroize();
         return Err(CryptoError::ProviderFailure);
     }
     Ok(plaintext)

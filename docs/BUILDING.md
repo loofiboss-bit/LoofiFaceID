@@ -44,9 +44,10 @@ python3 tools/audit_quantization.py --help
 git diff --check
 ```
 
-Cargo has no registry dependencies. Model weights are present in the complete
-prepared source set. All Cargo operations use `--locked --offline`; no
-configure, build, test, install, or runtime step downloads data.
+Cargo uses the committed lockfile and vendored registry sources under
+`engine/vendor`; all verification commands run with `--locked --offline`. Model
+weights are present in the complete prepared source set. No configure, build,
+test, install, or runtime step downloads data.
 
 ## Milestone 3 benchmarking and sandbox controls
 

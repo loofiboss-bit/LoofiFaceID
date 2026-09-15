@@ -5,7 +5,10 @@
 use std::fmt;
 use std::io::{self, Read, Write};
 
+use zeroize::Zeroize;
+
 pub const PROTOCOL_VERSION: u16 = 2;
+pub const WORKER_PROTOCOL_VERSION: u16 = 1;
 pub const MAX_REQUEST_BYTES: usize = 4 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 pub const MAX_REQUEST_BYTES_WIRE: u32 = 4 * 1024;
@@ -204,6 +207,35 @@ impl From<io::Error> for CodecError {
     }
 }
 
+#[derive(Debug)]
+pub enum FrameError {
+    Io(io::Error),
+    EmptyFrame,
+    FrameTooLarge { length: usize, maximum: usize },
+    TrailingData,
+}
+
+impl fmt::Display for FrameError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(error) => write!(formatter, "bounded frame I/O failed: {error}"),
+            Self::EmptyFrame => formatter.write_str("bounded frame is empty"),
+            Self::FrameTooLarge { length, maximum } => {
+                write!(formatter, "bounded frame length {length} exceeds {maximum}")
+            }
+            Self::TrailingData => formatter.write_str("bounded stream contains trailing data"),
+        }
+    }
+}
+
+impl std::error::Error for FrameError {}
+
+impl From<io::Error> for FrameError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
 #[must_use]
 pub fn encode_request(request: Request) -> Vec<u8> {
     let kind = match request {
@@ -328,35 +360,98 @@ pub fn decode_response(payload: &[u8]) -> Result<Response, CodecError> {
 ///
 /// # Errors
 ///
-/// Returns [`CodecError`] for I/O errors, zero-length frames, or declared
+/// Returns [`FrameError`] for I/O errors, zero-length frames, or declared
 /// lengths greater than `maximum`.
-pub fn read_frame<R: Read>(reader: &mut R, maximum: usize) -> Result<Vec<u8>, CodecError> {
+pub fn read_frame<R: Read>(reader: &mut R, maximum: usize) -> Result<Vec<u8>, FrameError> {
+    match read_frame_or_eof(reader, maximum)? {
+        Some(payload) => Ok(payload),
+        None => Err(FrameError::Io(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "bounded frame stream ended before a frame header",
+        ))),
+    }
+}
+
+/// Reads one length-prefixed frame and distinguishes clean stream EOF from a
+/// truncated frame header.
+///
+/// # Errors
+///
+/// Returns [`FrameError`] for I/O errors, zero-length frames, truncated
+/// headers, or declared lengths greater than `maximum`.
+pub fn read_frame_or_eof<R: Read>(
+    reader: &mut R,
+    maximum: usize,
+) -> Result<Option<Vec<u8>>, FrameError> {
     let mut header = [0_u8; 4];
-    reader.read_exact(&mut header)?;
+    let mut offset = 0_usize;
+    while offset < header.len() {
+        match reader.read(&mut header[offset..]) {
+            Ok(0) if offset == 0 => return Ok(None),
+            Ok(0) => {
+                return Err(FrameError::Io(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "bounded frame header is truncated",
+                )));
+            }
+            Ok(bytes_read) => offset += bytes_read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(FrameError::Io(error)),
+        }
+    }
+
     let length = u32::from_be_bytes(header) as usize;
     if length == 0 {
-        return Err(CodecError::EmptyFrame);
+        return Err(FrameError::EmptyFrame);
     }
     if length > maximum {
-        return Err(CodecError::FrameTooLarge { length, maximum });
+        return Err(FrameError::FrameTooLarge { length, maximum });
     }
     let mut payload = vec![0_u8; length];
-    reader.read_exact(&mut payload)?;
-    Ok(payload)
+    if let Err(error) = reader.read_exact(&mut payload) {
+        payload.zeroize();
+        return Err(FrameError::Io(error));
+    }
+    Ok(Some(payload))
+}
+
+/// Requires a bounded stream to contain exactly one frame.
+///
+/// # Errors
+///
+/// Returns [`FrameError::TrailingData`] when another byte is present.
+pub fn require_eof<R: Read>(reader: &mut R) -> Result<(), FrameError> {
+    let mut trailing = [0_u8; 1];
+    loop {
+        match reader.read(&mut trailing) {
+            Ok(0) => return Ok(()),
+            Ok(_) => return Err(FrameError::TrailingData),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(FrameError::Io(error)),
+        }
+    }
 }
 
 /// Writes one bounded length-prefixed frame.
 ///
 /// # Errors
 ///
-/// Returns [`CodecError`] for empty or oversized payloads and for I/O errors.
+/// Returns [`FrameError`] for empty or oversized payloads and for I/O errors.
 pub fn write_frame<W: Write>(
     writer: &mut W,
     payload: &[u8],
     maximum: usize,
-) -> Result<(), CodecError> {
-    validate_payload(payload, maximum)?;
-    let length = u32::try_from(payload.len()).map_err(|_| CodecError::FrameTooLarge {
+) -> Result<(), FrameError> {
+    if payload.is_empty() {
+        return Err(FrameError::EmptyFrame);
+    }
+    if payload.len() > maximum {
+        return Err(FrameError::FrameTooLarge {
+            length: payload.len(),
+            maximum,
+        });
+    }
+    let length = u32::try_from(payload.len()).map_err(|_| FrameError::FrameTooLarge {
         length: payload.len(),
         maximum,
     })?;
@@ -523,7 +618,7 @@ mod tests {
         let mut reader = Cursor::new(header);
         assert!(matches!(
             read_frame(&mut reader, MAX_REQUEST_BYTES),
-            Err(CodecError::FrameTooLarge { .. })
+            Err(FrameError::FrameTooLarge { .. })
         ));
         assert_eq!(reader.position(), 4);
     }
@@ -541,11 +636,23 @@ mod tests {
     fn zero_length_and_wrong_version_fail_closed() {
         assert!(matches!(
             read_frame(&mut Cursor::new([0, 0, 0, 0]), MAX_REQUEST_BYTES),
-            Err(CodecError::EmptyFrame)
+            Err(FrameError::EmptyFrame)
         ));
         assert!(matches!(
             decode_request(&[0, 3, REQUEST_STATUS, 0]),
             Err(CodecError::UnsupportedVersion(3))
+        ));
+    }
+
+    #[test]
+    fn clean_eof_and_partial_headers_are_distinct() {
+        assert_eq!(
+            read_frame_or_eof(&mut Cursor::new([]), MAX_REQUEST_BYTES).unwrap(),
+            None
+        );
+        assert!(matches!(
+            read_frame_or_eof(&mut Cursor::new([0, 0]), MAX_REQUEST_BYTES),
+            Err(FrameError::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof
         ));
     }
 }

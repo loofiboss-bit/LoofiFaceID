@@ -32,6 +32,7 @@ tar \
     --exclude='./.git' \
     --exclude='./.cache' \
     --exclude='./.directory' \
+    --exclude='./.agents' \
     --exclude='./.mypy_cache' \
     --exclude='./.pytest_cache' \
     --exclude='./.vscode' \

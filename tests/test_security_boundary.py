@@ -8,6 +8,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def project_rust_sources() -> list[Path]:
+    return [
+        path
+        for path in sorted((ROOT / "engine").rglob("*.rs"))
+        if "vendor" not in path.parts
+    ]
+
+
 class SecurityBoundaryTests(unittest.TestCase):
     def test_source_has_no_blocking_process_waits(self) -> None:
         source = "\n".join(
@@ -210,7 +218,7 @@ class SecurityBoundaryTests(unittest.TestCase):
     def test_rust_identity_has_no_network_or_authentication_surface(self) -> None:
         rust = "\n".join(
             path.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
-            for path in sorted((ROOT / "engine").rglob("*.rs"))
+            for path in project_rust_sources()
             if "vision-opencv-sys" not in path.parts
             and "crypto-openssl-sys" not in path.parts
         )
@@ -236,7 +244,7 @@ class SecurityBoundaryTests(unittest.TestCase):
             ROOT / "engine" / "vision-opencv-sys" / "src" / "lib.rs",
             ROOT / "engine" / "crypto-openssl-sys" / "src" / "lib.rs",
         }
-        for path in sorted((ROOT / "engine").rglob("*.rs")):
+        for path in project_rust_sources():
             source = path.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
             if re.search(r"\bunsafe(?:\s+extern|\s*\{|\s+fn|\s+trait|\s+impl)", source) and path not in allowed:
                 offenders.append(str(path.relative_to(ROOT)))
@@ -250,7 +258,7 @@ class SecurityBoundaryTests(unittest.TestCase):
     def test_vision_worker_has_no_network_auth_or_disk_write_surface(self) -> None:
         vision_rust = "\n".join(
             path.read_text(encoding="utf-8").split("#[cfg(test)]", 1)[0]
-            for path in sorted((ROOT / "engine").rglob("*.rs"))
+            for path in project_rust_sources()
             if "vision" in path.parts
         )
         for forbidden in (

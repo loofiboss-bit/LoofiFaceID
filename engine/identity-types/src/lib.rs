@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
 pub const DETECTOR_MODEL_ID: &str = "yunet-2023mar-v1";
 pub const EMBEDDING_MODEL_ID: &str = "sface-2021dec-fp32-v1";
 pub const EMBEDDING_FORMAT_ID: &str = "sface-f32-le-128-l2-v1";
@@ -16,6 +18,7 @@ const MAXIMUM_RAW_ABSOLUTE_VALUE: f32 = 32.0;
 const MINIMUM_NORM: f64 = 1.0e-12;
 const NORMALIZED_NORM_TOLERANCE: f64 = 1.0e-5;
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub struct NormalizedEmbedding {
     values: [f32; EMBEDDING_DIMENSION],
 }
@@ -32,7 +35,7 @@ impl NormalizedEmbedding {
             .iter()
             .any(|value| !value.is_finite() || value.abs() > MAXIMUM_RAW_ABSOLUTE_VALUE)
         {
-            values.fill(0.0);
+            values.zeroize();
             return Err(EmbeddingError);
         }
         let norm_squared = values
@@ -40,7 +43,7 @@ impl NormalizedEmbedding {
             .map(|value| f64::from(*value) * f64::from(*value))
             .sum::<f64>();
         if !norm_squared.is_finite() || norm_squared <= MINIMUM_NORM {
-            values.fill(0.0);
+            values.zeroize();
             return Err(EmbeddingError);
         }
         let norm = norm_squared.sqrt();
@@ -60,7 +63,7 @@ impl NormalizedEmbedding {
             .iter()
             .any(|value| !value.is_finite() || value.abs() > 1.0)
         {
-            values.fill(0.0);
+            values.zeroize();
             return Err(EmbeddingError);
         }
         let norm = values
@@ -69,7 +72,7 @@ impl NormalizedEmbedding {
             .sum::<f64>()
             .sqrt();
         if !norm.is_finite() || (norm - 1.0).abs() > NORMALIZED_NORM_TOLERANCE {
-            values.fill(0.0);
+            values.zeroize();
             return Err(EmbeddingError);
         }
         Ok(Self { values })
@@ -87,12 +90,6 @@ impl Clone for NormalizedEmbedding {
         Self {
             values: self.values,
         }
-    }
-}
-
-impl Drop for NormalizedEmbedding {
-    fn drop(&mut self) {
-        self.values.fill(0.0);
     }
 }
 

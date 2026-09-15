@@ -56,7 +56,9 @@ add_custom_command(
         "KFACEAUTH_SOURCE_ROOT=${PROJECT_SOURCE_DIR}"
         "KFACEAUTH_HAS_OPENVINO=${KFACEAUTH_OPENVINO_ENV}"
         "CXXFLAGS=${KFACEAUTH_REPRODUCIBLE_CXXFLAGS}"
-        "${CARGO_EXECUTABLE}" build
+        "${CARGO_EXECUTABLE}"
+        --config "${PROJECT_SOURCE_DIR}/.cargo/config.toml"
+        build
         --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml"
         --package kfaceauth-vision
         --bin "${KFACEAUTH_VISION_WORKER}"
@@ -67,6 +69,7 @@ add_custom_command(
         ${KFACEAUTH_CARGO_PROFILE_ARGUMENTS}
     DEPENDS
         ${KFACEAUTH_RUST_SOURCES}
+        "${PROJECT_SOURCE_DIR}/.cargo/config.toml"
         "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.lock"
         "${PROJECT_SOURCE_DIR}/models/manifest.kfaceauth"
         "${PROJECT_SOURCE_DIR}/models/files/face_detection_yunet_2023mar.onnx"

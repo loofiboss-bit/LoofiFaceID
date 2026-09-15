@@ -14,6 +14,8 @@ use std::path::Path;
 use std::ptr::{NonNull, null};
 use std::rc::Rc;
 
+use zeroize::Zeroize;
+
 const STATUS_OK: c_int = 0;
 const STATUS_INVALID_ARGUMENT: c_int = 1;
 const STATUS_RUNTIME_FAILURE: c_int = 2;
@@ -461,7 +463,7 @@ impl Recognizer {
             )
         })?;
         if count != SFACE_EMBEDDING_DIMENSION {
-            embedding.fill(0.0);
+            embedding.zeroize();
             return Err(BridgeError::MalformedOutput);
         }
         Ok(embedding)

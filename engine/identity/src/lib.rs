@@ -7,6 +7,7 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use std::time::Duration;
 
+use kfaceauth_protocol::{FrameError, read_frame, read_frame_or_eof, require_eof, write_frame};
 use kfaceauth_templates::{
     MASTER_KEY_BYTES as KEY_BYTES, MAXIMUM_PROFILE_SAMPLES, MasterKey, Profile, Vault, VaultError,
     VaultStatus, VerificationResult,
@@ -18,8 +19,9 @@ use kfaceauth_vision::identity::{
 use kfaceauth_vision::{
     CancellationToken, ImageError, ImageView, MAX_FRAME_BYTES, PixelFormat, ProcessingControl,
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
-pub const IDENTITY_PROTOCOL_VERSION: u16 = 1;
+pub const IDENTITY_PROTOCOL_VERSION: u16 = kfaceauth_protocol::WORKER_PROTOCOL_VERSION;
 pub const MAX_IDENTITY_REQUEST_BYTES: usize =
     64 + MAX_FRAME_BYTES + MAXIMUM_PROFILE_SAMPLES * EMBEDDING_DIMENSION * 4;
 pub const MAX_IDENTITY_RESPONSE_BYTES: usize = 64 + EMBEDDING_DIMENSION * 4;
@@ -102,6 +104,17 @@ impl From<io::Error> for IdentityWorkerError {
     }
 }
 
+impl From<FrameError> for IdentityWorkerError {
+    fn from(error: FrameError) -> Self {
+        match error {
+            FrameError::Io(error) => Self::Io(error),
+            FrameError::EmptyFrame => Self::EmptyFrame,
+            FrameError::FrameTooLarge { .. } => Self::FrameTooLarge,
+            FrameError::TrailingData => Self::TrailingData,
+        }
+    }
+}
+
 enum Request<'a> {
     Status(Option<MasterKey>),
     Extract {
@@ -152,15 +165,16 @@ pub fn serve_once<R: Read, W: Write>(
     writer: &mut W,
     model_root: &Path,
 ) -> Result<(), IdentityWorkerError> {
-    let mut payload = SensitiveBytes(read_frame(reader)?);
+    let mut payload = SensitiveBytes(read_frame(reader, MAX_IDENTITY_REQUEST_BYTES)?);
     require_eof(reader)?;
     let mut response = SensitiveBytes(match parse_request(&payload.0) {
         Ok(request) => process_request(request, model_root),
         Err(error) => encode_error(error.code, error.generation),
     });
-    payload.0.fill(0);
-    let result = write_frame(writer, &response.0);
-    response.0.fill(0);
+    payload.zeroize();
+    let result = write_frame(writer, &response.0, MAX_IDENTITY_RESPONSE_BYTES)
+        .map_err(IdentityWorkerError::from);
+    response.zeroize();
     result
 }
 
@@ -178,31 +192,16 @@ pub fn serve_session<R: Read, W: Write>(
 ) -> Result<(), IdentityWorkerError> {
     let mut provider_cache: Option<IdentityProvider> = None;
     loop {
-        let mut header = [0_u8; 4];
-        match reader.read_exact(&mut header) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(error) => return Err(IdentityWorkerError::Io(error)),
-        }
-        let length = u32::from_be_bytes(header) as usize;
-        if length == 0 {
-            return Err(IdentityWorkerError::EmptyFrame);
-        }
-        if length > MAX_IDENTITY_REQUEST_BYTES {
-            return Err(IdentityWorkerError::FrameTooLarge);
-        }
-        let mut payload = SensitiveBytes(vec![0_u8; length]);
-        if let Err(error) = reader.read_exact(&mut payload.0) {
-            payload.0.fill(0);
-            return Err(IdentityWorkerError::Io(error));
-        }
-        let mut response = SensitiveBytes(match parse_request(&payload.0) {
+        let Some(mut payload) = read_frame_or_eof(reader, MAX_IDENTITY_REQUEST_BYTES)? else {
+            return Ok(());
+        };
+        let mut response = SensitiveBytes(match parse_request(&payload) {
             Ok(request) => process_request_with_cache(request, model_root, &mut provider_cache),
             Err(error) => encode_error(error.code, error.generation),
         });
-        payload.0.fill(0);
-        let result = write_frame(writer, &response.0);
-        response.0.fill(0);
+        payload.zeroize();
+        let result = write_frame(writer, &response.0, MAX_IDENTITY_RESPONSE_BYTES);
+        response.zeroize();
         result?;
     }
 }
@@ -617,48 +616,6 @@ fn response_header(kind: u8, code: u8, generation: u64) -> Vec<u8> {
     response
 }
 
-fn read_frame<R: Read>(reader: &mut R) -> Result<Vec<u8>, IdentityWorkerError> {
-    let mut length = [0_u8; 4];
-    reader.read_exact(&mut length)?;
-    let length = usize::try_from(u32::from_be_bytes(length))
-        .map_err(|_| IdentityWorkerError::FrameTooLarge)?;
-    if length == 0 {
-        return Err(IdentityWorkerError::EmptyFrame);
-    }
-    if length > MAX_IDENTITY_REQUEST_BYTES {
-        return Err(IdentityWorkerError::FrameTooLarge);
-    }
-    let mut payload = vec![0_u8; length];
-    if let Err(error) = reader.read_exact(&mut payload) {
-        payload.fill(0);
-        return Err(IdentityWorkerError::Io(error));
-    }
-    Ok(payload)
-}
-
-fn require_eof<R: Read>(reader: &mut R) -> Result<(), IdentityWorkerError> {
-    let mut trailing = [0_u8; 1];
-    match reader.read(&mut trailing) {
-        Ok(0) => Ok(()),
-        Ok(_) => Err(IdentityWorkerError::TrailingData),
-        Err(error) => Err(IdentityWorkerError::Io(error)),
-    }
-}
-
-fn write_frame<W: Write>(writer: &mut W, payload: &[u8]) -> Result<(), IdentityWorkerError> {
-    if payload.is_empty() || payload.len() > MAX_IDENTITY_RESPONSE_BYTES {
-        return Err(IdentityWorkerError::FrameTooLarge);
-    }
-    writer.write_all(
-        &u32::try_from(payload.len())
-            .map_err(|_| IdentityWorkerError::FrameTooLarge)?
-            .to_be_bytes(),
-    )?;
-    writer.write_all(payload)?;
-    writer.flush()?;
-    Ok(())
-}
-
 fn map_image_error(_error: ImageError) -> WorkerErrorCode {
     WorkerErrorCode::InvalidFrame
 }
@@ -700,13 +657,8 @@ fn map_vault_error(error: &VaultError) -> WorkerErrorCode {
     }
 }
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 struct SensitiveBytes(Vec<u8>);
-
-impl Drop for SensitiveBytes {
-    fn drop(&mut self) {
-        self.0.fill(0);
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -735,12 +687,11 @@ mod tests {
         let error = parse_request(&header(OP_GENERATE_KEY, 0)).err().unwrap();
         assert_eq!(error.code, WorkerErrorCode::InvalidGeneration);
         assert!(matches!(
-            read_frame(&mut Cursor::new(framed(&vec![
-                0;
+            read_frame(
+                &mut Cursor::new(framed(&vec![0; MAX_IDENTITY_REQUEST_BYTES + 1])),
                 MAX_IDENTITY_REQUEST_BYTES
-                    + 1
-            ]))),
-            Err(IdentityWorkerError::FrameTooLarge)
+            ),
+            Err(FrameError::FrameTooLarge { .. })
         ));
     }
 

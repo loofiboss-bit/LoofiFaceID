@@ -150,6 +150,7 @@ class PackagingContractTests(unittest.TestCase):
             self.assertFalse(
                 any("/redhat-linux-build/" in f"/{name}/" for name in names)
             )
+            self.assertFalse(any("/.agents/" in f"/{name}/" for name in names))
             legacy_package = "plasma-" + "irlume"
             legacy_names = [name for name in names if legacy_package in name.lower()]
             self.assertEqual(

@@ -590,12 +590,13 @@ Achieve sub-35ms raw engine compute latency and 55–75 ms end-to-end user-perce
   - Update `engine/vision-opencv-sys/native/yunet_bridge.cpp` to construct `cv::Mat` wrapping mapped memory directly without allocations or `std::copy_n`.
   - Enable `swapRB=true` in OpenCV DNN `blobFromImage`; remove Rust `convert_to_bgr()` full-frame pass.
 - [ ] **Task 1.4: Cryptographic Secret Erasure (`zeroize` Crate Migration)**:
-  - Add `zeroize = { version = "1.8", features = ["derive"] }` to `engine/identity-types/Cargo.toml` and `engine/templates/Cargo.toml`.
-  - Derive `Zeroize, ZeroizeOnDrop` on `MasterKey`, `SensitiveBytes`, `NormalizedEmbedding`.
-  - Insert `atomic_thread_fence(SeqCst)` in C++ bridge and verify disassembly to confirm zeroing instructions are not eliminated by LLVM.
+  - [x] Add the locked `zeroize` dependency and migrate Rust secret-bearing buffers across identity, templates, vision, and crypto boundaries.
+  - [x] Derive `Zeroize, ZeroizeOnDrop` on `MasterKey`, `SensitiveBytes`, and `NormalizedEmbedding`, with explicit cleanup for temporary buffers.
+  - [ ] Insert `atomic_thread_fence(SeqCst)` in the C++ bridge and verify disassembly to confirm zeroing instructions are not eliminated by LLVM.
 - [ ] **Task 1.5: Protocol Unification**:
-  - Refactor `engine/protocol/src/lib.rs` to serve as the single source of truth for message framing, opcodes, and error types.
-  - Delete duplicated protocol implementations in `engine/vision/src/worker.rs` and `engine/identity/src/lib.rs`.
+  - [x] Refactor `engine/protocol/src/lib.rs` to own bounded frame encoding/decoding, clean-EOF handling, and the worker protocol version.
+  - [x] Delete duplicated frame implementations in `engine/vision/src/worker.rs` and `engine/identity/src/lib.rs` and route the evaluator through the shared codec.
+  - [ ] Move the vision/identity operation opcodes and worker error schema into the shared protocol crate.
 - [ ] **Task 1.6: Model Hash Caching & Verification Optimization**:
   - Eliminate the triple SHA-256 calculation of the 38.7 MB SFace ONNX weight file on hot paths.
   - Verify model digests once upon daemon startup; cache verified inode/mtime/stat or leverage Linux `fs-verity`.
@@ -613,6 +614,14 @@ Achieve sub-35ms raw engine compute latency and 55–75 ms end-to-end user-perce
 - `engine/vision-opencv-sys/native/yunet_bridge.cpp`
 - `src/backend/identityworkerclient.cpp`, `src/backend/visionanalysissession.cpp`
 - `src/preview/cameraprovider.cpp`
+
+#### Current branch progress
+
+The current branch delivers the Milestone 1 security/protocol foundation only:
+shared bounded framing with truncated-input handling, one worker-version source,
+and compiler-resistant Rust zeroization for sensitive buffers. Persistent
+workers, shared-memory IPC, model-hash caching, matching-policy migration, and
+privilege/authentication integration remain open.
 
 #### Measurable Test Criteria:
 - Cargo workspace test suite (`cargo test --workspace`) passes 100% with zero warnings.

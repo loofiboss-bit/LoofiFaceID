@@ -14,6 +14,7 @@ use crate::{
     FaceObservation, FaceRectangle, ImageView, MAX_FACES, PixelFormat, ProcessingControl,
     VisionAnalysis, VisionError, VisionProvider, calculate_quality,
 };
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const YUNET_ARTIFACT_ID: &str = "yunet-2023mar";
 pub const YUNET_MODEL_PATH: &str = "files/face_detection_yunet_2023mar.onnx";
@@ -195,13 +196,8 @@ fn require_expected_metadata(entry: &ManifestEntry) -> Result<(), ProviderLoadEr
     Ok(())
 }
 
+#[derive(Zeroize, ZeroizeOnDrop)]
 pub(crate) struct SensitiveBytes(pub(crate) Vec<u8>);
-
-impl Drop for SensitiveBytes {
-    fn drop(&mut self) {
-        self.0.fill(0);
-    }
-}
 
 pub(crate) struct RuntimeInput {
     pub(crate) bytes: SensitiveBytes,
@@ -213,7 +209,9 @@ pub(crate) struct SensitiveDetections(pub(crate) Vec<RawDetection>);
 
 impl Drop for SensitiveDetections {
     fn drop(&mut self) {
-        self.0.fill(RawDetection::default());
+        for detection in &mut self.0 {
+            detection.values.zeroize();
+        }
     }
 }
 

@@ -47,9 +47,10 @@ C ABI. The C++ side:
   qualified with the deployed OpenCV build.
 
 Configure and build use the system compiler, `pkg-config`, and already
-installed Fedora packages. Cargo has no registry dependencies, so locked
-offline builds are supported. Configure, build, test, installation, and
-runtime never fetch a model or inference component.
+installed Fedora packages. The small Rust dependency set is vendored under
+`engine/vendor`, so locked offline builds are supported without registry
+access. Configure, build, test, installation, and runtime never fetch a model
+or inference component.
 
 The C++ standard-library and OpenCV ABI remain risks. They are contained in the
 short-lived unprivileged worker, covered by native tests and ASan/UBSan builds,

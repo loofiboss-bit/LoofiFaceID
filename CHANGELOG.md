@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Begin the v5 Milestone 1 foundation with shared bounded worker framing,
+  centralized worker protocol versioning, and `zeroize`-backed cleanup of
+  sensitive Rust buffers. Persistent workers, shared-memory IPC, PAM, and
+  privileged authentication remain unimplemented.
+
 ## 4.0.0 release candidate
 
 - Replace the Fedora `plasma-irlume` 3.x package with `kfaceauth` while
