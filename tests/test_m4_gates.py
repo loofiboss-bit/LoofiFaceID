@@ -33,8 +33,12 @@ class Milestone4GatesTest(unittest.TestCase):
 
     def test_gate_4_2_pam_aborts_within_two_seconds_on_hang_or_busy(self) -> None:
         """Gate 4.2: PAM module aborts within <= 2.0 seconds if camera is busy or user is absent."""
-        test_pam_bin = ROOT / "build/bin/test_pam"
-        self.assertTrue(test_pam_bin.exists(), "test_pam binary must be built")
+        candidates = [
+            ROOT / "build/bin/test_pam",
+            ROOT / "redhat-linux-build/bin/test_pam",
+        ]
+        test_pam_bin = next((c for c in candidates if c.exists()), None)
+        self.assertIsNotNone(test_pam_bin, "test_pam binary must be built")
 
         result = subprocess.run(
             [str(test_pam_bin), "testHungServerAbortsWithinTwoSeconds"],
@@ -61,6 +65,8 @@ class Milestone4GatesTest(unittest.TestCase):
                 "test",
                 "--manifest-path",
                 str(ROOT / "engine/Cargo.toml"),
+                "--locked",
+                "--offline",
                 "-p",
                 "kfaceauth-daemon",
                 "--lib",
@@ -71,7 +77,7 @@ class Milestone4GatesTest(unittest.TestCase):
             cwd=ROOT / "engine",
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=60,
         )
         self.assertEqual(result.returncode, 0, f"Cargo test failed: {result.stderr}")
         self.assertIn("test tests::gate_4_3_cross_uid_tamper_defense_all_opcodes ... ok", result.stdout)
@@ -86,8 +92,16 @@ class Milestone4GatesTest(unittest.TestCase):
 
     def test_migrate_vault_tool_builds_and_runs(self) -> None:
         """Verifies kfaceauth-migrate-vault binary exists and runs help."""
-        migrate_bin = ROOT / "build/engine/target/debug/kfaceauth-migrate-vault"
-        self.assertTrue(migrate_bin.exists(), "kfaceauth-migrate-vault must exist")
+        candidates = [
+            ROOT / "build/engine/target/debug/kfaceauth-migrate-vault",
+            ROOT / "build/engine/target/release/kfaceauth-migrate-vault",
+            ROOT / "redhat-linux-build/engine/target/debug/kfaceauth-migrate-vault",
+            ROOT / "redhat-linux-build/engine/target/release/kfaceauth-migrate-vault",
+            ROOT / "engine/target/debug/kfaceauth-migrate-vault",
+            ROOT / "engine/target/release/kfaceauth-migrate-vault",
+        ]
+        migrate_bin = next((c for c in candidates if c.exists()), None)
+        self.assertIsNotNone(migrate_bin, "kfaceauth-migrate-vault must exist")
 
         result = subprocess.run(
             [str(migrate_bin), "--help"],

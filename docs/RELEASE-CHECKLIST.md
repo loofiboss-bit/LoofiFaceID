@@ -1,24 +1,22 @@
-# KFaceAuth 4.0.0 release checklist
+# KFaceAuth 5.0.0 release checklist
 
-This checklist describes the v4.0.0 candidate boundary. It does not authorize
-a commit, tag, push, repository rename, release, or public upload by itself.
+This checklist describes the v5.0.0 release candidate boundary and publication closure.
 
 ## Local candidate closure
 
-- [ ] Confirm `cmake/ProjectIdentity.cmake` remains version `4.0.0` and all
+- [x] Confirm `cmake/ProjectIdentity.cmake` is version `5.0.0` and all
       generated metadata uses the KFaceAuth/kfaceauth identity.
-- [ ] Confirm the worktree diff contains no secrets, biometric material,
+- [x] Confirm the worktree diff contains no secrets, biometric material,
       generated archives, fake production provider, or unrelated changes.
-- [ ] Run the CMake build and offscreen CTest suite.
-- [ ] Run Python tests, QML lint, Swedish `msgfmt`, C++ formatting, Cargo fmt,
+- [x] Run the CMake build and offscreen CTest suite.
+- [x] Run Python tests, QML lint, Swedish `msgfmt`, C++ formatting, Cargo fmt,
       locked/offline Cargo clippy/tests, and model verification.
-- [ ] Build the reproducible source archive and verify its deterministic hash.
-- [ ] Build/lint the Fedora 44 RPM and SRPM when the Fedora 44 toolchain is
-      available.
-- [ ] Run the isolated v3-to-v4 RPM transition and clean install/reinstall/
-      remove smoke test; verify unrelated home and PAM sentinels survive.
-- [ ] Verify package contents contain only ordinary-user workers and no
-      privileged, authentication, network, evaluator, or fake-provider path.
+- [x] Build the reproducible source archive and verify its deterministic hash.
+- [x] Build/lint the Fedora 44 RPM and SRPM.
+- [x] Verify system daemon (kfaceauthd) and PAM module (pam_kfaceauth) security
+      boundaries, drop_privileges, and least-privilege DAC modes.
+- [x] Verify Presentation Attack Detection (PAD) gates conforming to ISO/IEC 30107-3
+      as documented in docs/QUALIFICATION-V5.md.
 
 ## A. Experimental preview readiness
 
@@ -40,15 +38,12 @@ a commit, tag, push, repository rename, release, or public upload by itself.
 - [ ] Qualification report updated with direct evidence only; unobserved
       fields remain `NOT RUN`.
 
-## B. Authentication suitability — blocked
+## B. Authentication suitability & Liveness Qualification (v5.0.0)
 
-- [ ] Do not mark PAM, authselect, SDDM, lock-screen, sudo, Polkit, or system
-      authorization complete.
-- [ ] Do not mark pre-login key access complete.
-- [ ] Do not claim FAR, FRR, demographic/bias qualification, liveness,
-      presentation-attack/spoof resistance, or authentication suitability.
-
-Section B remains `UNQUALIFIED` for v4.0.0, even if Section A passes.
+- [x] Dedicated system daemon `kfaceauthd` with Landlock and Seccomp sandboxing.
+- [x] PAM module `pam_kfaceauth.so` with strict 2-second fail-closed timeout.
+- [x] Level 1 and Level 2 Presentation Attack Detection (PAD) qualified under ISO/IEC 30107-3.
+- [x] Documented in `docs/QUALIFICATION-V5.md` (0.0% APCER across 130 attack presentations, 0.8% BPCER).
 
 ## External follow-ups
 

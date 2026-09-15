@@ -11,8 +11,8 @@ source_archive="$(realpath "$1")"
 rpmbuild_root="$(realpath "$2")"
 output_directory="$3"
 
-if [[ ! -s "${source_archive}" || "$(basename "${source_archive}")" != "kfaceauth-4.0.0.tar.gz" ]]; then
-    echo "Expected a non-empty kfaceauth-4.0.0.tar.gz source archive" >&2
+if [[ ! -s "${source_archive}" || "$(basename "${source_archive}")" != "kfaceauth-5.0.0.tar.gz" ]]; then
+    echo "Expected a non-empty kfaceauth-5.0.0.tar.gz source archive" >&2
     exit 1
 fi
 if [[ ! -d "${rpmbuild_root}/RPMS" || ! -d "${rpmbuild_root}/SRPMS" ]]; then
@@ -23,21 +23,21 @@ fi
 binary_rpms=()
 while IFS= read -r candidate; do
     if [[ "$(rpm -qp --queryformat '%{NAME}' "${candidate}")" == "kfaceauth" &&
-          "$(rpm -qp --queryformat '%{VERSION}' "${candidate}")" == "4.0.0" &&
+          "$(rpm -qp --queryformat '%{VERSION}' "${candidate}")" == "5.0.0" &&
           "$(rpm -qp --queryformat '%{ARCH}' "${candidate}")" != "src" ]]; then
         binary_rpms+=("${candidate}")
     fi
 done < <(find "${rpmbuild_root}/RPMS" -type f -name '*.rpm' -print)
 if [[ ${#binary_rpms[@]} -ne 1 ]]; then
-    echo "Expected exactly one binary kfaceauth 4.0.0 RPM, found ${#binary_rpms[@]}" >&2
+    echo "Expected exactly one binary kfaceauth 5.0.0 RPM, found ${#binary_rpms[@]}" >&2
     exit 1
 fi
 
 mapfile -t source_rpms < <(
-    find "${rpmbuild_root}/SRPMS" -maxdepth 1 -type f -name 'kfaceauth-4.0.0-*.src.rpm' -print
+    find "${rpmbuild_root}/SRPMS" -maxdepth 1 -type f -name 'kfaceauth-5.0.0-*.src.rpm' -print
 )
 if [[ ${#source_rpms[@]} -ne 1 || ! -s "${source_rpms[0]:-}" ]]; then
-    echo "Expected exactly one non-empty kfaceauth 4.0.0 source RPM" >&2
+    echo "Expected exactly one non-empty kfaceauth 5.0.0 source RPM" >&2
     exit 1
 fi
 

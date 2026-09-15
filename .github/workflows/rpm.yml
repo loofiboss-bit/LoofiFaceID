@@ -84,7 +84,7 @@ jobs:
       - name: Collect RPM artifacts
         run: |
           packaging/fedora/collect-release-artifacts.sh \
-            "$PWD/kfaceauth-4.0.0.tar.gz" \
+            "$PWD/kfaceauth-5.0.0.tar.gz" \
             "$HOME/rpmbuild" \
             "$PWD/artifacts"
 

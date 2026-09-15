@@ -3,15 +3,15 @@
 %global clamp_mtime_to_source_date_epoch 1
 
 Name:           kfaceauth
-Version:        4.0.0
+Version:        5.0.0
 Release:        1%{?dist}
-Summary:        Experimental KDE local identity and comparison preview
+Summary:        Biometric facial authentication daemon, PAM module and KDE settings
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
 URL:            https://github.com/loofiboss-bit/LoofiFaceID
 Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 
-Obsoletes:      plasma-irlume < 4.0.0
+Obsoletes:      plasma-irlume < 5.0.0
 Provides:       plasma-irlume = %{version}-%{release}
 
 BuildRequires:  cmake >= 3.22
@@ -47,6 +47,7 @@ Requires:       kf6-kwallet >= 6.10.0
 Requires:       opencv-calib3d >= 4.8.0
 Requires:       opencv-core >= 4.8.0
 Requires:       opencv-dnn >= 4.8.0
+Requires:       opencv-flann >= 4.8.0
 Requires:       opencv-imgproc >= 4.8.0
 Requires:       opencv-objdetect >= 4.8.0
 Requires:       openssl-libs >= 3.0.0
@@ -55,16 +56,15 @@ Requires:       qt6-qtdeclarative >= 6.8.0
 Requires:       qt6-qtmultimedia >= 6.8.0
 
 %description
-KFaceAuth Milestone 4 is a Plasma 6 experimental user-session identity preview.
-It uses hash-pinned YuNet and SFace models through Fedora OpenCV, stores bounded
-face feature vectors in an OpenSSL AES-256-GCM vault, and keeps the random
-master key in KWallet. Capture and comparison are explicit, local, and
-unprivileged.
-
-A local Match result is not authentication. The package contains no PAM module,
-authentication-stack mutation, privileged helper, system service,
-presentation-attack defense, authorization path, network access, telemetry, or
-runtime download.
+KFaceAuth v5.0 is an ultra-low-latency, publication-grade biometric facial
+authentication architecture for Linux and KDE Plasma 6. It features a hardened
+system daemon with Landlock and Seccomp isolation, Linux PAM module, zero-copy
+sealed shared memory frame transfer, hardware acceleration via OpenVINO and
+Vulkan, presentation attack detection conforming to ISO/IEC 30107-3 (active
+eye-blink tracking, randomized micro-pose challenge response, passive FFT
+moire and texture analysis, and multi-spectrum NIR qualification), and a
+modernized QML/Kirigami 30 FPS scene graph user interface in KDE System
+Settings.
 
 %prep
 %autosetup -p1
@@ -77,6 +77,9 @@ runtime download.
 
 %install
 %cmake_install
+install -d -m 0750 %{buildroot}%{_sharedstatedir}/kfaceauth
+install -d -m 0750 %{buildroot}%{_sysconfdir}/kfaceauth
+install -d -m 0700 %{buildroot}%{_sysconfdir}/kfaceauth/keys
 if find %{buildroot}%{_datadir}/locale -type f -name 'kcm_kfaceauth.mo' -print -quit \
     | grep -q .; then
     %find_lang kcm_kfaceauth
@@ -135,6 +138,14 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %dir %attr(0700,root,root) %{_sysconfdir}/kfaceauth/keys
 
 %changelog
+* Tue Sep 15 2026 Loofi <noreply@example.invalid> - 5.0.0-1
+- Release v5.0.0
+- Milestone 1: Persistent pool, warm models, and zero-copy memfd IPC frame transfer
+- Milestone 2: QML/Kirigami UX modernization, 30 FPS scene graph, guided enrollment
+- Milestone 3: Hardware acceleration with OpenVINO and Vulkan GPU offload
+- Milestone 4: Privilege separation, kfaceauthd system daemon, PAM module (pam_kfaceauth)
+- Milestone 5: Presentation attack detection (PAD) conforming to ISO/IEC 30107-3
+
 * Tue Jul 28 2026 Loofi <noreply@example.invalid> - 4.0.0-1
 - Start the standalone native architecture with fail-closed engine status
 - Preserve the bounded unprivileged camera preview

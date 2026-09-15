@@ -9,6 +9,7 @@ const OPENCV_LIBRARIES: &[&str] = &[
     "opencv_calib3d",
     "opencv_objdetect",
     "opencv_dnn",
+    "opencv_flann",
     "opencv_imgproc",
     "opencv_core",
 ];

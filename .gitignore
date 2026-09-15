@@ -13,3 +13,4 @@ rpmbuild/
 # Generated source archives (legacy and current package names).
 *.tar.gz
 engine/target/
+artifacts/

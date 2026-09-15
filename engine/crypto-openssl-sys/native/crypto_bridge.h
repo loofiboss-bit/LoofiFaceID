@@ -48,8 +48,7 @@ extern "C"
 
     int kfaceauth_set_socket_permissions(const char *path, uint32_t mode, const char *groupname);
 
-    int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms,
-                               uint8_t *buffer, size_t buffer_size,
+    int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t *buffer, size_t buffer_size,
                                uint32_t *width_out, uint32_t *height_out, uint32_t *format_out);
 
 #ifdef __cplusplus

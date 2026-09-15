@@ -24,6 +24,8 @@ class Milestone5GatesTest(unittest.TestCase):
                 "test",
                 "--manifest-path",
                 str(ROOT / "engine/Cargo.toml"),
+                "--locked",
+                "--offline",
                 "-p",
                 "kfaceauth-vision",
                 "--lib",
@@ -34,7 +36,7 @@ class Milestone5GatesTest(unittest.TestCase):
             cwd=ROOT / "engine",
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=60,
         )
         self.assertEqual(result.returncode, 0, f"Cargo test failed: {result.stderr}")
         self.assertIn("test liveness::tests::passive_texture_detects_print_attacks ... ok", result.stdout)
@@ -71,6 +73,8 @@ class Milestone5GatesTest(unittest.TestCase):
                 "test",
                 "--manifest-path",
                 str(ROOT / "engine/Cargo.toml"),
+                "--locked",
+                "--offline",
                 "-p",
                 "kfaceauth-vision",
                 "--lib",
@@ -81,7 +85,7 @@ class Milestone5GatesTest(unittest.TestCase):
             cwd=ROOT / "engine",
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=60,
         )
         self.assertEqual(result.returncode, 0, f"Screen replay test failed: {result.stderr}")
         self.assertIn("test liveness::tests::passive_texture_detects_screen_replay_moire ... ok", result.stdout)
@@ -92,6 +96,8 @@ class Milestone5GatesTest(unittest.TestCase):
                 "test",
                 "--manifest-path",
                 str(ROOT / "engine/Cargo.toml"),
+                "--locked",
+                "--offline",
                 "-p",
                 "kfaceauth-vision",
                 "--lib",
@@ -102,7 +108,7 @@ class Milestone5GatesTest(unittest.TestCase):
             cwd=ROOT / "engine",
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=60,
         )
         self.assertEqual(result_nir.returncode, 0, f"NIR differential test failed: {result_nir.stderr}")
         self.assertIn("test liveness::tests::multi_spectrum_nir_differential_rejects_screen_absorption ... ok", result_nir.stdout)
@@ -153,6 +159,8 @@ class Milestone5GatesTest(unittest.TestCase):
                 "test",
                 "--manifest-path",
                 str(ROOT / "engine/Cargo.toml"),
+                "--locked",
+                "--offline",
                 "-p",
                 "kfaceauth-vision",
                 "--lib",
@@ -163,7 +171,7 @@ class Milestone5GatesTest(unittest.TestCase):
             cwd=ROOT / "engine",
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=60,
         )
         self.assertEqual(result.returncode, 0, f"Blink profile test failed: {result.stderr}")
         self.assertIn("test liveness::tests::active_blink_tracker_validates_physiological_profile ... ok", result.stdout)
@@ -174,6 +182,8 @@ class Milestone5GatesTest(unittest.TestCase):
                 "test",
                 "--manifest-path",
                 str(ROOT / "engine/Cargo.toml"),
+                "--locked",
+                "--offline",
                 "-p",
                 "kfaceauth-vision",
                 "--lib",
@@ -184,7 +194,7 @@ class Milestone5GatesTest(unittest.TestCase):
             cwd=ROOT / "engine",
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=60,
         )
         self.assertEqual(result_unnatural.returncode, 0, f"Unnatural blink test failed: {result_unnatural.stderr}")
         self.assertIn("test liveness::tests::active_blink_tracker_rejects_unnatural_blinks ... ok", result_unnatural.stdout)

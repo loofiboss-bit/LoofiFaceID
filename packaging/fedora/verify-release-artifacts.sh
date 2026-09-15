@@ -22,7 +22,7 @@ if [[ ${#release_files[@]} -ne 4 ]]; then
     exit 1
 fi
 
-expected_archive="kfaceauth-4.0.0.tar.gz"
+expected_archive="kfaceauth-5.0.0.tar.gz"
 if [[ ! -s "${artifact_directory}/${expected_archive}" ]]; then
     echo "Missing or empty source archive: ${expected_archive}" >&2
     exit 1
@@ -33,7 +33,7 @@ if [[ ! -s "${artifact_directory}/SHA256SUMS" ]]; then
 fi
 
 mapfile -t source_rpms < <(
-    find "${artifact_directory}" -maxdepth 1 -type f -name 'kfaceauth-4.0.0-*.src.rpm' -printf '%f\n'
+    find "${artifact_directory}" -maxdepth 1 -type f -name 'kfaceauth-5.0.0-*.src.rpm' -printf '%f\n'
 )
 if [[ ${#source_rpms[@]} -ne 1 || ! -s "${artifact_directory}/${source_rpms[0]:-}" ]]; then
     echo "Expected exactly one non-empty kfaceauth source RPM" >&2
@@ -47,7 +47,7 @@ while IFS= read -r candidate; do
         binary_rpms+=("${candidate}")
     fi
 done < <(
-    find "${artifact_directory}" -maxdepth 1 -type f -name 'kfaceauth-4.0.0-*.rpm' \
+    find "${artifact_directory}" -maxdepth 1 -type f -name 'kfaceauth-5.0.0-*.rpm' \
         ! -name '*.src.rpm' -printf '%f\n'
 )
 if [[ ${#binary_rpms[@]} -ne 1 || ! -s "${artifact_directory}/${binary_rpms[0]:-}" ]]; then
