@@ -51,6 +51,13 @@ void SystemStateTest::unsupportedPlatformReportsDetectedDistribution()
     inputs.osRelease = "NAME=Ubuntu\nID=ubuntu\nVERSION_ID=\"24.04\"\n";
     inputs.engine.engineAvailable = true;
     inputs.engine.protocol = EngineProtocolSnapshot{2, QStringLiteral("0.1.0-local-identity")};
+    inputs.engine.status = EngineStatusSnapshot{EngineStatusSnapshot::State::Ready};
+    inputs.engine.status.data->detectorModelAvailable = true;
+    inputs.engine.status.data->embeddingModelAvailable = true;
+    inputs.engine.status.data->keyProviderState = EngineStatusSnapshot::KeyProviderState::Available;
+    inputs.engine.status.data->vaultState = EngineStatusSnapshot::VaultState::Ready;
+    inputs.engine.status.data->profileEnrolled = true;
+    inputs.engine.status.data->sampleCount = 5;
 
     const SystemStateSnapshot snapshot = SystemProbe::evaluate(inputs);
 
@@ -61,6 +68,11 @@ void SystemStateTest::unsupportedPlatformReportsDetectedDistribution()
     QVERIFY(snapshot.summary.contains(QStringLiteral("ubuntu")));
     QVERIFY(snapshot.summary.contains(QStringLiteral("24.04")));
     QCOMPARE(snapshot.engineStatus, SystemStateSnapshot::EngineStatus::LocalIdentityAvailable);
+    QCOMPARE(snapshot.modelStatus, SystemStateSnapshot::ModelStatus::Verified);
+    QCOMPARE(snapshot.keyProviderStatus, SystemStateSnapshot::KeyProviderStatus::Available);
+    QCOMPARE(snapshot.vaultStatus, SystemStateSnapshot::VaultStatus::Ready);
+    QCOMPARE(snapshot.profileEnrolled, true);
+    QCOMPARE(snapshot.profileSampleCount, 5);
 }
 
 void SystemStateTest::localIdentityReportsSupportedAndUnsupportedOperations()

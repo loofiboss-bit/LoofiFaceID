@@ -85,10 +85,11 @@ KCMUtils.SimpleKCM {
             readyToTest: kcm.readyToTest
             needsAttention: kcm.needsAttention
             refreshActive: kcm.refreshing
-            openSetup: () => {
+            startOnboarding: () => {
                 tabs.currentIndex = 1
                 setup.beginFirstStart()
             }
+            openSetup: () => tabs.currentIndex = 1
             openTest: () => tabs.currentIndex = 2
             openDiagnostics: () => tabs.currentIndex = 3
             refresh: () => kcm.refresh()

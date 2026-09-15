@@ -435,7 +435,8 @@ void VisionAnalysisSession::analyzeCurrentFrame()
 
     ++m_generation;
     clearSensitiveData();
-    clearResult();
+    if (!m_sessionMode)
+        clearResult();
     m_requestWidth = static_cast<quint16>(rgb.width());
     m_requestHeight = static_cast<quint16>(rgb.height());
     m_frameBytes = QByteArray(reinterpret_cast<const char *>(rgb.constBits()), frameSize);
@@ -646,10 +647,10 @@ void VisionAnalysisSession::readResponse()
     if (m_sessionMode)
     {
         clearSensitiveData();
+        setState(State::Complete, translate("Live guidance is ready. No image was saved."));
         applyResult(result);
         m_requestWidth = 0;
         m_requestHeight = 0;
-        setState(State::Complete, translate("Live guidance is ready. No image was saved."));
         return;
     }
     m_pendingResult = result;
@@ -687,10 +688,10 @@ void VisionAnalysisSession::processFinished(int exitCode, QProcess::ExitStatus e
     const Result result = *m_pendingResult;
     m_requestInFlight = false;
     clearSensitiveData();
+    setState(State::Complete, translate("One-frame analysis is complete. No image was saved."));
     applyResult(result);
     m_requestWidth = 0;
     m_requestHeight = 0;
-    setState(State::Complete, translate("One-frame analysis is complete. No image was saved."));
     if (m_continuousTracking && canAnalyze())
     {
         QTimer::singleShot(33, this,

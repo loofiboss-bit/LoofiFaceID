@@ -39,8 +39,11 @@ Kirigami.ScrollablePage {
             return i18n("Five samples are ready. Review them and choose Save profile.")
         if (root.visionAnalysisSession === null || !root.visionAnalysisSession.resultAvailable)
             return i18n("Place one face in front of the camera.")
-        if (!root.guidanceReady)
+        if (!root.guidanceReady) {
+            if (root.visionAnalysisSession.framingSuitable && !root.visionAnalysisSession.poseMatches(root.currentStep))
+                return root.stepInstruction
             return root.visionAnalysisSession.guidanceText
+        }
         if (root.stableObservations > 0)
             return i18n("Hold still — %1 of 3 fresh observations", root.stableObservations)
         return root.stepInstruction

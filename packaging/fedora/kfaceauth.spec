@@ -61,7 +61,7 @@ KFaceAuth is an experimental local face-profile and explicit comparison
 utility for a logged-in Fedora 44/KDE Plasma session. The KCM provides private
 camera guidance, a five-pose enrollment flow, encrypted KWallet-backed profile
 storage, and one-frame local comparison. Installation does not configure or
-activate PAM, SDDM, sudo, Polkit, or another system authentication service.
+activate PAM, SDDM, privilege escalation, Polkit, or another system authentication service.
 The package contains separate engineering artifacts for future work, but the
 user-facing product makes no PAD, performance, or authentication qualification
 claim.

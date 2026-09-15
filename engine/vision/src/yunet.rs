@@ -345,8 +345,10 @@ pub(crate) fn validate_detections(
         if faces.len() < MAX_FACES {
             let mut landmarks = [0_u16; 10];
             for (index, landmark) in detection.values[4..14].chunks_exact(2).enumerate() {
-                landmarks[index * 2] = checked_u16(landmark[0].round())?;
-                landmarks[index * 2 + 1] = checked_u16(landmark[1].round())?;
+                let clamped_x = landmark[0].round().clamp(left, (right - 1.0).max(left));
+                let clamped_y = landmark[1].round().clamp(top, (bottom - 1.0).max(top));
+                landmarks[index * 2] = checked_u16(clamped_x)?;
+                landmarks[index * 2 + 1] = checked_u16(clamped_y)?;
             }
             faces.push(FaceObservation {
                 rectangle: FaceRectangle {
@@ -481,6 +483,23 @@ mod tests {
         assert_eq!(
             validate_detections(&[landmark_outside_face], 64, 64),
             Err(VisionError::InvalidRuntimeOutput)
+        );
+
+        let mut near_boundary = valid_detection();
+        // right = 10.25 + 20.0 = 30.25 -> ceil = 31.0. bottom = 12.5 + 30.0 = 42.5 -> ceil = 43.0.
+        // Set landmark near 30.9 and 42.9, which rounds to 31.0 and 43.0, clamped to 30 and 42.
+        near_boundary.values[4] = 30.9;
+        near_boundary.values[5] = 42.9;
+        let validated = validate_detections(&[near_boundary], 64, 64).unwrap();
+        assert_eq!(validated[0].landmarks.points[0], 30);
+        assert_eq!(validated[0].landmarks.points[1], 42);
+        assert!(
+            validated[0].landmarks.points[0]
+                < validated[0].rectangle.x + validated[0].rectangle.width
+        );
+        assert!(
+            validated[0].landmarks.points[1]
+                < validated[0].rectangle.y + validated[0].rectangle.height
         );
     }
 

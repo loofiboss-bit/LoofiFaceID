@@ -105,20 +105,6 @@ SystemStateSnapshot SystemProbe::evaluate(const SystemProbeInputs &inputs)
     state.pamStatus = capability(inputs.engine.capabilities.pamConfiguration);
     state.templatePersistenceStatus = capability(inputs.engine.capabilities.encryptedPersistence);
 
-    if (state.distribution.compare(QStringLiteral("fedora"), Qt::CaseInsensitive) != 0 ||
-        state.fedoraVersion != QStringLiteral("44"))
-    {
-        state.headline = translate("This system is not qualified");
-        state.summary =
-            translate("LoofiFace-ID is qualified only for Fedora 44 with KDE Plasma. Detected system: %1 %2.")
-                .arg(state.distribution.isEmpty() ? translate("unknown distribution") : state.distribution,
-                     state.fedoraVersion.isEmpty() ? translate("unknown version") : state.fedoraVersion);
-        state.issueCode = QStringLiteral("unsupported-platform");
-        state.engineStatus = inputs.engine.engineAvailable ? SystemStateSnapshot::EngineStatus::LocalIdentityAvailable
-                                                           : SystemStateSnapshot::EngineStatus::Unavailable;
-        return state;
-    }
-
     if (inputs.engine.status.data)
     {
         const auto &status = *inputs.engine.status.data;
@@ -141,6 +127,20 @@ SystemStateSnapshot SystemProbe::evaluate(const SystemProbeInputs &inputs)
                                                      : SystemStateSnapshot::VaultStatus::Unknown)));
         state.profileEnrolled = status.profileEnrolled;
         state.profileSampleCount = status.sampleCount;
+    }
+
+    if (state.distribution.compare(QStringLiteral("fedora"), Qt::CaseInsensitive) != 0 ||
+        state.fedoraVersion != QStringLiteral("44"))
+    {
+        state.headline = translate("This system is not qualified");
+        state.summary =
+            translate("LoofiFace-ID is qualified only for Fedora 44 with KDE Plasma. Detected system: %1 %2.")
+                .arg(state.distribution.isEmpty() ? translate("unknown distribution") : state.distribution,
+                     state.fedoraVersion.isEmpty() ? translate("unknown version") : state.fedoraVersion);
+        state.issueCode = QStringLiteral("unsupported-platform");
+        state.engineStatus = inputs.engine.engineAvailable ? SystemStateSnapshot::EngineStatus::LocalIdentityAvailable
+                                                           : SystemStateSnapshot::EngineStatus::Unavailable;
+        return state;
     }
 
     if (!inputs.engine.engineAvailable)

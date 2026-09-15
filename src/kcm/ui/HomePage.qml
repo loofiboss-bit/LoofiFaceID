@@ -22,6 +22,7 @@ Kirigami.ScrollablePage {
     required property bool readyToTest
     required property bool needsAttention
     required property bool refreshActive
+    property var startOnboarding: () => {}
     property var openSetup: () => {}
     property var openTest: () => {}
     property var openDiagnostics: () => {}
@@ -36,7 +37,7 @@ Kirigami.ScrollablePage {
         else if (root.readyToTest)
             root.openTest()
         else
-            root.openSetup()
+            root.startOnboarding()
     }
 
     QQC2.Dialog {
