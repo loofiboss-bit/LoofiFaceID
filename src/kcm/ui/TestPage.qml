@@ -10,20 +10,30 @@ import "components" as Components
 Kirigami.ScrollablePage {
     id: root
 
-    required property var cameraPreviewSession
-    required property var localVerificationSession
+    property var cameraPreviewSession: null
+    property var localVerificationSession: null
+    property bool backendReady: root.cameraPreviewSession !== null
+        && root.localVerificationSession !== null
 
     title: i18n("Test")
     padding: Kirigami.Units.largeSpacing
 
     onVisibleChanged: {
-        localVerificationSession.setPageActive(visible)
+        if (!root.backendReady)
+            return
+
+        root.localVerificationSession.setPageActive(visible)
         if (visible) {
-            if (!cameraPreviewSession.hasUsableCamera)
-                cameraPreviewSession.refreshDevices()
+            if (!root.cameraPreviewSession.hasUsableCamera)
+                root.cameraPreviewSession.refreshDevices()
         } else {
-            cameraPreviewSession.stopPreview()
+            root.cameraPreviewSession.stopPreview()
         }
+    }
+
+    onBackendReadyChanged: {
+        if (root.backendReady && root.visible)
+            root.localVerificationSession.setPageActive(true)
     }
 
     ColumnLayout {
@@ -41,6 +51,14 @@ Kirigami.ScrollablePage {
             Layout.fillWidth: true
             text: i18n("Test one explicit current frame against the encrypted profile. A result affects only this page.")
             wrapMode: Text.Wrap
+        }
+
+        Kirigami.InlineMessage {
+            objectName: "backendInitializationMessage"
+            Layout.fillWidth: true
+            visible: !root.backendReady
+            type: Kirigami.MessageType.Warning
+            text: i18n("KFaceAuth is still initializing. The local comparison controls will become available when the backend is ready.")
         }
 
         Components.CameraPreviewCard {
@@ -73,52 +91,64 @@ Kirigami.ScrollablePage {
                         objectName: "verifyButton"
                         text: i18n("Test current frame")
                         icon.name: "view-preview"
-                        enabled: root.localVerificationSession.canVerify
+                        enabled: root.localVerificationSession !== null && root.localVerificationSession.canVerify
                         activeFocusOnTab: true
                         Accessible.name: text
-                        onClicked: root.localVerificationSession.verifyCurrentFrame()
+                        onClicked: {
+                            if (root.localVerificationSession !== null)
+                                root.localVerificationSession.verifyCurrentFrame()
+                        }
                     }
 
                     QQC2.Button {
                         objectName: "clearVerificationButton"
                         text: i18n("Clear result")
                         icon.name: "edit-clear"
-                        enabled: root.localVerificationSession.canClearResult
+                        enabled: root.localVerificationSession !== null && root.localVerificationSession.canClearResult
                         activeFocusOnTab: true
                         Accessible.name: text
-                        onClicked: root.localVerificationSession.clearResult()
+                        onClicked: {
+                            if (root.localVerificationSession !== null)
+                                root.localVerificationSession.clearResult()
+                        }
                     }
                 }
 
                 QQC2.BusyIndicator {
-                    visible: root.localVerificationSession.busy
+                    visible: root.localVerificationSession !== null && root.localVerificationSession.busy
                     running: visible
                     Accessible.ignored: true
                 }
 
                 Kirigami.InlineMessage {
                     Layout.fillWidth: true
-                    visible: root.localVerificationSession.hasResult
-                    type: root.localVerificationSession.isMatch
+                    visible: root.localVerificationSession !== null && root.localVerificationSession.hasResult
+                    type: root.localVerificationSession !== null && root.localVerificationSession.isMatch
                         ? Kirigami.MessageType.Positive
-                        : (root.localVerificationSession.isAmbiguous
+                        : (root.localVerificationSession !== null && root.localVerificationSession.isAmbiguous
                             ? Kirigami.MessageType.Warning
                             : Kirigami.MessageType.Information)
-                    text: root.localVerificationSession.statusText
+                    text: root.localVerificationSession !== null
+                        ? root.localVerificationSession.statusText
+                        : ""
                     Accessible.role: Accessible.Alert
                 }
 
                 Components.ActionableIssue {
-                    issueTitle: root.localVerificationSession.isUnavailable ? i18n("Test unavailable") : ""
-                    recoveryText: root.localVerificationSession.isUnavailable
+                    issueTitle: root.localVerificationSession !== null && root.localVerificationSession.isUnavailable
+                        ? i18n("Test unavailable")
+                        : ""
+                    recoveryText: root.localVerificationSession !== null && root.localVerificationSession.isUnavailable
                         ? root.localVerificationSession.statusText
                         : ""
                 }
 
                 QQC2.Label {
                     Layout.fillWidth: true
-                    visible: !root.localVerificationSession.hasResult
-                    text: root.localVerificationSession.statusText
+                    visible: root.localVerificationSession === null || !root.localVerificationSession.hasResult
+                    text: root.localVerificationSession !== null
+                        ? root.localVerificationSession.statusText
+                        : i18n("Comparison service is initializing…")
                     color: Kirigami.Theme.disabledTextColor
                     wrapMode: Text.Wrap
                     Accessible.role: Accessible.StaticText

@@ -35,6 +35,7 @@ dependencies = [
 name = "kfaceauth-vision"
 version = "0.1.0"
 dependencies = [
+ "kfaceauth-crypto-openssl-sys",
  "kfaceauth-identity-types",
  "kfaceauth-vision-opencv-sys",
 ]

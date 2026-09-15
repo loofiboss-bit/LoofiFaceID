@@ -138,6 +138,99 @@ where
     write_frame(writer, &response)
 }
 
+/// Serves a continuous stream of vision analysis requests over a persistent session
+/// until the input stream reaches EOF.
+///
+/// # Errors
+///
+/// Returns [`WorkerIoError`] for I/O errors or malformed frame framing.
+pub fn serve_session_with_provider<R: Read, W: Write, P: VisionProvider>(
+    reader: &mut R,
+    writer: &mut W,
+    provider: &P,
+) -> Result<(), WorkerIoError> {
+    loop {
+        let mut header = [0_u8; 4];
+        match reader.read_exact(&mut header) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(error) => return Err(WorkerIoError::Io(error)),
+        }
+        let length = u32::from_be_bytes(header) as usize;
+        if length == 0 {
+            return Err(WorkerIoError::EmptyFrame);
+        }
+        if length > MAX_REQUEST_PAYLOAD {
+            return Err(WorkerIoError::FrameTooLarge);
+        }
+        let mut payload = vec![0_u8; length];
+        if let Err(error) = reader.read_exact(&mut payload) {
+            payload.fill(0);
+            return Err(WorkerIoError::Io(error));
+        }
+        let response = match parse_request(&payload) {
+            Ok(request) => process_request(provider, request),
+            Err(error) => encode_error(error.code, error.generation),
+        };
+        payload.fill(0);
+        write_frame(writer, &response)?;
+    }
+}
+
+/// Serves a persistent session with lazy initialization of the provider on the first request.
+///
+/// # Errors
+///
+/// Returns [`WorkerIoError`] for framing or stream I/O failures.
+pub fn serve_session_with_provider_factory<R, W, P, F>(
+    reader: &mut R,
+    writer: &mut W,
+    factory: F,
+) -> Result<(), WorkerIoError>
+where
+    R: Read,
+    W: Write,
+    P: VisionProvider,
+    F: FnOnce() -> Result<P, WorkerErrorCode>,
+{
+    let mut header = [0_u8; 4];
+    match reader.read_exact(&mut header) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
+        Err(error) => return Err(WorkerIoError::Io(error)),
+    }
+    let length = u32::from_be_bytes(header) as usize;
+    if length == 0 {
+        return Err(WorkerIoError::EmptyFrame);
+    }
+    if length > MAX_REQUEST_PAYLOAD {
+        return Err(WorkerIoError::FrameTooLarge);
+    }
+    let mut payload = vec![0_u8; length];
+    if let Err(error) = reader.read_exact(&mut payload) {
+        payload.fill(0);
+        return Err(WorkerIoError::Io(error));
+    }
+    let (provider, response) = match parse_request(&payload) {
+        Ok(request) => match factory() {
+            Ok(p) => {
+                let resp = process_request(&p, request);
+                (Some(p), resp)
+            }
+            Err(code) => (None, encode_error(code, request.generation)),
+        },
+        Err(error) => (None, encode_error(error.code, error.generation)),
+    };
+    payload.fill(0);
+    write_frame(writer, &response)?;
+
+    if let Some(p) = provider {
+        serve_session_with_provider(reader, writer, &p)
+    } else {
+        Ok(())
+    }
+}
+
 fn process_request(provider: &dyn VisionProvider, request: AnalyzeRequest<'_>) -> Vec<u8> {
     let cancellation = CancellationToken::default();
     let control = match ProcessingControl::with_timeout(

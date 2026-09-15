@@ -7,7 +7,7 @@ use std::path::Path;
 
 use kfaceauth_vision_opencv_sys::{BridgeError, Detector, RawDetection, opencv_version};
 
-use crate::model::{ManifestEntry, ModelError, load_verified_artifact, verify_model_root};
+use crate::model::{ManifestEntry, ModelError, VerifiedArtifact, load_and_verify_model_inventory};
 use crate::{
     FaceObservation, FaceRectangle, ImageView, MAX_FACES, PixelFormat, ProcessingControl,
     VisionAnalysis, VisionError, VisionProvider, calculate_quality,
@@ -33,19 +33,31 @@ pub struct YuNetProvider {
 
 impl YuNetProvider {
     /// Verifies the complete closed inventory, verifies the exact selected
-    /// artifact again, and initializes `OpenCV` from those verified bytes.
+    /// model artifact, and constructs the production `OpenCV` `YuNet` bridge.
     ///
     /// # Errors
     ///
     /// Returns a stable load error for any inventory, metadata, digest, or
     /// `OpenCV` initialization failure.
     pub fn from_model_root(root: &Path) -> Result<Self, ProviderLoadError> {
-        let manifest = verify_model_root(root)?;
+        let (manifest, artifacts) = load_and_verify_model_inventory(root)?;
         let entry = manifest
             .find(YUNET_ARTIFACT_ID)
             .ok_or(ProviderLoadError::UnexpectedModelMetadata)?;
         require_expected_metadata(entry)?;
-        let artifact = load_verified_artifact(root, YUNET_ARTIFACT_ID)?;
+        let artifact = artifacts
+            .iter()
+            .find(|a| a.entry().id == YUNET_ARTIFACT_ID)
+            .ok_or(ProviderLoadError::UnexpectedModelMetadata)?;
+        Self::from_verified_artifact(artifact)
+    }
+
+    /// Initializes a `YuNet` detector from an already verified artifact.
+    ///
+    /// # Errors
+    ///
+    /// Returns a stable load error if metadata is invalid or `OpenCV` runtime fails.
+    pub fn from_verified_artifact(artifact: &VerifiedArtifact) -> Result<Self, ProviderLoadError> {
         require_expected_metadata(artifact.entry())?;
         let detector = Detector::new(
             artifact.bytes(),

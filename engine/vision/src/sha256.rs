@@ -79,6 +79,10 @@ const ROUND_CONSTANTS: [u32; 64] = [
 ];
 
 pub fn digest(input: &[u8]) -> [u8; 32] {
+    kfaceauth_crypto_openssl_sys::sha256(input).unwrap_or_else(|_| digest_software(input))
+}
+
+fn digest_software(input: &[u8]) -> [u8; 32] {
     let mut state = INITIAL_STATE;
     let mut chunks = input.chunks_exact(64);
     for chunk in &mut chunks {

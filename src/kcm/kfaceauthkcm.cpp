@@ -39,6 +39,10 @@ KFaceAuthKcm::KFaceAuthKcm(QObject *parent, const KPluginMetaData &data, std::un
     qmlRegisterUncreatableType<LocalVerificationSession>(
         KFACEAUTH_QML_URI, 4, 0, "LocalVerificationSession",
         QStringLiteral("LocalVerificationSession is provided by the KCM"));
+    qmlRegisterUncreatableType<SystemState>(KFACEAUTH_QML_URI, 4, 0, "SystemState",
+                                            QStringLiteral("SystemState is provided by the KCM"));
+    qmlRegisterUncreatableType<SupportReport>(KFACEAUTH_QML_URI, 4, 0, "SupportReport",
+                                              QStringLiteral("SupportReport is provided by the KCM"));
     setButtons(NoAdditionalButton);
     connect(&m_refreshCoordinator, &RefreshCoordinator::snapshotChanged, this,
             [this](const EngineSnapshot &snapshot)

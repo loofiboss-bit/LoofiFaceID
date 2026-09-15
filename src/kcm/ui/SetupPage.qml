@@ -10,23 +10,35 @@ import "components" as Components
 Kirigami.ScrollablePage {
     id: root
 
-    required property QtObject systemState
-    required property var cameraPreviewSession
-    required property var visionAnalysisSession
-    required property var enrollmentSession
+    property var systemState: null
+    property var cameraPreviewSession: null
+    property var visionAnalysisSession: null
+    property var enrollmentSession: null
+    property bool backendReady: root.systemState !== null
+        && root.cameraPreviewSession !== null
+        && root.visionAnalysisSession !== null
+        && root.enrollmentSession !== null
     property var openTest: () => {}
 
     title: i18n("Setup")
     padding: Kirigami.Units.largeSpacing
 
     onVisibleChanged: {
-        enrollmentSession.setPageActive(visible)
+        if (!root.backendReady)
+            return
+
+        root.enrollmentSession.setPageActive(visible)
         if (visible) {
-            cameraPreviewSession.refreshDevices()
+            root.cameraPreviewSession.refreshDevices()
         } else {
-            visionAnalysisSession.cancelAnalysis()
-            cameraPreviewSession.stopPreview()
+            root.visionAnalysisSession.cancelAnalysis()
+            root.cameraPreviewSession.stopPreview()
         }
+    }
+
+    onBackendReadyChanged: {
+        if (root.backendReady && root.visible)
+            root.enrollmentSession.setPageActive(true)
     }
 
     QQC2.Dialog {
@@ -36,7 +48,10 @@ Kirigami.ScrollablePage {
         modal: true
         title: i18n("Delete face profile?")
         standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
-        onAccepted: enrollmentSession.deleteProfile()
+        onAccepted: {
+            if (root.enrollmentSession !== null)
+                root.enrollmentSession.deleteProfile()
+        }
         onClosed: deleteButton.forceActiveFocus()
 
         QQC2.Label {
@@ -55,7 +70,10 @@ Kirigami.ScrollablePage {
         modal: true
         title: i18n("Reset unreadable profile data?")
         standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
-        onAccepted: enrollmentSession.resetUnreadable()
+        onAccepted: {
+            if (root.enrollmentSession !== null)
+                root.enrollmentSession.resetUnreadable()
+        }
         onClosed: resetButton.forceActiveFocus()
 
         QQC2.Label {
@@ -85,8 +103,20 @@ Kirigami.ScrollablePage {
         }
 
         Components.ActionableIssue {
-            issueTitle: systemState.issueCode.length > 0 ? i18n("Setup needs attention") : ""
-            recoveryText: systemState.issueCode.length > 0 ? systemState.summary : ""
+            issueTitle: root.systemState !== null && root.systemState.issueCode.length > 0
+                ? i18n("Setup needs attention")
+                : ""
+            recoveryText: root.systemState !== null && root.systemState.issueCode.length > 0
+                ? root.systemState.summary
+                : ""
+        }
+
+        Kirigami.InlineMessage {
+            objectName: "backendInitializationMessage"
+            Layout.fillWidth: true
+            visible: !root.backendReady
+            type: Kirigami.MessageType.Warning
+            text: i18n("KFaceAuth is still initializing. Camera and profile controls will become available when the local backend is ready.")
         }
 
         Components.CameraPreviewCard {
@@ -115,7 +145,9 @@ Kirigami.ScrollablePage {
 
                 QQC2.Label {
                     Layout.fillWidth: true
-                    text: enrollmentSession.profileStatusText
+                    text: root.enrollmentSession !== null
+                        ? root.enrollmentSession.profileStatusText
+                        : i18n("Profile service is initializing…")
                     wrapMode: Text.Wrap
                     Accessible.role: Accessible.StaticText
                 }
@@ -128,26 +160,32 @@ Kirigami.ScrollablePage {
                         objectName: "refreshStatusButton"
                         text: i18n("Refresh profile status")
                         icon.name: "view-refresh"
-                        enabled: !enrollmentSession.busy
+                        enabled: root.enrollmentSession !== null && !root.enrollmentSession.busy
                         activeFocusOnTab: true
                         Accessible.name: text
-                        onClicked: enrollmentSession.refreshProfileStatus()
+                        onClicked: {
+                            if (root.enrollmentSession !== null)
+                                root.enrollmentSession.refreshProfileStatus()
+                        }
                     }
 
                     QQC2.Button {
                         objectName: "startEnrollmentButton"
                         text: i18n("Create face profile")
                         icon.name: "list-add-user"
-                        enabled: enrollmentSession.canStartEnrollment
+                        enabled: root.enrollmentSession !== null && root.enrollmentSession.canStartEnrollment
                         activeFocusOnTab: true
                         Accessible.name: text
-                        onClicked: enrollmentSession.startEnrollment()
+                        onClicked: {
+                            if (root.enrollmentSession !== null)
+                                root.enrollmentSession.startEnrollment()
+                        }
                     }
                 }
 
                 QQC2.Label {
                     Layout.fillWidth: true
-                    visible: enrollmentSession.enrollmentActive
+                    visible: root.enrollmentSession !== null && root.enrollmentSession.enrollmentActive
                     text: i18n("Capture exactly one sample per click. Three are required, five are recommended, and eight is the hard maximum.")
                     color: Kirigami.Theme.disabledTextColor
                     wrapMode: Text.Wrap
@@ -155,18 +193,24 @@ Kirigami.ScrollablePage {
 
                 QQC2.ProgressBar {
                     Layout.fillWidth: true
-                    visible: enrollmentSession.enrollmentActive || enrollmentSession.sampleCount > 0
+                    visible: root.enrollmentSession !== null
+                        && (root.enrollmentSession.enrollmentActive || root.enrollmentSession.sampleCount > 0)
                     from: 0
-                    to: enrollmentSession.maximumSamples
-                    value: enrollmentSession.sampleCount
+                    to: root.enrollmentSession !== null ? root.enrollmentSession.maximumSamples : 0
+                    value: root.enrollmentSession !== null ? root.enrollmentSession.sampleCount : 0
                     Accessible.name: i18n("Enrollment sample progress")
-                    Accessible.description: i18n("%1 of %2 maximum samples; five are recommended", enrollmentSession.sampleCount, enrollmentSession.maximumSamples)
+                    Accessible.description: root.enrollmentSession !== null
+                        ? i18n("%1 of %2 maximum samples; five are recommended", root.enrollmentSession.sampleCount, root.enrollmentSession.maximumSamples)
+                        : i18n("Enrollment is initializing")
                 }
 
                 QQC2.Label {
                     Layout.fillWidth: true
-                    visible: enrollmentSession.enrollmentActive || enrollmentSession.sampleCount > 0
-                    text: i18np("%1 sample accepted", "%1 samples accepted", enrollmentSession.sampleCount)
+                    visible: root.enrollmentSession !== null
+                        && (root.enrollmentSession.enrollmentActive || root.enrollmentSession.sampleCount > 0)
+                    text: root.enrollmentSession !== null
+                        ? i18np("%1 sample accepted", "%1 samples accepted", root.enrollmentSession.sampleCount)
+                        : ""
                     wrapMode: Text.Wrap
                     Accessible.role: Accessible.StaticText
                 }
@@ -180,10 +224,13 @@ Kirigami.ScrollablePage {
                         objectName: "captureButton"
                         text: i18n("Capture sample")
                         icon.name: "camera-photo"
-                        enabled: enrollmentSession.canCapture
+                        enabled: root.enrollmentSession !== null && root.enrollmentSession.canCapture
                         activeFocusOnTab: true
                         Accessible.name: text
-                        onClicked: enrollmentSession.captureSample()
+                        onClicked: {
+                            if (root.enrollmentSession !== null)
+                                root.enrollmentSession.captureSample()
+                        }
                     }
 
                     QQC2.Button {
@@ -191,10 +238,15 @@ Kirigami.ScrollablePage {
                         objectName: "retrySampleButton"
                         text: i18n("Retry sample")
                         icon.name: "edit-undo"
-                        enabled: enrollmentSession.sampleCount > 0 && !enrollmentSession.busy
+                        enabled: root.enrollmentSession !== null
+                            && root.enrollmentSession.sampleCount > 0
+                            && !root.enrollmentSession.busy
                         activeFocusOnTab: true
                         Accessible.name: text
-                        onClicked: enrollmentSession.discardLastSample()
+                        onClicked: {
+                            if (root.enrollmentSession !== null)
+                                root.enrollmentSession.discardLastSample()
+                        }
                     }
 
                     QQC2.Button {
@@ -202,10 +254,13 @@ Kirigami.ScrollablePage {
                         objectName: "cancelEnrollmentButton"
                         text: i18n("Cancel")
                         icon.name: "dialog-cancel"
-                        enabled: enrollmentSession.canCancel
+                        enabled: root.enrollmentSession !== null && root.enrollmentSession.canCancel
                         activeFocusOnTab: true
                         Accessible.name: text
-                        onClicked: enrollmentSession.cancel()
+                        onClicked: {
+                            if (root.enrollmentSession !== null)
+                                root.enrollmentSession.cancel()
+                        }
                     }
 
                     QQC2.Button {
@@ -213,18 +268,22 @@ Kirigami.ScrollablePage {
                         objectName: "finishEnrollmentButton"
                         text: i18n("Finish and save")
                         icon.name: "document-save"
-                        enabled: enrollmentSession.canFinish
+                        enabled: root.enrollmentSession !== null && root.enrollmentSession.canFinish
                         activeFocusOnTab: true
                         Accessible.name: text
-                        onClicked: enrollmentSession.finishAndSave()
+                        onClicked: {
+                            if (root.enrollmentSession !== null)
+                                root.enrollmentSession.finishAndSave()
+                        }
                     }
                 }
 
                 QQC2.Label {
                     Layout.fillWidth: true
-                    visible: enrollmentSession.enrollmentActive || enrollmentSession.enrollmentComplete
-                    text: enrollmentSession.statusText
-                    color: enrollmentSession.errorCode.length > 0
+                    visible: root.enrollmentSession !== null
+                        && (root.enrollmentSession.enrollmentActive || root.enrollmentSession.enrollmentComplete)
+                    text: root.enrollmentSession !== null ? root.enrollmentSession.statusText : ""
+                    color: root.enrollmentSession !== null && root.enrollmentSession.errorCode.length > 0
                         ? Kirigami.Theme.negativeTextColor
                         : Kirigami.Theme.textColor
                     wrapMode: Text.Wrap
@@ -233,7 +292,7 @@ Kirigami.ScrollablePage {
 
                 QQC2.Button {
                     objectName: "openTestAfterEnrollmentButton"
-                    visible: enrollmentSession.enrollmentComplete
+                    visible: root.enrollmentSession !== null && root.enrollmentSession.enrollmentComplete
                     text: i18n("Open Test")
                     icon.name: "view-preview"
                     activeFocusOnTab: true
@@ -273,7 +332,9 @@ Kirigami.ScrollablePage {
                         objectName: "deleteProfileButton"
                         text: i18n("Delete face profile")
                         icon.name: "edit-delete"
-                        enabled: enrollmentSession.profileReady && !enrollmentSession.busy
+                        enabled: root.enrollmentSession !== null
+                            && root.enrollmentSession.profileReady
+                            && !root.enrollmentSession.busy
                         activeFocusOnTab: true
                         Accessible.name: text
                         onClicked: deleteConfirmation.open()
@@ -284,7 +345,9 @@ Kirigami.ScrollablePage {
                         objectName: "resetProfileButton"
                         text: i18n("Reset unreadable data")
                         icon.name: "edit-clear-all"
-                        enabled: enrollmentSession.profileNeedsAttention && !enrollmentSession.busy
+                        enabled: root.enrollmentSession !== null
+                            && root.enrollmentSession.profileNeedsAttention
+                            && !root.enrollmentSession.busy
                         activeFocusOnTab: true
                         Accessible.name: text
                         onClicked: resetConfirmation.open()

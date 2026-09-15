@@ -13,11 +13,12 @@ import io.github.loofiboss_bit.KFaceAuth 4.0
 Kirigami.AbstractCard {
     id: root
 
-    required property var cameraPreviewSession
+    property var cameraPreviewSession: null
     property var analysisSession: null
     property bool showAnalysis: false
     property bool showFramingGuide: false
     property string cardTitle: i18n("Private camera preview")
+    property bool sessionReady: root.cameraPreviewSession !== null
 
     Accessible.role: Accessible.Grouping
     Accessible.name: root.cardTitle
@@ -39,9 +40,9 @@ Kirigami.AbstractCard {
                 anchors.fill: parent
                 session: root.cameraPreviewSession
                 mirrored: true
-                Accessible.name: root.cameraPreviewSession.spectrum === "ir"
+                Accessible.name: root.sessionReady && root.cameraPreviewSession.spectrum === "ir"
                     ? i18n("Infrared camera preview")
-                    : (root.cameraPreviewSession.spectrum === "rgb"
+                    : (root.sessionReady && root.cameraPreviewSession.spectrum === "rgb"
                         ? i18n("RGB camera preview")
                         : i18n("Camera preview"))
             }
@@ -55,7 +56,7 @@ Kirigami.AbstractCard {
                 border.color: Kirigami.Theme.highlightColor
                 border.width: 2
                 opacity: 0.78
-                visible: root.showFramingGuide && root.cameraPreviewSession.frameAvailable
+                visible: root.sessionReady && root.showFramingGuide && root.cameraPreviewSession.frameAvailable
 
                 QQC2.Label {
                     anchors {
@@ -72,10 +73,14 @@ Kirigami.AbstractCard {
 
             QQC2.Label {
                 anchors.centerIn: parent
-                visible: !root.cameraPreviewSession.frameAvailable
-                text: root.cameraPreviewSession.canStartPreview
+                visible: !root.sessionReady || !root.cameraPreviewSession.frameAvailable
+                text: !root.sessionReady
+                    ? i18n("Camera service is initializing…")
+                    : (root.cameraPreviewSession.canStartPreview
                     ? i18n("Preview is off")
-                    : (root.cameraPreviewSession.busy ? i18n("Starting camera…") : i18n("Choose a camera to begin"))
+                    : (root.cameraPreviewSession.busy
+                        ? i18n("Starting camera…")
+                        : i18n("Choose a camera to begin")))
                 color: Kirigami.Theme.textColor
                 font.weight: Font.DemiBold
                 Accessible.role: Accessible.StaticText
@@ -87,9 +92,9 @@ Kirigami.AbstractCard {
                     right: parent.right
                     margins: Kirigami.Units.smallSpacing
                 }
-                visible: root.cameraPreviewSession.previewActive
+                visible: root.sessionReady && root.cameraPreviewSession.previewActive
                 padding: Kirigami.Units.smallSpacing
-                text: i18n("%1 s", root.cameraPreviewSession.remainingSeconds)
+                text: root.sessionReady ? i18n("%1 s", root.cameraPreviewSession.remainingSeconds) : ""
                 color: Kirigami.Theme.textColor
                 background: Rectangle {
                     color: Qt.alpha(Kirigami.Theme.backgroundColor, 0.88)
@@ -106,35 +111,49 @@ Kirigami.AbstractCard {
                 id: deviceSelector
                 objectName: "cameraDeviceSelector"
                 width: Math.max(Kirigami.Units.gridUnit * 11, parent.width - Kirigami.Units.gridUnit * 5)
-                model: root.cameraPreviewSession
+                model: root.sessionReady ? root.cameraPreviewSession : null
                 textRole: "label"
-                currentIndex: root.cameraPreviewSession.selectedDeviceIndex
-                enabled: root.cameraPreviewSession.canRefresh && root.cameraPreviewSession.hasUsableCamera
-                    || root.cameraPreviewSession.canStartPreview
+                currentIndex: root.sessionReady ? root.cameraPreviewSession.selectedDeviceIndex : -1
+                enabled: root.sessionReady
+                    && ((root.cameraPreviewSession.canRefresh && root.cameraPreviewSession.hasUsableCamera)
+                        || root.cameraPreviewSession.canStartPreview)
                 property string accessibilityLabel: i18n("Local camera")
                 Accessible.name: accessibilityLabel
                 activeFocusOnTab: true
-                onActivated: index => root.cameraPreviewSession.selectedDeviceIndex = index
+                onActivated: index => {
+                    if (root.sessionReady)
+                        root.cameraPreviewSession.selectedDeviceIndex = index
+                }
             }
 
             QQC2.Button {
                 objectName: "cameraRefreshButton"
                 text: i18n("Refresh")
                 icon.name: "view-refresh"
-                enabled: root.cameraPreviewSession.canRefresh
+                enabled: root.sessionReady && root.cameraPreviewSession.canRefresh
                 Accessible.name: text
                 activeFocusOnTab: true
-                onClicked: root.cameraPreviewSession.refreshDevices()
+                onClicked: {
+                    if (root.sessionReady)
+                        root.cameraPreviewSession.refreshDevices()
+                }
             }
 
             QQC2.Button {
                 objectName: "cameraPreviewAction"
-                text: root.cameraPreviewSession.canStopPreview ? i18n("Stop preview") : i18n("Start preview")
-                icon.name: root.cameraPreviewSession.canStopPreview ? "media-playback-stop" : "camera-photo"
-                enabled: root.cameraPreviewSession.canStopPreview || root.cameraPreviewSession.canStartPreview
+                text: root.sessionReady && root.cameraPreviewSession.canStopPreview
+                    ? i18n("Stop preview")
+                    : i18n("Start preview")
+                icon.name: root.sessionReady && root.cameraPreviewSession.canStopPreview
+                    ? "media-playback-stop"
+                    : "camera-photo"
+                enabled: root.sessionReady
+                    && (root.cameraPreviewSession.canStopPreview || root.cameraPreviewSession.canStartPreview)
                 Accessible.name: text
                 activeFocusOnTab: true
                 onClicked: {
+                    if (!root.sessionReady)
+                        return
                     if (root.cameraPreviewSession.canStopPreview)
                         root.cameraPreviewSession.stopPreview()
                     else
@@ -147,15 +166,17 @@ Kirigami.AbstractCard {
             Layout.fillWidth: true
 
             QQC2.BusyIndicator {
-                visible: root.cameraPreviewSession.busy
+                visible: root.sessionReady && root.cameraPreviewSession.busy
                 running: visible
                 Accessible.ignored: true
             }
 
             QQC2.Label {
                 Layout.fillWidth: true
-                text: root.cameraPreviewSession.statusText
-                color: root.cameraPreviewSession.errorCode.length > 0
+                text: root.sessionReady
+                    ? root.cameraPreviewSession.statusText
+                    : i18n("Camera service is initializing…")
+                color: root.sessionReady && root.cameraPreviewSession.errorCode.length > 0
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.disabledTextColor
                 wrapMode: Text.Wrap
@@ -165,8 +186,10 @@ Kirigami.AbstractCard {
 
         QQC2.Label {
             Layout.fillWidth: true
-            visible: root.cameraPreviewSession.droppedFrames > 0
-            text: i18n("Dropped preview frames: %1", root.cameraPreviewSession.droppedFrames)
+            visible: root.sessionReady && root.cameraPreviewSession.droppedFrames > 0
+            text: root.sessionReady
+                ? i18n("Dropped preview frames: %1", root.cameraPreviewSession.droppedFrames)
+                : ""
             color: Kirigami.Theme.disabledTextColor
             wrapMode: Text.Wrap
         }
@@ -202,7 +225,10 @@ Kirigami.AbstractCard {
                     enabled: root.analysisSession !== null && root.analysisSession.canAnalyze
                     Accessible.name: text
                     activeFocusOnTab: true
-                    onClicked: root.analysisSession.analyzeCurrentFrame()
+                    onClicked: {
+                        if (root.analysisSession !== null)
+                            root.analysisSession.analyzeCurrentFrame()
+                    }
                 }
             }
 

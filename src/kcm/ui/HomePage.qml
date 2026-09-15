@@ -10,9 +10,10 @@ import "components" as Components
 Kirigami.ScrollablePage {
     id: root
 
-    required property QtObject systemState
-    required property QtObject cameraPreviewSession
-    required property QtObject enrollmentSession
+    property var systemState: null
+    property var cameraPreviewSession: null
+    property var enrollmentSession: null
+    property bool backendReady: true
     required property string productVersion
     required property string flowStateLabel
     required property string recommendedAction
@@ -96,6 +97,14 @@ Kirigami.ScrollablePage {
 
         Components.PrivacySummary {
             Layout.fillWidth: true
+        }
+
+        Kirigami.InlineMessage {
+            objectName: "backendInitializationMessage"
+            Layout.fillWidth: true
+            visible: !root.backendReady
+            type: Kirigami.MessageType.Warning
+            text: i18n("KFaceAuth is still initializing. If this message remains, close and reopen System Settings.")
         }
 
         Kirigami.InlineMessage {

@@ -142,6 +142,10 @@ struct RequestError {
 ///
 /// # Errors
 ///
+/// Serves exactly one bounded request and clears request/response buffers.
+///
+/// # Errors
+///
 /// Framing and local pipe I/O errors terminate the worker without retry.
 pub fn serve_once<R: Read, W: Write>(
     reader: &mut R,
@@ -160,8 +164,70 @@ pub fn serve_once<R: Read, W: Write>(
     result
 }
 
-#[allow(clippy::too_many_lines)]
+/// Serves a continuous session of identity worker requests until the input reaches EOF.
+///
+/// Models and verified runtime graphs are cached across requests in the session.
+///
+/// # Errors
+///
+/// Framing and protocol I/O errors return [`IdentityWorkerError`].
+pub fn serve_session<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    model_root: &Path,
+) -> Result<(), IdentityWorkerError> {
+    let mut provider_cache: Option<IdentityProvider> = None;
+    loop {
+        let mut header = [0_u8; 4];
+        match reader.read_exact(&mut header) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(error) => return Err(IdentityWorkerError::Io(error)),
+        }
+        let length = u32::from_be_bytes(header) as usize;
+        if length == 0 {
+            return Err(IdentityWorkerError::EmptyFrame);
+        }
+        if length > MAX_IDENTITY_REQUEST_BYTES {
+            return Err(IdentityWorkerError::FrameTooLarge);
+        }
+        let mut payload = SensitiveBytes(vec![0_u8; length]);
+        if let Err(error) = reader.read_exact(&mut payload.0) {
+            payload.0.fill(0);
+            return Err(IdentityWorkerError::Io(error));
+        }
+        let mut response = SensitiveBytes(match parse_request(&payload.0) {
+            Ok(request) => process_request_with_cache(request, model_root, &mut provider_cache),
+            Err(error) => encode_error(error.code, error.generation),
+        });
+        payload.0.fill(0);
+        let result = write_frame(writer, &response.0);
+        response.0.fill(0);
+        result?;
+    }
+}
+
+fn get_provider<'a>(
+    cache: &'a mut Option<IdentityProvider>,
+    model_root: &Path,
+) -> Result<&'a IdentityProvider, IdentityLoadError> {
+    if cache.is_none() {
+        *cache = Some(IdentityProvider::from_model_root(model_root)?);
+    }
+    Ok(cache.as_ref().expect("provider was populated"))
+}
+
 fn process_request(request: ParsedRequest<'_>, model_root: &Path) -> Vec<u8> {
+    let mut cache = None;
+    process_request_with_cache(request, model_root, &mut cache)
+}
+
+#[allow(clippy::too_many_lines)]
+fn process_request_with_cache(
+    request: ParsedRequest<'_>,
+    model_root: &Path,
+    provider_cache: &mut Option<IdentityProvider>,
+) -> Vec<u8> {
     let generation = request.generation;
     let cancellation = CancellationToken::default();
     let Ok(control) = ProcessingControl::with_timeout(
@@ -173,7 +239,7 @@ fn process_request(request: ParsedRequest<'_>, model_root: &Path) -> Vec<u8> {
 
     match request.request {
         Request::Status(key) => {
-            if let Err(error) = IdentityProvider::from_model_root(model_root) {
+            if let Err(error) = get_provider(provider_cache, model_root) {
                 return encode_error(map_load_error(&error), generation);
             }
             let vault = match Vault::production() {
@@ -183,7 +249,7 @@ fn process_request(request: ParsedRequest<'_>, model_root: &Path) -> Vec<u8> {
             encode_status(generation, vault.status(key.as_ref()))
         }
         Request::Extract { prior, image } => {
-            let provider = match IdentityProvider::from_model_root(model_root) {
+            let provider = match get_provider(provider_cache, model_root) {
                 Ok(provider) => provider,
                 Err(error) => return encode_error(map_load_error(&error), generation),
             };
@@ -229,7 +295,7 @@ fn process_request(request: ParsedRequest<'_>, model_root: &Path) -> Vec<u8> {
                 Ok(profile) => profile,
                 Err(error) => return encode_error(map_vault_error(&error), generation),
             };
-            let provider = match IdentityProvider::from_model_root(model_root) {
+            let provider = match get_provider(provider_cache, model_root) {
                 Ok(provider) => provider,
                 Err(error) => return encode_error(map_load_error(&error), generation),
             };

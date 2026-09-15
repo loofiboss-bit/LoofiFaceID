@@ -20,7 +20,7 @@ class NativeFaceAuthBackendTest final : public QObject
 
 void NativeFaceAuthBackendTest::unavailableEngineCompletesAsynchronously()
 {
-    NativeFaceAuthBackend backend;
+    NativeFaceAuthBackend backend([]() { return NativeFaceAuthBackend::Availability{}; });
     QSignalSpy progressSpy(&backend, &FaceAuthBackend::refreshProgress);
     QSignalSpy completedSpy(&backend, &FaceAuthBackend::refreshCompleted);
     QElapsedTimer elapsed;

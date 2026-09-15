@@ -11,6 +11,18 @@ KCMUtils.SimpleKCM {
 
     title: i18n("KFaceAuth (Experimental Local Identity Preview)")
 
+    // KCMUtils can create the QML surface before all backend objects have been
+    // published into the context. Keep the surface usable during that short
+    // window and let the destination pages render their explicit fallback.
+    property bool backendReady: typeof kcm !== "undefined"
+        && kcm !== null
+        && kcm.systemState !== null
+        && kcm.cameraPreviewSession !== null
+        && kcm.visionAnalysisSession !== null
+        && kcm.enrollmentSession !== null
+        && kcm.localVerificationSession !== null
+        && kcm.supportReport !== null
+
     header: Kirigami.NavigationTabBar {
         id: tabs
         objectName: "navigationTabs"
@@ -61,6 +73,7 @@ KCMUtils.SimpleKCM {
             id: home
 
             Layout.fillWidth: true
+            backendReady: root.backendReady
             systemState: kcm.systemState
             cameraPreviewSession: kcm.cameraPreviewSession
             enrollmentSession: kcm.enrollmentSession
@@ -82,6 +95,7 @@ KCMUtils.SimpleKCM {
             id: setup
 
             Layout.fillWidth: true
+            backendReady: root.backendReady
             systemState: kcm.systemState
             cameraPreviewSession: kcm.cameraPreviewSession
             visionAnalysisSession: kcm.visionAnalysisSession
@@ -93,6 +107,7 @@ KCMUtils.SimpleKCM {
             id: test
 
             Layout.fillWidth: true
+            backendReady: root.backendReady
             cameraPreviewSession: kcm.cameraPreviewSession
             localVerificationSession: kcm.localVerificationSession
         }
@@ -101,6 +116,7 @@ KCMUtils.SimpleKCM {
             id: diagnostics
 
             Layout.fillWidth: true
+            backendReady: root.backendReady
             systemState: kcm.systemState
             supportReport: kcm.supportReport
             cameraPreviewSession: kcm.cameraPreviewSession

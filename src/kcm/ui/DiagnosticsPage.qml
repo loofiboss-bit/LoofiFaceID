@@ -10,9 +10,12 @@ import "components" as Components
 Kirigami.ScrollablePage {
     id: root
 
-    required property var systemState
-    required property var supportReport
-    required property var cameraPreviewSession
+    property var systemState: null
+    property var supportReport: null
+    property var cameraPreviewSession: null
+    property bool backendReady: root.systemState !== null
+        && root.supportReport !== null
+        && root.cameraPreviewSession !== null
     required property bool refreshActive
     property var refresh: () => {}
 
@@ -30,9 +33,21 @@ Kirigami.ScrollablePage {
             text: i18n("Diagnostics are read-only. Refreshing runs bounded local probes and never performs biometric or PAM operations.")
         }
 
+        Kirigami.InlineMessage {
+            objectName: "backendInitializationMessage"
+            Layout.fillWidth: true
+            visible: !root.backendReady
+            type: Kirigami.MessageType.Warning
+            text: i18n("KFaceAuth is still initializing. Diagnostic values will appear when the local backend is ready.")
+        }
+
         Components.ActionableIssue {
-            issueTitle: supportReport.hasIssue ? supportReport.issueTitle : ""
-            recoveryText: supportReport.hasIssue ? supportReport.recommendedAction : ""
+            issueTitle: root.supportReport !== null && root.supportReport.hasIssue
+                ? root.supportReport.issueTitle
+                : ""
+            recoveryText: root.supportReport !== null && root.supportReport.hasIssue
+                ? root.supportReport.recommendedAction
+                : ""
         }
 
         Kirigami.AbstractCard {
@@ -44,8 +59,8 @@ Kirigami.ScrollablePage {
                 Components.DetailRow {
                     Layout.fillWidth: true
                     label: i18n("Worker and runtime")
-                    value: systemState.engineStatusLabel
-                    tone: systemState.engineReady ? 1 : 2
+                    value: root.systemState !== null ? root.systemState.engineStatusLabel : i18n("Initializing…")
+                    tone: root.systemState !== null && root.systemState.engineReady ? 1 : 2
                 }
 
                 Kirigami.Separator { Layout.fillWidth: true }
@@ -53,8 +68,8 @@ Kirigami.ScrollablePage {
                 Components.DetailRow {
                     Layout.fillWidth: true
                     label: i18n("Verified models")
-                    value: systemState.modelStatusLabel
-                    tone: systemState.modelsVerified ? 1 : 3
+                    value: root.systemState !== null ? root.systemState.modelStatusLabel : i18n("Initializing…")
+                    tone: root.systemState !== null && root.systemState.modelsVerified ? 1 : 3
                 }
 
                 Kirigami.Separator { Layout.fillWidth: true }
@@ -62,8 +77,10 @@ Kirigami.ScrollablePage {
                 Components.DetailRow {
                     Layout.fillWidth: true
                     label: i18n("Camera availability")
-                    value: i18np("%1 camera found", "%1 cameras found", root.cameraPreviewSession.deviceCount)
-                    tone: root.cameraPreviewSession.deviceCount > 0 ? 1 : 0
+                    value: root.cameraPreviewSession !== null
+                        ? i18np("%1 camera found", "%1 cameras found", root.cameraPreviewSession.deviceCount)
+                        : i18n("Initializing…")
+                    tone: root.cameraPreviewSession !== null && root.cameraPreviewSession.deviceCount > 0 ? 1 : 0
                 }
 
                 Kirigami.Separator { Layout.fillWidth: true }
@@ -71,8 +88,8 @@ Kirigami.ScrollablePage {
                 Components.DetailRow {
                     Layout.fillWidth: true
                     label: i18n("KWallet")
-                    value: systemState.keyProviderStatusLabel
-                    tone: systemState.keyAvailable ? 1 : 2
+                    value: root.systemState !== null ? root.systemState.keyProviderStatusLabel : i18n("Initializing…")
+                    tone: root.systemState !== null && root.systemState.keyAvailable ? 1 : 2
                 }
 
                 Kirigami.Separator { Layout.fillWidth: true }
@@ -80,17 +97,17 @@ Kirigami.ScrollablePage {
                 Components.DetailRow {
                     Layout.fillWidth: true
                     label: i18n("Encrypted profile")
-                    value: systemState.vaultStatusLabel
-                    tone: systemState.vaultReady ? 1 : 2
+                    value: root.systemState !== null ? root.systemState.vaultStatusLabel : i18n("Initializing…")
+                    tone: root.systemState !== null && root.systemState.vaultReady ? 1 : 2
                 }
 
                 Components.DetailRow {
                     Layout.fillWidth: true
                     label: i18n("Profile samples")
-                    value: systemState.profileEnrolled
-                        ? i18np("%1 encrypted sample", "%1 encrypted samples", systemState.profileSampleCount)
+                    value: root.systemState !== null && root.systemState.profileEnrolled
+                        ? i18np("%1 encrypted sample", "%1 encrypted samples", root.systemState.profileSampleCount)
                         : i18n("No profile")
-                    tone: systemState.profileEnrolled ? 1 : 0
+                    tone: root.systemState !== null && root.systemState.profileEnrolled ? 1 : 0
                 }
 
                 QQC2.Button {
@@ -132,14 +149,14 @@ Kirigami.ScrollablePage {
                     Components.DetailRow {
                         Layout.fillWidth: true
                         label: i18n("Secure Boot")
-                        value: systemState.secureBootStatusLabel
+                        value: root.systemState !== null ? root.systemState.secureBootStatusLabel : i18n("Initializing…")
                         tone: 0
                     }
 
                     Components.DetailRow {
                         Layout.fillWidth: true
                         label: i18n("Display manager")
-                        value: systemState.activeDisplayManager
+                        value: root.systemState !== null ? root.systemState.activeDisplayManager : i18n("Initializing…")
                         tone: 0
                     }
 
@@ -162,7 +179,7 @@ Kirigami.ScrollablePage {
                 QQC2.TextArea {
                     Layout.fillWidth: true
                     Layout.minimumHeight: Kirigami.Units.gridUnit * 10
-                    text: supportReport.report
+                    text: root.supportReport !== null ? root.supportReport.report : i18n("Support report is initializing…")
                     readOnly: true
                     selectByMouse: true
                     wrapMode: TextEdit.Wrap
@@ -177,24 +194,32 @@ Kirigami.ScrollablePage {
                         objectName: "copyReportButton"
                         text: i18n("Copy report")
                         icon.name: "edit-copy"
+                        enabled: root.supportReport !== null
                         Accessible.name: text
-                        onClicked: supportReport.copyReport()
+                        onClicked: {
+                            if (root.supportReport !== null)
+                                root.supportReport.copyReport()
+                        }
                     }
 
                     QQC2.Button {
                         objectName: "exportReportButton"
                         text: i18n("Export report")
                         icon.name: "document-save"
+                        enabled: root.supportReport !== null
                         Accessible.name: text
                         Accessible.description: i18n("Saves a redacted Markdown report in Documents")
-                        onClicked: supportReport.exportReport()
+                        onClicked: {
+                            if (root.supportReport !== null)
+                                root.supportReport.exportReport()
+                        }
                     }
                 }
 
                 QQC2.Label {
                     Layout.fillWidth: true
-                    visible: supportReport.statusText.length > 0
-                    text: supportReport.statusText
+                    visible: root.supportReport !== null && root.supportReport.statusText.length > 0
+                    text: root.supportReport !== null ? root.supportReport.statusText : ""
                     color: Kirigami.Theme.disabledTextColor
                     wrapMode: Text.Wrap
                 }

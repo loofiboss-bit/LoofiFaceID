@@ -17,8 +17,10 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQmlError>
 #include <QQuickItem>
 #include <QTest>
+#include <algorithm>
 #include <qqml.h>
 
 #ifndef KFACEAUTH_VERSION_STRING
@@ -31,6 +33,7 @@ class QmlPagesTest final : public QObject
 
   private Q_SLOTS:
     void mainSurfaceCreatesAndNavigates();
+    void mainSurfaceHandlesUnavailableBackend();
     void destinationPagesCreateForUnavailableEngine();
     void setupPageStopsWhenHidden();
     void analysisCancelsWhenApplicationDeactivates();
@@ -208,6 +211,40 @@ void QmlPagesTest::mainSurfaceCreatesAndNavigates()
             QVERIFY(control->property("activeFocusOnTab").toBool());
         }
     }
+}
+
+void QmlPagesTest::mainSurfaceHandlesUnavailableBackend()
+{
+    QmlKcmFacade facade(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("kcm"), &facade);
+    auto *localizedContext = KLocalization::setupLocalizedContext(&engine);
+    localizedContext->setTranslationDomain(QStringLiteral("kcm_kfaceauth"));
+
+    QList<QQmlError> warnings;
+    connect(&engine, &QQmlEngine::warnings, &engine,
+            [&warnings](const QList<QQmlError> &errors) { warnings.append(errors); });
+
+    QQmlComponent component(&engine, QUrl::fromLocalFile(QStringLiteral(KFACEAUTH_SOURCE_DIR "/src/kcm/ui/main.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    QCOMPARE(object->property("backendReady").toBool(), false);
+
+    auto *tabs = object->findChild<QObject *>(QStringLiteral("navigationTabs"));
+    QVERIFY(tabs);
+    for (int index = 0; index < 4; ++index)
+    {
+        tabs->setProperty("currentIndex", index);
+        QCoreApplication::processEvents();
+        const auto messages = object->findChildren<QObject *>(QStringLiteral("backendInitializationMessage"));
+        QVERIFY(!messages.isEmpty());
+        QVERIFY(std::any_of(messages.cbegin(), messages.cend(),
+                            [](QObject *message) { return message->property("visible").toBool(); }));
+    }
+
+    for (const QQmlError &warning : warnings)
+        QVERIFY2(!warning.toString().contains(QStringLiteral("TypeError")), qPrintable(warning.toString()));
 }
 
 void QmlPagesTest::destinationPagesCreateForUnavailableEngine()

@@ -144,6 +144,20 @@ cleanup:
     return status;
 }
 
+int kfaceauth_crypto_sha256(const uint8_t *input, size_t input_size, uint8_t *output, size_t output_size)
+{
+    if (output == NULL || output_size != 32 || (!valid_buffer(input, input_size)) || !fits_provider_int(input_size))
+        return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
+
+    size_t digest_size = 0;
+    if (EVP_Q_digest(NULL, "SHA256", NULL, input, input_size, output, &digest_size) != 1 || digest_size != 32)
+    {
+        OPENSSL_cleanse(output, output_size);
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    }
+    return KFACEAUTH_CRYPTO_OK;
+}
+
 uint32_t kfaceauth_current_uid(void)
 {
     return (uint32_t)getuid();

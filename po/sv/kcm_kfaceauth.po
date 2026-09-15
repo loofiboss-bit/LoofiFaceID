@@ -1241,3 +1241,33 @@ msgstr "Status för krypterad profil är inte tillgänglig"
 
 msgid "The local profile status could not be read. Retry Diagnostics before testing."
 msgstr "Den lokala profilstatusen kunde inte läsas. Försök med Diagnostik igen innan du testar."
+
+msgid "KFaceAuth is still initializing. Diagnostic values will appear when the local backend is ready."
+msgstr "KFaceAuth initieras fortfarande. Diagnostikvärden visas när den lokala backend är redo."
+
+msgid "Initializing…"
+msgstr "Initierar…"
+
+msgid "Support report is initializing…"
+msgstr "Supportrapporten initieras…"
+
+msgid "KFaceAuth is still initializing. Camera and profile controls will become available when the local backend is ready."
+msgstr "KFaceAuth initieras fortfarande. Kamera- och profilkontroller blir tillgängliga när den lokala backend är redo."
+
+msgid "Profile service is initializing…"
+msgstr "Profiltjänsten initieras…"
+
+msgid "Enrollment is initializing"
+msgstr "Registreringen initieras"
+
+msgid "KFaceAuth is still initializing. The local comparison controls will become available when the backend is ready."
+msgstr "KFaceAuth initieras fortfarande. Kontrollerna för lokal jämförelse blir tillgängliga när backend är redo."
+
+msgid "Comparison service is initializing…"
+msgstr "Jämförelsetjänsten initieras…"
+
+msgid "KFaceAuth is still initializing. If this message remains, close and reopen System Settings."
+msgstr "KFaceAuth initieras fortfarande. Stäng och öppna Systeminställningar igen om meddelandet kvarstår."
+
+msgid "Camera service is initializing…"
+msgstr "Kameratjänsten initieras…"

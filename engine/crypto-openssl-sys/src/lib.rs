@@ -48,6 +48,12 @@ unsafe extern "C" {
         plaintext_capacity: usize,
         plaintext_size: *mut usize,
     ) -> c_int;
+    fn kfaceauth_crypto_sha256(
+        input: *const u8,
+        input_size: usize,
+        output: *mut u8,
+        output_size: usize,
+    ) -> c_int;
     fn kfaceauth_current_uid() -> u32;
 }
 
@@ -193,6 +199,25 @@ pub fn current_uid() -> u32 {
     unsafe { kfaceauth_current_uid() }
 }
 
+/// Computes a SHA-256 digest using OpenSSL's hardware-accelerated EVP implementation.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if OpenSSL fails or input size exceeds provider limits.
+pub fn sha256(input: &[u8]) -> Result<[u8; 32], CryptoError> {
+    let mut output = [0_u8; 32];
+    // SAFETY: output is a valid 32-byte array and input pointer is valid for input.len() bytes.
+    status_result(unsafe {
+        kfaceauth_crypto_sha256(
+            input.as_ptr(),
+            input.len(),
+            output.as_mut_ptr(),
+            output.len(),
+        )
+    })?;
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +245,16 @@ mod tests {
         assert_ne!(
             random::<NONCE_BYTES>().unwrap(),
             random::<NONCE_BYTES>().unwrap()
+        );
+    }
+
+    #[test]
+    fn sha256_matches_known_vector() {
+        let digest = sha256(b"abc").unwrap();
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
     }
 }

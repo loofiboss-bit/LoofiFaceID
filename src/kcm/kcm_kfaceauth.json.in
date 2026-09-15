@@ -7,5 +7,5 @@
         "Version": "@PROJECT_VERSION@"
     },
     "X-KDE-Keywords": "Camera,Privacy,Local Identity,Experimental Preview",
-    "X-KDE-System-Settings-Parent-Category": "security-and-privacy"
+    "X-KDE-System-Settings-Parent-Category": "security-privacy"
 }

@@ -168,6 +168,8 @@ class SecurityBoundaryTests(unittest.TestCase):
             if (
                 not path.is_file()
                 or ".git" in path.parts
+                or ".agents" in path.parts
+                or ".vscode" in path.parts
                 or ".mypy_cache" in path.parts
                 or ".pytest_cache" in path.parts
                 or any(part.startswith("build") for part in path.parts)

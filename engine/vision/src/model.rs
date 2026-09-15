@@ -244,6 +244,20 @@ pub fn load_verified_artifact(root: &Path, id: &str) -> Result<VerifiedArtifact,
 /// missing or modified, an unlisted filesystem entry is present, or any path
 /// is not a regular non-symlink file or directory.
 pub fn verify_model_root(root: &Path) -> Result<ModelManifest, ModelError> {
+    let (manifest, _) = load_and_verify_model_inventory(root)?;
+    Ok(manifest)
+}
+
+/// Verifies the model root and returns all loaded verified artifacts in one pass.
+///
+/// # Errors
+///
+/// Returns [`ModelError`] when the manifest is invalid, a listed artifact is
+/// missing or modified, an unlisted filesystem entry is present, or any path
+/// is not a regular non-symlink file or directory.
+pub fn load_and_verify_model_inventory(
+    root: &Path,
+) -> Result<(ModelManifest, Vec<VerifiedArtifact>), ModelError> {
     let manifest = load_manifest(root)?;
     let listed: HashSet<PathBuf> = manifest
         .entries()
@@ -255,10 +269,11 @@ pub fn verify_model_root(root: &Path) -> Result<ModelManifest, ModelError> {
     if present != listed {
         return Err(ModelError::InventoryMismatch);
     }
+    let mut artifacts = Vec::with_capacity(manifest.entries().len());
     for entry in manifest.entries() {
-        drop(load_verified_entry(root, entry.clone())?);
+        artifacts.push(load_verified_entry(root, entry.clone())?);
     }
-    Ok(manifest)
+    Ok((manifest, artifacts))
 }
 
 fn load_verified_entry(root: &Path, entry: ManifestEntry) -> Result<VerifiedArtifact, ModelError> {

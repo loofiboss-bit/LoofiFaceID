@@ -17,7 +17,7 @@ use kfaceauth_vision_opencv_sys::{
     BridgeError, Recognizer, SFACE_ALIGNED_HEIGHT, SFACE_ALIGNED_WIDTH, SFACE_EMBEDDING_DIMENSION,
 };
 
-use crate::model::{ManifestEntry, ModelError, load_verified_artifact, verify_model_root};
+use crate::model::{ManifestEntry, ModelError, load_and_verify_model_inventory};
 use crate::yunet::{ProviderLoadError as DetectorLoadError, YuNetProvider};
 use crate::{ImageView, ProcessingControl, VisionError};
 
@@ -46,15 +46,23 @@ impl IdentityProvider {
     /// Returns a fail-closed load error for inventory, metadata, or runtime
     /// failures.
     pub fn from_model_root(root: &Path) -> Result<Self, IdentityLoadError> {
-        let manifest = verify_model_root(root)?;
+        let (manifest, artifacts) = load_and_verify_model_inventory(root)?;
         let entry = manifest
             .find(SFACE_ARTIFACT_ID)
             .ok_or(IdentityLoadError::UnexpectedModelMetadata)?;
         require_expected_metadata(entry)?;
-        let detector = YuNetProvider::from_model_root(root)?;
-        let artifact = load_verified_artifact(root, SFACE_ARTIFACT_ID)?;
-        require_expected_metadata(artifact.entry())?;
-        let recognizer = Recognizer::new(artifact.bytes())?;
+        let yunet_artifact = artifacts
+            .iter()
+            .find(|a| a.entry().id == crate::yunet::YUNET_ARTIFACT_ID)
+            .ok_or(IdentityLoadError::UnexpectedModelMetadata)?;
+        let detector = YuNetProvider::from_verified_artifact(yunet_artifact)
+            .map_err(|_| IdentityLoadError::UnexpectedModelMetadata)?;
+        let sface_artifact = artifacts
+            .iter()
+            .find(|a| a.entry().id == SFACE_ARTIFACT_ID)
+            .ok_or(IdentityLoadError::UnexpectedModelMetadata)?;
+        require_expected_metadata(sface_artifact.entry())?;
+        let recognizer = Recognizer::new(sface_artifact.bytes())?;
         Ok(Self {
             detector,
             recognizer,

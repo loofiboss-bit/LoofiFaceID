@@ -32,6 +32,8 @@ extern "C"
                                            size_t tag_size, uint8_t *plaintext, size_t plaintext_capacity,
                                            size_t *plaintext_size);
 
+    int kfaceauth_crypto_sha256(const uint8_t *input, size_t input_size, uint8_t *output, size_t output_size);
+
     uint32_t kfaceauth_current_uid(void);
 
 #ifdef __cplusplus
