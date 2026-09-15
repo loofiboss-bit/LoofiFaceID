@@ -520,6 +520,7 @@ mod tests {
     fn master_key_generation_and_persistence() {
         let tmp = std::env::temp_dir().join(format!("kfaceauth-key-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::create_dir_all(&tmp);
         let uid = 1000_u32;
         let key1 = master_key_for_uid(uid, Some(&tmp)).unwrap();
         assert_ne!(key1, [0_u8; KEY_BYTES]);
@@ -533,7 +534,11 @@ mod tests {
 
     #[test]
     fn drop_privileges_as_non_root_succeeds() {
-        // When unprivileged, drop_privileges is a no-op success
-        assert!(drop_privileges("nobody", "nobody").is_ok());
+        // When unprivileged, drop_privileges is a no-op success.
+        // When running as root (e.g. in container build environments), skip in-process
+        // privilege dropping so the test runner does not lose write access to temp dirs.
+        if current_uid() != 0 {
+            assert!(drop_privileges("nobody", "nobody").is_ok());
+        }
     }
 }

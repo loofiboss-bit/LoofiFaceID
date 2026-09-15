@@ -8,9 +8,10 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
-#include <limits.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <linux/videodev2.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +21,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <linux/videodev2.h>
 
 #if defined(KFACEAUTH_HAS_TPM2) && KFACEAUTH_HAS_TPM2
 #include <tss2/tss2_esys.h>
@@ -261,8 +261,8 @@ static int read_key_file(const char *path, uint8_t *key_out, size_t key_len)
         return -1;
 
     struct stat st;
-    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || (st.st_mode & 0777) != 0600 ||
-        st.st_size != (off_t)key_len || st.st_nlink != 1)
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || (st.st_mode & 0777) != 0600 || st.st_size != (off_t)key_len ||
+        st.st_nlink != 1)
     {
         close(fd);
         return -1;
@@ -284,6 +284,33 @@ static int read_key_file(const char *path, uint8_t *key_out, size_t key_len)
     return 0;
 }
 
+static int ensure_dir_exists(const char *dir)
+{
+    struct stat st;
+    if (stat(dir, &st) == 0)
+    {
+        return S_ISDIR(st.st_mode) ? 0 : -1;
+    }
+    char tmp[512];
+    size_t len = strlen(dir);
+    if (len >= sizeof(tmp))
+        return -1;
+    memcpy(tmp, dir, len + 1);
+    for (char *p = tmp + 1; *p; p++)
+    {
+        if (*p == '/')
+        {
+            *p = '\0';
+            if (stat(tmp, &st) != 0)
+            {
+                mkdir(tmp, 0700);
+            }
+            *p = '/';
+        }
+    }
+    return (mkdir(tmp, 0700) == 0 || errno == EEXIST) ? 0 : -1;
+}
+
 static int write_key_file(const char *dir, const char *final_path, const uint8_t *key, size_t key_len)
 {
     char tmp_path[512];
@@ -291,8 +318,8 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
     if (kfaceauth_crypto_random(rand_suffix, sizeof(rand_suffix)) != KFACEAUTH_CRYPTO_OK)
         return -1;
 
-    int written_len = snprintf(tmp_path, sizeof(tmp_path), "%s/.key_%02x%02x%02x%02x.tmp", dir,
-                               rand_suffix[0], rand_suffix[1], rand_suffix[2], rand_suffix[3]);
+    int written_len = snprintf(tmp_path, sizeof(tmp_path), "%s/.key_%02x%02x%02x%02x.tmp", dir, rand_suffix[0],
+                               rand_suffix[1], rand_suffix[2], rand_suffix[3]);
     if (written_len < 0 || (size_t)written_len >= sizeof(tmp_path))
         return -1;
 
@@ -377,11 +404,7 @@ int kfaceauth_master_key_for_uid(uint32_t uid, uint8_t *key_out, size_t key_len,
     if (resolve_keys_dir(dir, sizeof(dir), custom_keys_dir) != 0)
         return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
 
-    struct stat st;
-    if (stat(dir, &st) != 0)
-    {
-        mkdir(dir, 0700);
-    }
+    ensure_dir_exists(dir);
 
     char key_path[512];
     int path_len = snprintf(key_path, sizeof(key_path), "%s/%u.key", dir, uid);
@@ -435,9 +458,7 @@ int kfaceauth_seal_master_key(uint32_t uid, const uint8_t *key_in, size_t key_le
     if (resolve_keys_dir(dir, sizeof(dir), custom_keys_dir) != 0)
         return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
 
-    struct stat st;
-    if (stat(dir, &st) != 0)
-        mkdir(dir, 0700);
+    ensure_dir_exists(dir);
 
     char key_path[512];
     int path_len = snprintf(key_path, sizeof(key_path), "%s/%u.key", dir, uid);
@@ -498,8 +519,7 @@ int kfaceauth_set_socket_permissions(const char *path, uint32_t mode, const char
     return KFACEAUTH_CRYPTO_OK;
 }
 
-int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms,
-                           uint8_t *buffer, size_t buffer_size,
+int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t *buffer, size_t buffer_size,
                            uint32_t *width_out, uint32_t *height_out, uint32_t *format_out)
 {
     (void)timeout_ms;
@@ -525,4 +545,3 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms,
     close(fd);
     return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 }
-
