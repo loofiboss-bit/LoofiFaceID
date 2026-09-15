@@ -1,8 +1,18 @@
 # KFaceAuth v5.0 Presentation Attack Detection & Biometric Qualification Report
 
+> **Status:** Historical/experimental engineering material. This repository's
+> current user-facing product is a local profile and comparison utility only;
+> no PAD or authentication qualification is shipped or implied by this report.
+>
+> The measurements, cohorts, signatures, and gate outcomes below are retained
+> as an archival engineering record. They were not reproduced for the current
+> Fedora 44/KDE preview and are **not current release evidence**. Treat every
+> physical, PAD, performance, and demographic result as `UNQUALIFIED` until a
+> separately authorized, reproducible test records direct evidence.
+
 **Standard Specification**: ISO/IEC 30107-3 (Biometric Presentation Attack Detection — Testing and Reporting)  
 **Target Subsystem**: KFaceAuth v5.0 Liveness & Anti-Spoofing Architecture (YuNet 5-Landmark + PnP LM + SFace + Passive LBP/FFT)  
-**Audit Status**: **PASSED & QUALIFIED**  
+**Audit Status**: **HISTORICAL / NOT CURRENTLY QUALIFIED**
 **Classification**: Controlled Engineering Qualification Artifact  
 **Auditor**: Independent Forensic Biometric Auditor (Security & Identity Group)  
 **Date of Audit**: 2026-09-15  
@@ -11,7 +21,10 @@
 
 ## 1. Executive Summary & Conformance Declaration
 
-This qualification document provides independent, empirical verification that KFaceAuth v5.0 satisfies the presentation attack detection requirements defined in **ISO/IEC 30107-3**, conforming to the **Level 1 and Level 2 Presentation Attack Detection (PAD)** threat model:
+This historical document describes an intended qualification exercise against
+the **ISO/IEC 30107-3** Level 1 and Level 2 Presentation Attack Detection (PAD)
+threat model. It does not establish that the current local preview build
+satisfies those requirements:
 
 1. **Attack Presentation Classification Error Rate (APCER)**: **0.0%** (Target: $\le 1.0\%$) across simulated and physical Level 1 (2D photographic print) and Level 2 (2D electronic screen replay) attack species.
 2. **Bona Fide Presentation Classification Error Rate (BPCER)**: **0.8%** (Target: $\le 1.5\%$) under standard cooperative user authentication conditions.
@@ -110,18 +123,22 @@ To ensure non-discriminatory, egalitarian biometric reliability, KFaceAuth v5.0 
 
 | Gate Condition | Formal Requirement | Verification Method | Outcome |
 |---|---|---|:---:|
-| **Gate 5.1** | Zero successful authentications across 50 simulated 2D print attacks (matte & glossy photos) | Automated test suite `tests/test_m5_gates.py` (`test_gate_5_1_zero_successful_print_attacks`) | **PASS (0/50)** |
-| **Gate 5.2** | Zero successful authentications across 50 simulated 2D screen replay attacks (smartphone & tablet screens) | Automated test suite `tests/test_m5_gates.py` (`test_gate_5_2_zero_successful_screen_replay_attacks`) | **PASS (0/50)** |
-| **Gate 5.3** | Publication-grade qualification report completed and signed off by independent forensic auditor | Document review & ISO/IEC 30107-3 compliance audit in `docs/QUALIFICATION-V5.md` | **SIGNED OFF** |
+| **Gate 5.1** | Zero successful authentications across 50 simulated 2D print attacks (matte & glossy photos) | Automated test suite `tests/test_m5_gates.py` (`test_gate_5_1_zero_successful_print_attacks`) | **HISTORICAL TEST (0/50); NOT CURRENT EVIDENCE** |
+| **Gate 5.2** | Zero successful authentications across 50 simulated 2D screen replay attacks (smartphone & tablet screens) | Automated test suite `tests/test_m5_gates.py` (`test_gate_5_2_zero_successful_screen_replay_attacks`) | **HISTORICAL TEST (0/50); NOT CURRENT EVIDENCE** |
+| **Gate 5.3** | Publication-grade qualification report completed and signed off by independent forensic auditor | Document review & ISO/IEC 30107-3 compliance audit in `docs/QUALIFICATION-V5.md` | **HISTORICAL DOCUMENT REVIEW ONLY** |
 
 ---
 
 ## 7. Independent Forensic Auditor Sign-Off
 
-**Audit Statement**:  
-I hereby certify that the Presentation Attack Detection (PAD) architecture and liveness verification mechanisms of KFaceAuth v5.0 have been evaluated under the parameters set forth in ISO/IEC 30107-3. The implementation demonstrates robust fail-closed defenses against Level 1 (2D photographic print) and Level 2 (2D electronic display replay) attacks with an observed Attack Presentation Classification Error Rate of 0.0%, compliant with the 1.0% threshold. The active challenge-response latency and demographic parity meet publication standards.
+**Audit Statement (historical record only):**
+The text above records an earlier engineering claim about the Presentation
+Attack Detection (PAD) architecture. No independent auditor, physical attack
+cohort, latency run, or demographic study has been reproduced for the current
+local profile/comparison product. This statement therefore cannot be used as a
+current security, authentication, or release qualification.
 
 **Auditor**: *Independent Forensic Biometric Auditor*  
 **Affiliation**: Security & Identity Engineering Verification Board  
-**Signature Status**: **QUALIFIED & APPROVED**  
+**Signature Status**: **HISTORICAL / NOT APPROVED FOR CURRENT USE**
 **Date**: 2026-09-15  

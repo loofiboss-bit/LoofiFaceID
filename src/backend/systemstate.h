@@ -57,6 +57,7 @@ struct SystemStateSnapshot
     QString summary;
     QString issueCode;
     QString dataSource;
+    QString distribution;
     QString fedoraVersion;
     QString plasmaVersion;
     QString engineVersion;
@@ -85,6 +86,7 @@ class SystemState final : public QObject
     Q_PROPERTY(QString summary READ summary NOTIFY stateChanged)
     Q_PROPERTY(QString issueCode READ issueCode NOTIFY stateChanged)
     Q_PROPERTY(QString dataSource READ dataSource NOTIFY stateChanged)
+    Q_PROPERTY(QString distribution READ distribution NOTIFY stateChanged)
     Q_PROPERTY(QString fedoraVersion READ fedoraVersion NOTIFY stateChanged)
     Q_PROPERTY(QString plasmaVersion READ plasmaVersion NOTIFY stateChanged)
     Q_PROPERTY(QString engineVersion READ engineVersion NOTIFY stateChanged)
@@ -177,6 +179,7 @@ class SystemState final : public QObject
     [[nodiscard]] QString summary() const;
     [[nodiscard]] QString issueCode() const;
     [[nodiscard]] QString dataSource() const;
+    [[nodiscard]] QString distribution() const;
     [[nodiscard]] QString fedoraVersion() const;
     [[nodiscard]] QString plasmaVersion() const;
     [[nodiscard]] QString engineVersion() const;

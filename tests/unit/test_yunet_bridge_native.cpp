@@ -48,7 +48,7 @@ int main()
     void *detector = nullptr;
     setenv("KFACEAUTH_INFERENCE_BACKEND", "openvino", 1);
     setenv("KFACEAUTH_TEST_FAIL_OPENVINO", "1", 1);
-    if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.9F, 0.3F, 5000, &detector) !=
+    if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.7F, 0.3F, 5000, &detector) !=
             KFACEAUTH_YUNET_OK ||
         !detector || kfaceauth_yunet_backend(detector) != KFACEAUTH_YUNET_BACKEND_CPU)
     {
@@ -61,7 +61,7 @@ int main()
     unsetenv("KFACEAUTH_TEST_FAIL_OPENVINO");
     setenv("KFACEAUTH_INFERENCE_BACKEND", "vulkan", 1);
     setenv("KFACEAUTH_TEST_FAIL_VULKAN", "1", 1);
-    if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.9F, 0.3F, 5000, &detector) !=
+    if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.7F, 0.3F, 5000, &detector) !=
             KFACEAUTH_YUNET_OK ||
         !detector || kfaceauth_yunet_backend(detector) != KFACEAUTH_YUNET_BACKEND_CPU)
     {
@@ -72,11 +72,11 @@ int main()
     detector = nullptr;
     unsetenv("KFACEAUTH_INFERENCE_BACKEND");
     unsetenv("KFACEAUTH_TEST_FAIL_VULKAN");
-    if (kfaceauth_yunet_create(model.data(), model.size() - 1, Width, Height, 0.9F, 0.3F, 5000, &detector) !=
+    if (kfaceauth_yunet_create(model.data(), model.size() - 1, Width, Height, 0.7F, 0.3F, 5000, &detector) !=
             KFACEAUTH_YUNET_INVALID_ARGUMENT ||
         detector)
         return 7;
-    if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.9F, 0.3F, 5000, &detector) !=
+    if (kfaceauth_yunet_create(model.data(), model.size(), Width, Height, 0.7F, 0.3F, 5000, &detector) !=
             KFACEAUTH_YUNET_OK ||
         !detector)
         return 8;

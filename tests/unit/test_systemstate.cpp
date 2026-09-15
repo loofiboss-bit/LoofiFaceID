@@ -26,6 +26,7 @@ class SystemStateTest final : public QObject
 
   private Q_SLOTS:
     void unavailableEngineFailsClosed();
+    void unsupportedPlatformReportsDetectedDistribution();
     void localIdentityReportsSupportedAndUnsupportedOperations();
     void degradedIdentityReportsTypedKWalletAndVaultIssues();
     void applyingStateNotifiesConsumers();
@@ -42,6 +43,24 @@ void SystemStateTest::unavailableEngineFailsClosed()
     QCOMPARE(snapshot.enrollmentStatus, SystemStateSnapshot::CapabilityStatus::Unsupported);
     QCOMPARE(snapshot.pamStatus, SystemStateSnapshot::CapabilityStatus::Unsupported);
     QCOMPARE(snapshot.templatePersistenceStatus, SystemStateSnapshot::CapabilityStatus::Unsupported);
+}
+
+void SystemStateTest::unsupportedPlatformReportsDetectedDistribution()
+{
+    SystemProbeInputs inputs = baseInputs();
+    inputs.osRelease = "NAME=Ubuntu\nID=ubuntu\nVERSION_ID=\"24.04\"\n";
+    inputs.engine.engineAvailable = true;
+    inputs.engine.protocol = EngineProtocolSnapshot{2, QStringLiteral("0.1.0-local-identity")};
+
+    const SystemStateSnapshot snapshot = SystemProbe::evaluate(inputs);
+
+    QCOMPARE(snapshot.distribution, QStringLiteral("ubuntu"));
+    QCOMPARE(snapshot.fedoraVersion, QStringLiteral("24.04"));
+    QCOMPARE(snapshot.issueCode, QStringLiteral("unsupported-platform"));
+    QCOMPARE(snapshot.headline, QStringLiteral("This system is not qualified"));
+    QVERIFY(snapshot.summary.contains(QStringLiteral("ubuntu")));
+    QVERIFY(snapshot.summary.contains(QStringLiteral("24.04")));
+    QCOMPARE(snapshot.engineStatus, SystemStateSnapshot::EngineStatus::LocalIdentityAvailable);
 }
 
 void SystemStateTest::localIdentityReportsSupportedAndUnsupportedOperations()

@@ -87,9 +87,11 @@ struct Detector
     Backend backend = Backend::Cpu;
     std::vector<uint8_t> model;
     std::unique_ptr<PinnedRegion> pinnedModel;
-    float scoreThreshold = 0.9F;
-    float nmsThreshold = 0.3F;
-    int32_t topK = MaximumTopK;
+    // These values are supplied by the Rust YuNet provider through the bridge
+    // API. Keeping no detector defaults here prevents configuration drift.
+    float scoreThreshold{};
+    float nmsThreshold{};
+    int32_t topK{};
 };
 
 struct Recognizer

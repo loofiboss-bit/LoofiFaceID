@@ -1,113 +1,127 @@
 # LoofiFace-ID (KFaceAuth)
 
-LoofiFace-ID (KFaceAuth 5.0.0) is a publication-grade, ultra-low-latency local biometric
-facial authentication architecture for KDE Plasma 6 and modern Linux. It provides a
-hardened system daemon (`kfaceauthd`), Linux PAM integration (`pam_kfaceauth.so`),
-Presentation Attack Detection (PAD) conforming to ISO/IEC 30107-3, zero-copy shared memory
-frame transfer, opportunistic hardware acceleration (OpenVINO/Vulkan), and a modernized
-Kirigami user interface in KDE System Settings.
+LoofiFace-ID is an experimental local profile and comparison utility for a
+logged-in Fedora 44/KDE Plasma session. It keeps camera frames and biometric
+features in memory or in the encrypted user-session profile. The normal
+workflow never enables PAM, SDDM, sudo, Polkit, or another system
+authentication service.
 
 ## What you get
 
-- **System-Wide PAM Authentication**: Secure local biometric authentication for login,
-  lock screen, `sudo`, and Polkit via `pam_kfaceauth.so` with strict 2-second fail-closed timeouts.
-- **Sandboxed System Daemon (`kfaceauthd`)**: Socket-activated via `/run/kfaceauth/kfaceauthd.sock`
-  with Landlock LSM, Seccomp-BPF isolation, and DAC per-UID permissions (`/var/lib/kfaceauth/<uid>/`).
-- **ISO/IEC 30107-3 Presentation Attack Detection**: Active eye-blink verification (100–300 ms),
-  randomized micro-pose PnP challenge-response, passive 2D FFT moiré peak analysis, uniform
-  circular LBP texture entropy check, and multi-spectrum NIR differential qualification.
-- **Fluid 30 FPS UX & Dynamic Tracking**: Hardware-accelerated QtQuick scene graph textures
-  with real-time 5-point landmark and face bounding-box overlays.
-- **Ultra-Low Latency**: Sub-35 ms raw engine compute latency and 55–75 ms end-to-end authentication
-  via warm persistent neural workers and sealed zero-copy shared memory (`memfd_create`).
-- **Strict Ephemeral Privacy**: Zero biometric frame persistence on disk, no telemetry, no cloud
-  dependencies, and compiler-enforced cryptographic erasure (`zeroize`) of all intermediate buffers.
+- A private camera preview with one-camera auto-selection and clear recovery
+  messages when a camera is busy or unavailable.
+- One shared YuNet detection path for framing guidance and local identity
+  extraction, including validated five-point landmarks inside the private
+  worker protocol.
+- A guided five-pose enrollment flow. Three samples are required, five are
+  recommended, and saving always requires an explicit click.
+- An encrypted KWallet-backed profile and an explicit one-frame local test.
+- No telemetry, network model downloads, or saved camera images.
+
+This is not an authentication factor. It does not unlock the desktop, log in
+to a display manager, approve `sudo`/Polkit requests, or provide a PAD or
+performance qualification claim.
 
 ## Supported release matrix
-
-The v5.0.0 production release is prepared for:
 
 | Component | Supported baseline |
 |---|---|
 | Distribution | Fedora 44 |
 | Desktop | KDE Plasma 6 / System Settings |
 | Qt / KDE Frameworks | Qt 6.8 or newer / KF6 6.10 or newer |
-| Vision runtime | OpenCV >= 4.8 (Fedora 44 release baseline: 4.13.x) |
-| Acceleration | Opportunistic OpenVINO (CPU AVX-512/VNNI) & Vulkan |
-| Vault storage | System daemon encrypted vault `/var/lib/kfaceauth/<uid>/` & KWallet |
+| Vision runtime | Fedora OpenCV (4.13.x on Fedora 44) |
+| Profile key | KWallet in the logged-in user session |
 
-## Install a release RPM
+On another distribution or version, the KCM reports **This system is not
+qualified** and shows the detected values in Diagnostics. It does not try to
+repair or reconfigure the host.
 
-From a directory containing the release RPM and its `SHA256SUMS` file:
+## Install from COPR (recommended)
 
-```bash
-sha256sum --check SHA256SUMS
-rpm -K ./kfaceauth-5.0.0-1.fc44.x86_64.rpm
-dnf install ./kfaceauth-5.0.0-1.fc44.x86_64.rpm
-```
-
-Use the exact filename produced for your Fedora architecture if it differs
-from the example. Open **System Settings → Security & Privacy → LoofiFace-ID**,
-or launch the KCM directly:
+The maintained Fedora channel is [loofitheboss/loofifaceid](https://copr.fedorainfracloud.org/coprs/loofitheboss/loofifaceid/):
 
 ```bash
+sudo dnf copr enable loofitheboss/loofifaceid
+sudo dnf install kfaceauth
 systemsettings kcm_kfaceauth
 ```
 
-The package does not create a profile or KWallet key during installation.
+Open **Home** and choose **Get started**. The KCM selects the only usable
+camera automatically; a camera selector appears only when more than one
+usable camera is discovered.
 
-## Quick start
-
-1. Open **Home** and follow its single recommended action.
-2. In **Setup**, refresh and explicitly start the camera preview. The first
-   usable camera is selected automatically; a selector is available when more
-   than one camera is usable.
-3. Run the one-frame **Analyze current frame** check for framing and lighting
-   guidance. This is not liveness or authentication evidence.
-4. Create a profile with one explicit capture per sample. Three samples are
-   required, five are recommended, and eight is the hard maximum. **Finish and
-   save** performs the atomic encrypted commit.
-5. Open **Test**, start the preview, and choose **Test current frame** once.
-   Clear the result before another deliberate test; requests are rate-limited.
-6. Use **Diagnostics** for current worker, model, camera, KWallet, profile, and
-   redacted support-report status.
-
-## Remove KFaceAuth
+### Update
 
 ```bash
-dnf remove kfaceauth
+sudo dnf upgrade kfaceauth
 ```
 
-Package transactions do not inspect or remove user profiles or KWallet data.
-Delete a valid profile explicitly in **Setup → Profile management** before
-uninstalling if you want the application data removed through the supported
-application action. Physical erasure from SSDs, snapshots, backups, journals,
-or copy-on-write storage is not promised.
+### Uninstall
 
-## Security and architectural boundaries
+```bash
+sudo dnf remove kfaceauth
+```
 
-- **Local Biometric Authentication**: Handled exclusively by `pam_kfaceauth.so` communicating with
-  the sandboxed `kfaceauthd` daemon.
-- **Fail-Closed Presentation Attack Detection**: Fully qualified under ISO/IEC 30107-3 (0.0% APCER,
-  0.8% BPCER); see [docs/QUALIFICATION-V5.md](docs/QUALIFICATION-V5.md).
-- **Hermetic & Offline**: Zero network listeners, zero telemetry, zero runtime model downloads,
-  and zero persistent unencrypted biometric frame caching.
+Removing the package does not delete an encrypted profile or its KWallet key.
+Use **Setup → Delete face profile** first if you want the supported application
+cleanup action. Physical erasure from SSDs, snapshots, backups, journals, or
+copy-on-write storage is not promised.
 
-The GitHub repository is `LoofiFaceID`. The legacy `plasma-irlume` name remains only for
-Fedora upgrade transition compatibility.
+### Advanced: verified GitHub RPM
+
+For development or offline installation, download a matching RPM and
+`SHA256SUMS` file from the [GitHub releases](https://github.com/loofiboss-bit/LoofiFaceID/releases),
+then verify and install it:
+
+```bash
+sha256sum --check SHA256SUMS
+rpm -K ./kfaceauth-*.rpm
+sudo dnf install ./kfaceauth-*.rpm
+```
+
+The COPR route is preferred for ordinary Fedora users because dependencies and
+updates are resolved by Fedora.
+
+## First start
+
+1. **Home → Get started** starts the selected camera after your explicit click.
+2. Follow the single registration guide: camera placement, Frontal, Left,
+   Right, Tilt, and Natural.
+3. Automatic capture waits for one face, suitable framing/quality, and three
+   fresh observations spanning at least 600 ms. **Capture manually** remains
+   available as a fallback.
+4. After three samples, **Save now** is available; five samples remain the
+   recommended target. The profile is never saved automatically.
+5. Choose **Save profile**, then **Test profile** on Home (or **Test → Test
+   current frame**) for an explicit local comparison.
+
+The status text always explains the next action, such as moving closer,
+centering the face, adding light, or showing only one face. A failed sample
+does not end the guide; correct the instruction and continue.
+
+## Reporting a problem
+
+1. Open **Diagnostics** and choose **Refresh diagnostics**.
+2. Read the typed issue: camera busy/unavailable, worker or model failure,
+   KWallet state, profile state, or unsupported platform.
+3. Follow the displayed recovery action. Export **Copy report** or
+   **Export report** only after checking that the redacted report contains no
+   private data you do not want to share.
+
+Please include the exact issue code, Fedora/Plasma versions, and the steps that
+reproduced it. Do not attach camera frames, embeddings, KWallet files, or
+credentials.
 
 ## Development and verification
 
-Build dependencies, offline Cargo rules, staged installation, RPM checks, and
-the complete local gate list are in [docs/BUILDING.md](docs/BUILDING.md).
-Architecture and threat boundaries are documented in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+Build dependencies, offline Cargo rules, staged installation, and local gates
+are documented in [docs/BUILDING.md](docs/BUILDING.md). The architecture and
+privacy boundary are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [docs/THREAT-BOUNDARY.md](docs/THREAT-BOUNDARY.md).
 
-For deep-dive architecture audits and qualification reports:
-- [docs/QUALIFICATION-V5.md](docs/QUALIFICATION-V5.md): ISO/IEC 30107-3 presentation attack detection and biometric qualification report.
-- [docs/ROADMAP-V5.md](docs/ROADMAP-V5.md): Technical specification, latency budgets, persistent worker-pools, and PAM/daemon decoupling.
-- [docs/REVIEW-V4.md](docs/REVIEW-V4.md): Baseline audit cataloging historical v4.0 bottlenecks.
+The v5 roadmap and older qualification documents contain historical or
+experimental proposals. They are not evidence that system authentication,
+PAD, acceleration, or physical hardware qualification is currently supported.
 
 ## License
 

@@ -36,9 +36,10 @@ four otherwise.
 
 Tracking analysis letterboxes the source frame into a 320×320 inference image
 and maps validated coordinates back to the source dimensions. Identity
-extraction uses the source resolution directly, bounded at 1920×1080, so the
-five landmarks and the subsequent 112×112 SFace crop retain full-frame
-precision.
+extraction first uses the source resolution directly and falls back to the
+same 320×320 tracking path when full-resolution detection returns no face. Both
+paths preserve the original-frame coordinates for the five landmarks and the
+subsequent 112×112 SFace crop.
 
 For full-resolution detection, the detector input size is set to the BGR
 buffer size unless the documented 64-pixel minimum padding applies.
@@ -54,7 +55,7 @@ The fixed production parameters are:
 
 | Parameter | Value |
 |---|---:|
-| score threshold | `0.9` |
+| score threshold | `0.70` |
 | NMS threshold | `0.3` |
 | OpenCV `topK` | `5000` |
 | emitted face limit | `8` |
@@ -82,9 +83,10 @@ can be emitted:
   `1e-5` floating-point tolerance and must not exceed one beyond that tolerance.
 
 Validated rectangles are conservatively rounded outward and converted to the
-existing bounded integer result. Landmarks and detector scores are discarded;
-they are not placed on the worker protocol, in the UI, in logs, or in support
-reports. At most eight rectangles are returned.
+bounded integer result. The five landmarks are carried only in the private v2
+vision response so the backend can calculate pose; detector scores never leave
+the Rust worker. Neither landmarks nor scores are placed in QML, logs, or
+support reports. At most eight faces are returned.
 
 ## Quality and result semantics
 

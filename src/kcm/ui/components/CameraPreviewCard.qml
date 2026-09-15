@@ -27,13 +27,20 @@ Kirigami.AbstractCard {
         spacing: Kirigami.Units.smallSpacing
 
         Item {
+            id: previewContainer
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(Kirigami.Units.gridUnit * 13, width * 0.72)
+            Layout.maximumWidth: Math.round(Kirigami.Units.gridUnit * 24)
+            Layout.preferredHeight: Math.min(Math.round(width * 0.5625), Math.round(Kirigami.Units.gridUnit * 12))
+            Layout.minimumHeight: Math.round(Kirigami.Units.gridUnit * 9)
+            Layout.alignment: Qt.AlignHCenter
             clip: true
 
             Rectangle {
                 anchors.fill: parent
                 color: Kirigami.Theme.backgroundColor
+                radius: Kirigami.Units.cornerRadius
+                border.color: Qt.alpha(Kirigami.Theme.textColor, 0.15)
+                border.width: 1
             }
 
             CameraPreview {
@@ -59,8 +66,8 @@ Kirigami.AbstractCard {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: Math.min(parent.width * 0.48, Kirigami.Units.gridUnit * 16)
-                height: Math.min(parent.height * 0.72, Kirigami.Units.gridUnit * 20)
+                width: Math.min(parent.width * 0.38, parent.height * 0.65)
+                height: width * 1.35
                 radius: width / 2
                 color: "transparent"
                 border.color: Kirigami.Theme.highlightColor
@@ -111,16 +118,54 @@ Kirigami.AbstractCard {
                     radius: Kirigami.Units.cornerRadius
                 }
             }
+
+            Rectangle {
+                anchors {
+                    left: parent.left
+                    right: parent.right
+                    top: parent.top
+                    leftMargin: Kirigami.Units.smallSpacing
+                    rightMargin: Kirigami.Units.smallSpacing
+                    topMargin: Kirigami.Units.smallSpacing
+                }
+                visible: root.analysisSession !== null && root.analysisSession.resultAvailable
+                height: guidanceLabel.implicitHeight + Kirigami.Units.smallSpacing * 2
+                color: root.analysisSession !== null && root.analysisSession.framingSuitable
+                    ? Qt.alpha(Kirigami.Theme.positiveTextColor, 0.88)
+                    : Qt.alpha(Kirigami.Theme.backgroundColor, 0.92)
+                radius: Kirigami.Units.cornerRadius
+                border.color: root.analysisSession !== null && root.analysisSession.framingSuitable
+                    ? Kirigami.Theme.positiveTextColor
+                    : Kirigami.Theme.highlightColor
+
+                QQC2.Label {
+                    id: guidanceLabel
+                    anchors.fill: parent
+                    anchors.margins: Kirigami.Units.smallSpacing
+                    text: root.analysisSession !== null ? root.analysisSession.guidanceText : ""
+                    color: root.analysisSession !== null && root.analysisSession.framingSuitable
+                        ? Kirigami.Theme.backgroundColor
+                        : Kirigami.Theme.textColor
+                    font.weight: Font.DemiBold
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+            }
         }
 
-        Flow {
+        RowLayout {
             Layout.fillWidth: true
             spacing: Kirigami.Units.smallSpacing
 
             QQC2.ComboBox {
                 id: deviceSelector
                 objectName: "cameraDeviceSelector"
-                width: Math.max(Kirigami.Units.gridUnit * 11, parent.width - Kirigami.Units.gridUnit * 5)
+                Layout.fillWidth: true
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 8
+                visible: root.sessionReady && root.cameraPreviewSession.deviceCount > 1
                 model: root.sessionReady ? root.cameraPreviewSession : null
                 textRole: "label"
                 currentIndex: root.sessionReady ? root.cameraPreviewSession.selectedDeviceIndex : -1
@@ -134,6 +179,18 @@ Kirigami.AbstractCard {
                     if (root.sessionReady)
                         root.cameraPreviewSession.selectedDeviceIndex = index
                 }
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                visible: root.sessionReady && root.cameraPreviewSession.deviceCount === 1
+                text: root.cameraPreviewSession !== null && root.cameraPreviewSession.selectedDeviceIndex >= 0
+                    ? i18n("Using the only available camera")
+                    : i18n("One usable camera will be selected automatically")
+                color: Kirigami.Theme.disabledTextColor
+                elide: Text.ElideRight
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
             }
 
             QQC2.Button {
@@ -174,11 +231,15 @@ Kirigami.AbstractCard {
 
         RowLayout {
             Layout.fillWidth: true
+            visible: root.sessionReady && (root.cameraPreviewSession.busy || root.cameraPreviewSession.statusText.length > 0)
+            spacing: Kirigami.Units.smallSpacing
 
             QQC2.BusyIndicator {
                 visible: root.sessionReady && root.cameraPreviewSession.busy
                 running: visible
                 Accessible.ignored: true
+                implicitWidth: Kirigami.Units.iconSizes.small
+                implicitHeight: Kirigami.Units.iconSizes.small
             }
 
             QQC2.Label {
@@ -189,75 +250,67 @@ Kirigami.AbstractCard {
                 color: root.sessionReady && root.cameraPreviewSession.errorCode.length > 0
                     ? Kirigami.Theme.negativeTextColor
                     : Kirigami.Theme.disabledTextColor
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
                 wrapMode: Text.Wrap
-                Accessible.role: Accessible.StaticText
+                Accessible.role: root.sessionReady && root.cameraPreviewSession.errorCode.length > 0
+                    ? Accessible.Alert : Accessible.StaticText
+            }
+
+            QQC2.Label {
+                visible: root.sessionReady && root.cameraPreviewSession.droppedFrames > 0
+                text: root.sessionReady
+                    ? i18n("Dropped preview frames: %1", root.cameraPreviewSession.droppedFrames)
+                    : ""
+                color: Kirigami.Theme.disabledTextColor
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
             }
         }
 
-        QQC2.Label {
-            Layout.fillWidth: true
-            visible: root.sessionReady && root.cameraPreviewSession.droppedFrames > 0
-            text: root.sessionReady
-                ? i18n("Dropped preview frames: %1", root.cameraPreviewSession.droppedFrames)
-                : ""
-            color: Kirigami.Theme.disabledTextColor
-            wrapMode: Text.Wrap
-        }
-
-        ColumnLayout {
+        RowLayout {
             Layout.fillWidth: true
             visible: root.showAnalysis && root.analysisSession !== null
             spacing: Kirigami.Units.smallSpacing
 
-            Kirigami.Separator { Layout.fillWidth: true }
-
-            QQC2.Label {
+            QQC2.Button {
+                id: visionAnalyzeButton
+                objectName: "visionAnalyzeAction"
                 Layout.fillWidth: true
-                text: i18n("Frame check is one explicit YuNet action. It is framing guidance, not liveness or authentication.")
-                color: Kirigami.Theme.disabledTextColor
-                wrapMode: Text.Wrap
-            }
-
-            Flow {
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-
-                QQC2.BusyIndicator {
-                    visible: root.analysisSession !== null && root.analysisSession.busy
-                    running: visible
-                    Accessible.ignored: true
-                }
-
-                QQC2.Button {
-                    objectName: "visionAnalyzeAction"
-                    text: i18n("Analyze current frame")
-                    icon.name: "view-preview"
-                    enabled: root.analysisSession !== null && root.analysisSession.canAnalyze
-                    Accessible.name: text
-                    activeFocusOnTab: true
-                    onClicked: {
-                        if (root.analysisSession !== null)
-                            root.analysisSession.analyzeCurrentFrame()
-                    }
+                text: i18n("Analyze current frame")
+                icon.name: "view-preview"
+                enabled: root.analysisSession !== null && root.analysisSession.canAnalyze
+                Accessible.name: text
+                activeFocusOnTab: true
+                onClicked: {
+                    if (root.analysisSession !== null)
+                        root.analysisSession.analyzeCurrentFrame()
                 }
             }
 
-            QQC2.Label {
-                Layout.fillWidth: true
-                visible: root.analysisSession !== null && root.analysisSession.resultAvailable
-                text: root.analysisSession !== null ? root.analysisSession.resultSummary : ""
-                font.weight: Font.DemiBold
-                wrapMode: Text.Wrap
-                Accessible.role: Accessible.StaticText
+            QQC2.BusyIndicator {
+                visible: root.analysisSession !== null && root.analysisSession.busy
+                running: visible
+                Accessible.ignored: true
+                implicitWidth: Kirigami.Units.iconSizes.small
+                implicitHeight: Kirigami.Units.iconSizes.small
             }
 
             QQC2.Label {
                 Layout.fillWidth: true
-                visible: root.analysisSession !== null && root.analysisSession.resultAvailable
-                text: root.analysisSession !== null ? root.analysisSession.guidanceText : ""
+                visible: root.showAnalysis && root.analysisSession !== null && root.analysisSession.resultAvailable
+                text: root.analysisSession !== null
+                    ? (root.analysisSession.resultSummary
+                       + (root.analysisSession.guidanceText
+                              && root.analysisSession.guidanceText !== root.analysisSession.resultSummary
+                          ? " — " + root.analysisSession.guidanceText
+                          : ""))
+                    : ""
                 color: root.analysisSession !== null && root.analysisSession.framingSuitable
                     ? Kirigami.Theme.positiveTextColor
-                    : Kirigami.Theme.textColor
+                    : (root.analysisSession !== null && root.analysisSession.faceDetected
+                        ? Kirigami.Theme.highlightColor
+                        : Kirigami.Theme.textColor)
+                font.weight: Font.DemiBold
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
                 wrapMode: Text.Wrap
                 Accessible.role: Accessible.StaticText
             }

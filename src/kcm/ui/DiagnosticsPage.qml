@@ -81,6 +81,18 @@ Kirigami.ScrollablePage {
             contentItem: ColumnLayout {
                 Components.DetailRow {
                     Layout.fillWidth: true
+                    label: i18n("Distribution")
+                    value: root.systemState !== null
+                        ? (root.systemState.distribution + " " + root.systemState.fedoraVersion).trim()
+                        : i18n("Initializing…")
+                    tone: root.systemState !== null && root.systemState.distribution === "fedora"
+                        && root.systemState.fedoraVersion === "44" ? 1 : 2
+                }
+
+                Kirigami.Separator { Layout.fillWidth: true }
+
+                Components.DetailRow {
+                    Layout.fillWidth: true
                     label: i18n("Worker and runtime")
                     value: root.systemState !== null ? root.systemState.engineStatusLabel : i18n("Initializing…")
                     tone: root.systemState !== null && root.systemState.engineReady ? 1 : 2

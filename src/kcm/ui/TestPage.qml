@@ -16,7 +16,7 @@ Kirigami.ScrollablePage {
         && root.localVerificationSession !== null
 
     title: i18n("Test")
-    padding: Kirigami.Units.largeSpacing
+    padding: Kirigami.Units.mediumSpacing
 
     onVisibleChanged: {
         if (!root.backendReady)
@@ -38,20 +38,7 @@ Kirigami.ScrollablePage {
 
     ColumnLayout {
         width: root.availableWidth
-        spacing: Kirigami.Units.largeSpacing
-
-        Kirigami.Heading {
-            Layout.fillWidth: true
-            level: 1
-            text: i18n("Test")
-            wrapMode: Text.Wrap
-        }
-
-        QQC2.Label {
-            Layout.fillWidth: true
-            text: i18n("Test one explicit current frame against the encrypted profile. A result affects only this page.")
-            wrapMode: Text.Wrap
-        }
+        spacing: Kirigami.Units.mediumSpacing
 
         Kirigami.InlineMessage {
             objectName: "backendInitializationMessage"
@@ -61,106 +48,199 @@ Kirigami.ScrollablePage {
             text: i18n("LoofiFace-ID is still initializing. The local comparison controls will become available when the backend is ready.")
         }
 
-        Components.CameraPreviewCard {
+        GridLayout {
             Layout.fillWidth: true
-            cameraPreviewSession: root.cameraPreviewSession
-            showFramingGuide: false
-            cardTitle: i18n("Private test preview")
-        }
+            columns: root.availableWidth >= 700 ? 2 : 1
+            columnSpacing: Kirigami.Units.largeSpacing
+            rowSpacing: Kirigami.Units.largeSpacing
 
-        Kirigami.InlineMessage {
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: i18n("Match is an experimental in-session comparison only. It cannot unlock, authenticate, authorize, call PAM, invoke Polkit, or change the Linux session.")
-        }
+            // LEFT COLUMN: Private Test Preview Card
+            Components.CameraPreviewCard {
+                id: testCameraCard
+                Layout.fillWidth: true
+                Layout.preferredWidth: root.availableWidth >= 700 ? Math.round(root.availableWidth * 0.48) : root.availableWidth
+                Layout.alignment: Qt.AlignTop
+                cameraPreviewSession: root.cameraPreviewSession
+                showFramingGuide: false
+                cardTitle: i18n("Private test preview")
+            }
 
-        Kirigami.AbstractCard {
-            Layout.fillWidth: true
-            Accessible.role: Accessible.Grouping
-            Accessible.name: i18n("One-frame test")
+            // RIGHT COLUMN: One-Frame Test Cockpit & Match Verdict
+            Kirigami.AbstractCard {
+                id: verificationCard
+                Layout.fillWidth: true
+                Layout.preferredWidth: root.availableWidth >= 700 ? Math.round(root.availableWidth * 0.52) : root.availableWidth
+                Layout.alignment: Qt.AlignTop
+                Accessible.role: Accessible.Grouping
+                Accessible.name: i18n("One-frame test")
 
-            contentItem: ColumnLayout {
-                spacing: Kirigami.Units.smallSpacing
+                contentItem: ColumnLayout {
+                    spacing: Kirigami.Units.mediumSpacing
 
-                Flow {
-                    Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
+                    // Header Row
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
 
-                    QQC2.Button {
-                        id: verifyButton
-                        objectName: "verifyButton"
-                        text: i18n("Test current frame")
-                        icon.name: "view-preview"
-                        enabled: root.localVerificationSession !== null && root.localVerificationSession.canVerify
-                        activeFocusOnTab: true
-                        Accessible.name: text
-                        onClicked: {
-                            if (root.localVerificationSession !== null)
-                                root.localVerificationSession.verifyCurrentFrame()
+                        Kirigami.Icon {
+                            source: "security-high"
+                            implicitWidth: Kirigami.Units.iconSizes.medium
+                            implicitHeight: Kirigami.Units.iconSizes.medium
+                            color: Kirigami.Theme.highlightColor
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            Kirigami.Heading {
+                                level: 2
+                                Layout.fillWidth: true
+                                text: i18n("One-frame test")
+                            }
+
+                            QQC2.Label {
+                                Layout.fillWidth: true
+                                text: i18n("Test one explicit current frame against the encrypted profile. A result affects only this page.")
+                                color: Kirigami.Theme.disabledTextColor
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                wrapMode: Text.Wrap
+                            }
                         }
                     }
 
-                    QQC2.Button {
-                        objectName: "clearVerificationButton"
-                        text: i18n("Clear result")
-                        icon.name: "edit-clear"
-                        enabled: root.localVerificationSession !== null && root.localVerificationSession.canClearResult
-                        activeFocusOnTab: true
-                        Accessible.name: text
-                        onClicked: {
-                            if (root.localVerificationSession !== null)
-                                root.localVerificationSession.clearResult()
+                    Kirigami.Separator { Layout.fillWidth: true }
+
+                    // Action Buttons Flow
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
+
+                        QQC2.Button {
+                            id: verifyButton
+                            objectName: "verifyButton"
+                            text: i18n("Test current frame")
+                            icon.name: "view-preview"
+                            enabled: root.localVerificationSession !== null && root.localVerificationSession.canVerify
+                            activeFocusOnTab: true
+                            Accessible.name: text
+                            onClicked: {
+                                if (root.localVerificationSession !== null)
+                                    root.localVerificationSession.verifyCurrentFrame()
+                            }
+                        }
+
+                        QQC2.Button {
+                            id: clearButton
+                            objectName: "clearVerificationButton"
+                            text: i18n("Clear result")
+                            icon.name: "edit-clear"
+                            enabled: root.localVerificationSession !== null && root.localVerificationSession.canClearResult
+                            activeFocusOnTab: true
+                            Accessible.name: text
+                            onClicked: {
+                                if (root.localVerificationSession !== null)
+                                    root.localVerificationSession.clearResult()
+                            }
+                        }
+
+                        QQC2.BusyIndicator {
+                            visible: root.localVerificationSession !== null && root.localVerificationSession.busy
+                            running: visible
+                            implicitWidth: Kirigami.Units.iconSizes.small
+                            implicitHeight: Kirigami.Units.iconSizes.small
+                            Accessible.ignored: true
                         }
                     }
-                }
 
-                QQC2.BusyIndicator {
-                    visible: root.localVerificationSession !== null && root.localVerificationSession.busy
-                    running: visible
-                    Accessible.ignored: true
-                }
+                    // Visual Match Verdict Display Box
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Kirigami.Units.gridUnit * 4.2
+                        radius: Kirigami.Units.cornerRadius
+                        color: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
+                            ? (root.localVerificationSession.isMatch
+                                ? Qt.alpha(Kirigami.Theme.positiveTextColor, 0.15)
+                                : (root.localVerificationSession.isAmbiguous
+                                    ? Qt.alpha(Kirigami.Theme.neutralTextColor, 0.15)
+                                    : Qt.alpha(Kirigami.Theme.negativeTextColor, 0.15)))
+                            : Qt.alpha(Kirigami.Theme.backgroundColor, 0.5)
+                        border.color: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
+                            ? (root.localVerificationSession.isMatch
+                                ? Kirigami.Theme.positiveTextColor
+                                : (root.localVerificationSession.isAmbiguous
+                                    ? Kirigami.Theme.neutralTextColor
+                                    : Kirigami.Theme.negativeTextColor))
+                            : Qt.alpha(Kirigami.Theme.textColor, 0.2)
+                        border.width: (root.localVerificationSession !== null && root.localVerificationSession.hasResult) ? 2 : 1
 
-                Kirigami.InlineMessage {
-                    Layout.fillWidth: true
-                    visible: root.localVerificationSession !== null && root.localVerificationSession.hasResult
-                    type: root.localVerificationSession !== null && root.localVerificationSession.isMatch
-                        ? Kirigami.MessageType.Positive
-                        : (root.localVerificationSession !== null && root.localVerificationSession.isAmbiguous
-                            ? Kirigami.MessageType.Warning
-                            : Kirigami.MessageType.Information)
-                    text: root.localVerificationSession !== null
-                        ? root.localVerificationSession.statusText
-                        : ""
-                    Accessible.role: Accessible.Alert
-                }
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: Kirigami.Units.mediumSpacing
+                            spacing: Kirigami.Units.mediumSpacing
 
-                Components.ActionableIssue {
-                    issueTitle: root.localVerificationSession !== null && root.localVerificationSession.isUnavailable
-                        ? i18n("Test unavailable")
-                        : ""
-                    recoveryText: root.localVerificationSession !== null && root.localVerificationSession.isUnavailable
-                        ? root.localVerificationSession.statusText
-                        : ""
-                }
+                            Kirigami.Icon {
+                                source: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
+                                    ? (root.localVerificationSession.isMatch
+                                        ? "emblem-checked"
+                                        : (root.localVerificationSession.isAmbiguous
+                                            ? "dialog-warning"
+                                            : "dialog-cancel"))
+                                    : "view-preview"
+                                implicitWidth: Kirigami.Units.iconSizes.large
+                                implicitHeight: Kirigami.Units.iconSizes.large
+                                color: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
+                                    ? (root.localVerificationSession.isMatch
+                                        ? Kirigami.Theme.positiveTextColor
+                                        : (root.localVerificationSession.isAmbiguous
+                                            ? Kirigami.Theme.neutralTextColor
+                                            : Kirigami.Theme.negativeTextColor))
+                                    : Kirigami.Theme.disabledTextColor
+                            }
 
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    visible: root.localVerificationSession === null || !root.localVerificationSession.hasResult
-                    text: root.localVerificationSession !== null
-                        ? root.localVerificationSession.statusText
-                        : i18n("Comparison service is initializing…")
-                    color: Kirigami.Theme.disabledTextColor
-                    wrapMode: Text.Wrap
-                    Accessible.role: Accessible.StaticText
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                QQC2.Label {
+                                    Layout.fillWidth: true
+                                    text: root.localVerificationSession !== null
+                                        ? root.localVerificationSession.statusText
+                                        : i18n("Comparison service is initializing…")
+                                    color: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
+                                        ? (root.localVerificationSession.isMatch
+                                            ? Kirigami.Theme.positiveTextColor
+                                            : (root.localVerificationSession.isAmbiguous
+                                                ? Kirigami.Theme.neutralTextColor
+                                                : Kirigami.Theme.negativeTextColor))
+                                        : Kirigami.Theme.disabledTextColor
+                                    wrapMode: Text.Wrap
+                                    font.weight: (root.localVerificationSession !== null && root.localVerificationSession.hasResult) ? Font.Bold : Font.Normal
+                                    font.pointSize: Kirigami.Theme.defaultFont.pointSize
+                                    Accessible.role: Accessible.StaticText
+                                }
+                            }
+                        }
+                    }
+
+                    // Actionable Issue if test unavailable
+                    Components.ActionableIssue {
+                        issueTitle: root.localVerificationSession !== null && root.localVerificationSession.isUnavailable
+                            ? i18n("Test unavailable")
+                            : ""
+                        recoveryText: root.localVerificationSession !== null && root.localVerificationSession.isUnavailable
+                            ? root.localVerificationSession.statusText
+                            : ""
+                    }
+
+                    // Informational disclaimer message
+                    Kirigami.InlineMessage {
+                        Layout.fillWidth: true
+                        type: Kirigami.MessageType.Warning
+                        text: i18n("Match is an experimental in-session comparison only. It cannot unlock, authenticate, authorize, call PAM, invoke Polkit, or change the Linux session.")
+                    }
                 }
             }
-        }
-
-        QQC2.Label {
-            Layout.fillWidth: true
-            text: i18n("Similarity scores, thresholds, liveness, and spoof-resistance claims are intentionally not shown or made.")
-            color: Kirigami.Theme.disabledTextColor
-            wrapMode: Text.Wrap
         }
     }
 }

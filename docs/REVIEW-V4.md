@@ -1,5 +1,10 @@
 # KFaceAuth v4.0.0 Architecture, Security, and Performance Review
 
+> **Historical review:** This document describes the earlier v4 architecture
+> and retained engineering findings. It is not current release evidence and
+> must not be read as a claim that PAM, system authentication, PAD, performance,
+> or physical qualification is available in the current local profile flow.
+
 **Document Version**: 4.0.0-REV  
 **Author**: Worker 2 — Review Document Author  
 **Target Architecture**: KFaceAuth (`plasma-kfaceauth`) v4.0.0  

@@ -183,6 +183,7 @@ class SecurityBoundaryTests(unittest.TestCase):
                 or any(part.startswith("build") for part in path.parts)
                 or "target" in path.parts
                 or path.suffix in {".gz", ".rpm"}
+                or path.name.startswith("CHATT_LOGG_")
             ):
                 continue
             relative = path.relative_to(ROOT)

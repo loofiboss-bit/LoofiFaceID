@@ -10,8 +10,7 @@
 #include <QRectF>
 #include <QString>
 #include <QTimer>
-#include <QVariantList>
-
+#include <QVector>
 #include <optional>
 
 class CameraPreviewSession;
@@ -28,9 +27,10 @@ class VisionAnalysisSession final : public QObject
     Q_PROPERTY(bool hasFace READ hasFace NOTIFY resultChanged)
     Q_PROPERTY(bool faceDetected READ faceDetected NOTIFY resultChanged)
     Q_PROPERTY(QRectF faceRect READ faceRect NOTIFY resultChanged)
-    Q_PROPERTY(QVariantList landmarks READ landmarks NOTIFY resultChanged)
     Q_PROPERTY(
         bool continuousTracking READ continuousTracking WRITE setContinuousTracking NOTIFY continuousTrackingChanged)
+    Q_PROPERTY(GuidanceState guidanceState READ guidanceState NOTIFY resultChanged)
+    Q_PROPERTY(Pose detectedPose READ detectedPose NOTIFY resultChanged)
     Q_PROPERTY(bool noFace READ noFace NOTIFY resultChanged)
     Q_PROPERTY(bool multipleFaces READ multipleFaces NOTIFY resultChanged)
     Q_PROPERTY(bool framingSuitable READ framingSuitable NOTIFY resultChanged)
@@ -93,6 +93,32 @@ class VisionAnalysisSession final : public QObject
     };
     Q_ENUM(Quality)
 
+    enum class GuidanceState
+    {
+        Unknown,
+        NoFace,
+        MultipleFaces,
+        TooFar,
+        TooClose,
+        OffCenter,
+        PoorLighting,
+        Blurred,
+        WrongPose,
+        Ready,
+    };
+    Q_ENUM(GuidanceState)
+
+    enum class Pose
+    {
+        Unknown,
+        Frontal,
+        Left,
+        Right,
+        Tilt,
+        Natural,
+    };
+    Q_ENUM(Pose)
+
     explicit VisionAnalysisSession(CameraPreviewSession *previewSession, QObject *parent = nullptr);
     VisionAnalysisSession(CameraPreviewSession *previewSession, QString workerPath, QObject *parent);
     VisionAnalysisSession(CameraPreviewSession *previewSession, QString workerPath,
@@ -111,9 +137,13 @@ class VisionAnalysisSession final : public QObject
     [[nodiscard]] bool framingSuitable() const;
     [[nodiscard]] bool faceDetected() const;
     [[nodiscard]] QRectF faceRect() const;
-    [[nodiscard]] QVariantList landmarks() const;
     [[nodiscard]] bool continuousTracking() const;
     void setContinuousTracking(bool enabled);
+    [[nodiscard]] GuidanceState guidanceState() const;
+    [[nodiscard]] Pose detectedPose() const;
+    Q_INVOKABLE bool poseMatches(int sampleIndex) const;
+    Q_INVOKABLE void startGuidance();
+    Q_INVOKABLE void stopGuidance();
     [[nodiscard]] FaceFinding faceFinding() const;
     [[nodiscard]] int faceCount() const;
     [[nodiscard]] Position position() const;
@@ -154,6 +184,7 @@ class VisionAnalysisSession final : public QObject
     };
 
     void startWorker(QByteArray request);
+    void writeRequest(QByteArray request);
     void readResponse();
     void processFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void fail(const QString &errorCode);
@@ -194,8 +225,13 @@ class VisionAnalysisSession final : public QObject
     QTimer m_inferenceTimer;
     QTimer m_shutdownTimer;
     QRectF m_faceRect;
-    QVariantList m_landmarks;
     int m_frameWidth = 0;
     int m_frameHeight = 0;
     bool m_continuousTracking = false;
+    GuidanceState m_guidanceState = GuidanceState::Unknown;
+    Pose m_detectedPose = Pose::Unknown;
+    bool m_sessionMode = false;
+    bool m_workerStarted = false;
+    bool m_requestInFlight = false;
+    QTimer m_trackingTimer;
 };

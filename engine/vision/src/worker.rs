@@ -11,17 +11,20 @@ use crate::{
 use kfaceauth_protocol::{FrameError, read_frame, read_frame_or_eof, require_eof, write_frame};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-pub use kfaceauth_protocol::WORKER_PROTOCOL_VERSION;
+/// Vision protocol version. Identity workers intentionally retain their own
+/// version because their wire format is unrelated to landmark-bearing vision
+/// responses.
+pub const WORKER_PROTOCOL_VERSION: u16 = 2;
 pub const OP_ANALYZE: u8 = 1;
 pub const RESPONSE_ANALYSIS: u8 = 0x81;
 pub const RESPONSE_ERROR: u8 = 0xff;
 pub const REQUEST_HEADER_BYTES: usize = 24;
 pub const MAX_REQUEST_PAYLOAD: usize = MAX_FRAME_BYTES + REQUEST_HEADER_BYTES;
-pub const MAX_RESPONSE_PAYLOAD: usize = 16 + MAX_FACES * 8;
+pub const MAX_RESPONSE_PAYLOAD: usize = 16 + MAX_FACES * (8 + 20);
 pub const MIN_TIMEOUT_MS: u32 = 1;
 pub const MAX_TIMEOUT_MS: u32 = 5_000;
 
-/// Stable worker error-code map. Numeric values are part of protocol version 1.
+/// Stable worker error-code map. Numeric values are part of protocol version 2.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum WorkerErrorCode {
@@ -257,6 +260,9 @@ fn valid_analysis(analysis: &VisionAnalysis, image: ImageView<'_>) -> bool {
             && u32::from(rectangle.y)
                 .checked_add(u32::from(rectangle.height))
                 .is_some_and(|bottom| bottom <= image.height)
+            && face.landmarks.points.chunks_exact(2).all(|point| {
+                u32::from(point[0]) < image.width && u32::from(point[1]) < image.height
+            })
     })
 }
 
@@ -353,7 +359,7 @@ fn encode_analysis(generation: u64, analysis: &VisionAnalysis) -> Vec<u8> {
     if usize::from(face_count) > MAX_FACES {
         return encode_error(WorkerErrorCode::InternalError, generation);
     }
-    let mut payload = Vec::with_capacity(16 + analysis.faces.len() * 8);
+    let mut payload = Vec::with_capacity(16 + analysis.faces.len() * (8 + 20));
     payload.extend_from_slice(&WORKER_PROTOCOL_VERSION.to_be_bytes());
     payload.push(RESPONSE_ANALYSIS);
     payload.push(face_count);
@@ -367,6 +373,10 @@ fn encode_analysis(generation: u64, analysis: &VisionAnalysis) -> Vec<u8> {
         payload.extend_from_slice(&face.rectangle.y.to_be_bytes());
         payload.extend_from_slice(&face.rectangle.width.to_be_bytes());
         payload.extend_from_slice(&face.rectangle.height.to_be_bytes());
+        for point in face.landmarks.points.chunks_exact(2) {
+            payload.extend_from_slice(&point[0].to_be_bytes());
+            payload.extend_from_slice(&point[1].to_be_bytes());
+        }
     }
     payload
 }
@@ -419,6 +429,12 @@ mod tests {
         payload
     }
 
+    fn analyze_request_with_generation(generation: u64) -> Vec<u8> {
+        let mut request = analyze_request(PixelFormat::Gray8, &[1, 33]);
+        request[4..12].copy_from_slice(&generation.to_be_bytes());
+        request
+    }
+
     #[test]
     fn exact_success_layout_echoes_generation() {
         let request = analyze_request(PixelFormat::Gray8, &[1, 33]);
@@ -431,7 +447,7 @@ mod tests {
         assert_eq!(output[6], RESPONSE_ANALYSIS);
         assert_eq!(output[7], 1);
         assert_eq!(u64::from_be_bytes(output[8..16].try_into().unwrap()), 42);
-        assert_eq!(declared, 24);
+        assert_eq!(declared, 44);
     }
 
     #[test]
@@ -473,7 +489,7 @@ mod tests {
     fn rejects_unsupported_version_operation_format_and_timeout() {
         let base = analyze_request(PixelFormat::Gray8, &[1, 33]);
         for (offset, value, code) in [
-            (1, 2, WorkerErrorCode::UnsupportedVersion),
+            (1, 3, WorkerErrorCode::UnsupportedVersion),
             (2, 2, WorkerErrorCode::UnsupportedOperation),
             (3, 9, WorkerErrorCode::UnsupportedPixelFormat),
         ] {
@@ -540,5 +556,30 @@ mod tests {
         .unwrap();
         assert_eq!(output[6], RESPONSE_ERROR);
         assert_eq!(output[7], WorkerErrorCode::InternalError as u8);
+    }
+
+    #[test]
+    fn session_accepts_multiple_framed_requests_and_preserves_generations() {
+        let first = analyze_request_with_generation(101);
+        let second = analyze_request_with_generation(102);
+        let mut input = framed(&first);
+        input.extend_from_slice(&framed(&second));
+        let mut output = Vec::new();
+        serve_session_with_provider(&mut Cursor::new(input), &mut output, &provider()).unwrap();
+
+        let first_length =
+            usize::try_from(u32::from_be_bytes(output[0..4].try_into().unwrap())).unwrap();
+        let first_end = first_length + 4;
+        assert_eq!(u64::from_be_bytes(output[8..16].try_into().unwrap()), 101);
+        let second_length = usize::try_from(u32::from_be_bytes(
+            output[first_end..first_end + 4].try_into().unwrap(),
+        ))
+        .unwrap();
+        assert_eq!(second_length, first_length);
+        assert_eq!(
+            u64::from_be_bytes(output[first_end + 8..first_end + 16].try_into().unwrap()),
+            102
+        );
+        assert_eq!(output.len(), first_end + second_length + 4);
     }
 }

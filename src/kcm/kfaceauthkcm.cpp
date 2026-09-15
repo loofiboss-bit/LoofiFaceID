@@ -66,6 +66,7 @@ KFaceAuthKcm::KFaceAuthKcm(QObject *parent, const KPluginMetaData &data, std::un
     connect(&m_cameraPreviewSession, &CameraPreviewSession::selectionChanged, this, &KFaceAuthKcm::flowStateChanged);
     connect(&m_enrollmentSession, &EnrollmentSession::stateChanged, this, &KFaceAuthKcm::flowStateChanged);
     connect(&m_enrollmentSession, &EnrollmentSession::profileChanged, this, &KFaceAuthKcm::flowStateChanged);
+    connect(&m_visionAnalysisSession, &VisionAnalysisSession::stateChanged, this, &KFaceAuthKcm::flowStateChanged);
     const auto refreshTransientIssue = [this]()
     {
         QString code;
@@ -164,7 +165,7 @@ bool KFaceAuthKcm::readyToTest() const
 bool KFaceAuthKcm::needsAttention() const
 {
     return !m_systemState.issueCode().isEmpty() || !m_cameraPreviewSession.errorCode().isEmpty() ||
-           m_enrollmentSession.profileNeedsAttention();
+           !m_visionAnalysisSession.errorCode().isEmpty() || m_enrollmentSession.profileNeedsAttention();
 }
 
 QString KFaceAuthKcm::flowStateLabel() const
@@ -172,13 +173,13 @@ QString KFaceAuthKcm::flowStateLabel() const
     switch (flowState())
     {
     case UiFlowState::NeedsAttention:
-        return translate("Resolve one issue");
+        return translate("Fix problem");
     case UiFlowState::NeedsCamera:
-        return translate("Camera setup needed");
+        return translate("Get started");
     case UiFlowState::NeedsProfile:
-        return translate("Face profile setup needed");
+        return translate("Continue registration");
     case UiFlowState::ReadyToTest:
-        return translate("Ready to test one frame");
+        return translate("Test profile");
     }
     return translate("Camera setup needed");
 }
@@ -188,13 +189,13 @@ QString KFaceAuthKcm::recommendedAction() const
     switch (flowState())
     {
     case UiFlowState::NeedsAttention:
-        return translate("Resolve issue");
+        return translate("Fix problem");
     case UiFlowState::NeedsCamera:
-        return translate("Set up camera");
+        return translate("Get started");
     case UiFlowState::NeedsProfile:
-        return translate("Create face profile");
+        return translate("Continue registration");
     case UiFlowState::ReadyToTest:
-        return translate("Test recognition");
+        return translate("Test profile");
     }
     return translate("Set up camera");
 }

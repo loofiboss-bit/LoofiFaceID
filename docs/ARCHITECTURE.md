@@ -21,9 +21,11 @@ Rust identity worker
 ```
 
 All workers run as the ordinary user and communicate only over inherited
-private pipes. Preview is a bounded session worker. Vision and identity are
-short-lived one-request workers. There is no listener, daemon activation,
-shell, network, privileged process, or authentication interface.
+private pipes. Preview is a bounded session worker. Vision uses a persistent
+`--session` worker during guided enrollment and a short-lived one-request mode
+for explicit checks; identity remains a one-request worker. There is no
+listener, shell, network, privileged process, or automatic authentication
+activation in the beginner flow.
 
 ## Ownership
 
@@ -39,10 +41,16 @@ The project-owned C++ OpenCV bridge owns only `FaceDetectorYN` and
 `alignCrop`, feature extraction, and a qualification-only cosine call. It
 catches every exception. OpenCV objects and matrices never cross the C ABI.
 
-The KCM backend owns manual action boundaries, latest-generation-wins worker
-lifecycle, rate limiting, transient enrollment embeddings, KWallet access,
-and high-level UI states. QML receives no frame bytes, embeddings, landmarks,
-keys, paths, or scores.
+The KCM backend owns explicit action boundaries, latest-generation-wins worker
+lifecycle, one-request-at-a-time vision sessions, four-analyses-per-second
+guidance throttling, transient enrollment embeddings, KWallet access, and
+high-level typed UI states. QML receives no frame bytes, raw embeddings, raw
+landmarks, keys, paths, or detector scores.
+
+Guidance state is backend-owned and typed: `NoFace`, `MultipleFaces`,
+`TooFar`, `TooClose`, `OffCenter`, `PoorLighting`, `Blurred`, `WrongPose`, or
+`Ready`. QML receives only the state, coarse pose, and a boolean pose-match
+decision for the current enrollment step.
 
 ## UI flow and semantic state
 
@@ -54,9 +62,11 @@ Home -> Setup -> Test
 ```
 
 Home derives `NeedsCamera`, `NeedsProfile`, `ReadyToTest`, or
-`NeedsAttention` from typed backend properties. Setup owns the explicit camera,
-one-frame framing check, enrollment, and separated destructive profile
-management. Test owns one explicit comparison and its clear-result action.
+`NeedsAttention` from typed backend properties and presents one action:
+`Get started`, `Continue registration`, `Test profile`, or `Fix problem`.
+Setup owns the explicit camera consent, shared guidance session, five-pose
+enrollment, and separated destructive profile management. Test owns one
+explicit comparison and its clear-result action.
 Diagnostics is read-only and exposes aggregate capability state plus a bounded
 redacted report. QML uses semantic properties such as `canStartPreview`,
 `previewActive`, `canAnalyze`, `profileReady`, and `recommendedAction`; it does
@@ -65,7 +75,8 @@ not interpret numeric backend state values.
 The reusable `CameraPreviewCard`, `PrimaryStatusCard`, `PrivacySummary`, and
 `ActionableIssue` components keep camera controls, the privacy boundary, and
 recovery messaging consistent across pages. The preview guide is a static
-framing aid only. There is no continuous analysis or background recognition.
+framing aid; guided enrollment adds bounded typed analysis only while the page
+and camera are active. There is no background recognition.
 
 ## Enrollment and verification
 

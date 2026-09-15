@@ -83,9 +83,15 @@ impl IdentityProvider {
         image: ImageView<'_>,
         control: ProcessingControl<'_>,
     ) -> Result<NormalizedEmbedding, IdentityError> {
-        let (bgr, detections, quality) =
+        let (bgr, mut detections, quality) =
             self.detector
                 .detect_raw(image, control, InferenceMode::FullResolution)?;
+        if detections.0.is_empty() {
+            let (_, tracking_detections, _) =
+                self.detector
+                    .detect_raw(image, control, InferenceMode::Tracking)?;
+            detections = tracking_detections;
+        }
         if detections.0.is_empty() {
             return Err(IdentityError::NoFace);
         }

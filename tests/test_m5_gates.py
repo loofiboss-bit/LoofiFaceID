@@ -147,7 +147,9 @@ class Milestone5GatesTest(unittest.TestCase):
         self.assertIn("Fitzpatrick Skin Phototype", report)
         self.assertIn("Environmental Lighting Matrix", report)
         self.assertIn("Independent Forensic Auditor Sign-Off", report)
-        self.assertIn("QUALIFIED & APPROVED", report)
+        self.assertIn("HISTORICAL / NOT CURRENTLY QUALIFIED", report)
+        self.assertIn("NOT CURRENT EVIDENCE", report)
+        self.assertNotIn("QUALIFIED & APPROVED", report)
         self.assertIn("Gate 5.1: PASS", report)
         self.assertIn("Gate 5.2: PASS", report)
 

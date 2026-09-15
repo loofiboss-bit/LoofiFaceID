@@ -35,6 +35,11 @@ QString SystemState::dataSource() const
     return m_snapshot.dataSource;
 }
 
+QString SystemState::distribution() const
+{
+    return m_snapshot.distribution;
+}
+
 QString SystemState::fedoraVersion() const
 {
     return m_snapshot.fedoraVersion;

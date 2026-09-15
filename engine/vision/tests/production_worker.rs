@@ -20,7 +20,7 @@ fn request(width: u16, height: u16, timeout_ms: u32, generation: u64) -> Vec<u8>
     let stride = u32::from(width) * 3;
     let frame_size = usize::try_from(stride * u32::from(height)).unwrap();
     let mut payload = Vec::with_capacity(24 + frame_size);
-    payload.extend_from_slice(&1_u16.to_be_bytes());
+    payload.extend_from_slice(&2_u16.to_be_bytes());
     payload.push(1);
     payload.push(1);
     payload.extend_from_slice(&generation.to_be_bytes());

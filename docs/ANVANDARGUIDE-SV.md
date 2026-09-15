@@ -1,78 +1,69 @@
 # Användarguide — LoofiFace-ID
 
-LoofiFace-ID (KFaceAuth) är ett experiment för en lokal, avgränsad jämförelse i den redan
-inloggade användarsessionen. Det aktiverar inte inloggning eller autentisering.
+LoofiFace-ID (KFaceAuth) är ett experimentellt verktyg för en lokal profil och
+en uttrycklig jämförelse i den redan inloggade Fedora 44/KDE-sessionen. Det
+aktiverar inte PAM, SDDM, sudo, Polkit, upplåsning eller inloggning.
 
-## Hem
+## Installera och starta
 
-Hem visar ett enda rekommenderat nästa steg:
+På Fedora 44 är COPR den enklaste vägen:
 
-- **Konfigurera kamera** när ingen användbar kamera finns;
-- **Skapa ansiktsprofil** när kameran är klar men profilen saknas;
-- **Testa igenkänning** när profilen är klar;
-- **Åtgärda problemet** när worker, modell, KWallet eller valv behöver åtgärdas.
+```bash
+sudo dnf copr enable loofitheboss/loofifaceid
+sudo dnf install kfaceauth
+systemsettings kcm_kfaceauth
+```
 
-Integritetsöversikten är alltid synlig: bearbetningen är lokal, fångade bilder
-sparas inte och profilnyckeln finns endast i KWallet. Varningen om experimentell
-status är en del av flödet och innebär inte att autentisering är aktiverad.
+Öppna **Hem** och välj den enda primära åtgärden. Välj **Kom igång** när en
+profil saknas och kameran ännu inte är startad. När bara en användbar kamera
+finns väljs den automatiskt; kameraväljaren visas först när flera finns.
 
-## Konfiguration
+## Första start och registrering
 
-1. Uppdatera enheter och starta den privata förhandsvisningen uttryckligen.
-   Den första användbara kameran väljs automatiskt; välj en annan om flera
-   finns.
-2. Välj **Analysera aktuell bildruta** för en uttrycklig YuNet-kontroll.
-   Återkopplingen gäller ansiktsantal, inramning och bildkvalitet. Den är inte
-   livskontroll, spoof-skydd eller autentisering.
-3. Välj **Skapa ansiktsprofil** och fånga exakt ett prov per klick. Tre krävs,
-   fem rekommenderas och åtta är det hårda maximumet.
-4. Använd **Försök igen** för att kasta det senaste tillfälliga provet,
-   **Avbryt** för att rensa den osparade registreringen eller **Slutför och
-   spara** för den atomiska krypterade lagringen.
-5. När profilen är klar väljer du **Öppna Test**. Det aktiverar inte inloggning
-   eller någon systemautentisering.
+1. Klicka **Kom igång**. Det är det uttryckliga medgivandet att starta den
+   privata kameraförhandsvisningen.
+2. Följ samma guide hela vägen: placering, **Frontal**, **Vänster**,
+   **Höger**, **Luta** och **Naturlig**.
+3. Automatisk fångst kräver exakt ett ansikte, godkänd inramning/bildkvalitet
+   och tre nya analyser under minst 600 ms. Stabiliteten nollställs direkt när
+   villkoret bryts och en spärr på 800 ms används efter ett godkänt prov.
+4. **Fånga manuellt** är alltid reservknappen. Efter tre prov visas **Spara
+   nu**; fem prov är rekommenderat och åtta är hårt maximum.
+5. Välj **Spara profil** själv. Profilen sparas aldrig automatiskt. Välj sedan
+   **Testa profilen** eller öppna fliken **Test**.
 
-Registreringen löper ut efter 120 sekunder och avbryts när sidan,
-förhandsvisningen, programmet eller KCM blir inaktivt. Inget delvis sparas före
-**Slutför och spara**.
+Vid avvisat prov fortsätter guiden och visar en konkret instruktion, till
+exempel att flytta närmare, centrera ansiktet, förbättra ljuset eller visa
+endast ett ansikte. Kamerabilder sparas inte.
 
-### Profilhantering
+## Hem, Test och profilhantering
 
-**Ta bort ansiktsprofil** tar bort en giltig krypterad profil efter bekräftelse.
-**Återställ oläsbara data** är en separat destruktiv åtgärd för ett oläsbart valv
-och dess KWallet-nyckel; ny registrering krävs därefter. Ingen åtgärd lovar
-fysisk radering från SSD, ögonblicksbilder, säkerhetskopior, journaler eller
-copy-on-write-lagring.
+Hem visar **Kom igång**, **Fortsätt registreringen**, **Testa profilen** eller
+**Åtgärda problem** beroende på aktuellt tillstånd. **Test** behandlar en enda
+avsiktlig bildruta mot den krypterade lokala profilen; resultatet påverkar inte
+Linux-sessionen.
 
-## Test
+**Ta bort ansiktsprofil** och **Återställ oläsbara data** är separata,
+bekräftade åtgärder. De lovar inte fysisk radering från SSD, ögonblicksbilder,
+säkerhetskopior, journaler eller copy-on-write-lagring.
 
-Starta den privata förhandsvisningen och välj **Testa aktuell bildruta**.
-Bildrutan behandlas en gång mot den krypterade profilen. Sidan kan visa
-`Matchning`, `Ingen matchning`, `Tvetydigt` eller ett typat otillgängligt
-tillstånd, exempelvis saknad profil, låst KWallet, modellfel, avbrott eller
-workerfel.
+## Diagnostik och fel
 
-Poäng och trösklar visas inte. Begäran är hastighetsbegränsad och resultatet kan
-rensas uttryckligen. `Matchning` påverkar bara den här sidan: den låser inte
-upp, autentiserar inte, auktoriserar inte, anropar inte PAM eller Polkit och
-ändrar inte Linux-sessionen.
+Diagnostik är skrivskyddad och ändrar inte andra kameratjänster eller
+systemkonfiguration. Uppdatera och följ den typade återställningen för:
 
-## Diagnostik
+- upptagen eller frånkopplad kamera;
+- worker-, protokoll- eller modellfel;
+- låst/otillgängligt KWallet;
+- oläsbar eller modellinkompatibel profil;
+- ej kvalificerad distribution/version.
 
-Diagnostik är skrivskyddad. Uppdatering kör begränsade lokala kontroller och
-visar worker/runtime, verifierade modeller, kameramängd, KWallet, krypterat
-valv/profil och en avgränsad återställningsrekommendation. Den röda
-support-rapporten innehåller endast aggregerad status. Secure Boot och
-display manager är sekundär miljöinformation och ändrar inte jämförelsen.
+Den röda rapporten är avgränsad och redigerad. Skicka inte kamerabilder,
+inbäddningar, nycklar eller lösenord när du rapporterar ett fel.
 
 ## Integritetsgräns
 
-Ansiktsinbäddningar är känsliga biometriska uppgifter. KFaceAuth sparar ingen
-fångad bild avsiktligt. Bildrutor, landmärken, inbäddningar, nycklar, poäng,
-biometriska sökvägar och stabila kameraidentifierare når inte QML, normala
-loggar, CLI, support-rapporter eller exempel. KWallet är den enda
-produktionsleverantören av nycklar.
-
-Det finns ingen livskontroll eller presentation-/spoofdetektering. FAR, FRR,
-bias, demografiskt beteende, RGB/IR-säkerhet och autentiseringslämplighet är
-fortsatt okvalificerade. KWallet-nycklar är inte tillgängliga före inloggning.
+Råa landmärken, detektorsiffror, poäng, bilder och inbäddningar stannar i de
+privata worker-/backendlagren och exponeras inte i QML, loggar eller rapporter.
+Det finns inga reproducerbara PAD-, prestanda-, bias- eller
+autentiseringskvalificeringar i denna version.
