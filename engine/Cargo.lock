@@ -10,6 +10,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "kfaceauth-daemon"
+version = "0.1.0"
+dependencies = [
+ "kfaceauth-crypto-openssl-sys",
+ "kfaceauth-identity",
+ "kfaceauth-identity-types",
+ "kfaceauth-protocol",
+ "kfaceauth-templates",
+ "kfaceauth-vision",
+ "zeroize",
+]
+
+[[package]]
 name = "kfaceauth-identity"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,6 @@
+/usr/libexec/kfaceauthd                  -- gen_context(system_u:object_r:kfaceauth_exec_t,s0)
+/var/lib/kfaceauth(/.*)?                    gen_context(system_u:object_r:kfaceauth_var_lib_t,s0)
+/etc/kfaceauth(/.*)?                        gen_context(system_u:object_r:kfaceauth_etc_t,s0)
+/run/kfaceauth(/.*)?                        gen_context(system_u:object_r:kfaceauth_sock_t,s0)
+/usr/lib/systemd/system/kfaceauth\.service -- gen_context(system_u:object_r:kfaceauth_unit_file_t,s0)
+/usr/lib/systemd/system/kfaceauth\.socket  -- gen_context(system_u:object_r:kfaceauth_unit_file_t,s0)

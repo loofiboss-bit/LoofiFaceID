@@ -1,0 +1,22 @@
+[package]
+name = "kfaceauth-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kfaceauthd"
+path = "src/main.rs"
+
+[dependencies]
+kfaceauth-crypto-openssl-sys = { path = "../crypto-openssl-sys" }
+kfaceauth-identity = { path = "../identity" }
+kfaceauth-identity-types = { path = "../identity-types" }
+kfaceauth-protocol = { path = "../protocol" }
+kfaceauth-templates = { path = "../templates" }
+kfaceauth-vision = { path = "../vision" }
+zeroize.workspace = true
+
+[lints]
+workspace = true

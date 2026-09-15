@@ -55,6 +55,31 @@ fn main() {
             compile.arg(flag);
         }
     }
+
+    let has_tpm2 = Command::new("pkg-config")
+        .args(["--exists", "tss2-esys", "tss2-mu"])
+        .status()
+        .is_ok_and(|s| s.success());
+
+    if has_tpm2 {
+        compile.arg("-DKFACEAUTH_HAS_TPM2=1");
+        let tpm_include_output = command_output("pkg-config", ["--cflags-only-I", "tss2-esys"]);
+        let tpm_include_flags =
+            String::from_utf8(tpm_include_output.stdout).expect("TSS2 include flags must be UTF-8");
+        for flag in tpm_include_flags.split_whitespace() {
+            if let Some(path) = flag.strip_prefix("-I") {
+                compile.arg("-isystem").arg(path);
+            } else {
+                compile.arg(flag);
+            }
+        }
+    }
+
+    let has_keyutils = Path::new("/usr/include/keyutils.h").exists();
+    if has_keyutils {
+        compile.arg("-DKFACEAUTH_HAS_KEYUTILS=1");
+    }
+
     add_source_remapping(&mut compile);
     if let Some(flags) = env::var_os("CFLAGS") {
         for flag in flags.to_string_lossy().split_whitespace() {
@@ -77,6 +102,13 @@ fn main() {
     );
     println!("cargo:rustc-link-lib=static=kfaceauth_crypto_openssl");
     println!("cargo:rustc-link-lib=dylib=crypto");
+    if has_tpm2 {
+        println!("cargo:rustc-link-lib=dylib=tss2-esys");
+        println!("cargo:rustc-link-lib=dylib=tss2-mu");
+    }
+    if has_keyutils {
+        println!("cargo:rustc-link-lib=dylib=keyutils");
+    }
 }
 
 fn add_source_remapping(command: &mut Command) {

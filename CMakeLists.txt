@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 include(cmake/ProjectIdentity.cmake)
-project(${KFACEAUTH_PROJECT_ID} VERSION ${KFACEAUTH_VERSION} LANGUAGES CXX)
+project(${KFACEAUTH_PROJECT_ID} VERSION ${KFACEAUTH_VERSION} LANGUAGES C CXX)
 
 set(QT_MIN_VERSION "6.8.0")
 set(KF_MIN_VERSION "6.10.0")
@@ -51,6 +51,7 @@ endif()
 
 add_subdirectory(engine)
 add_subdirectory(src)
+add_subdirectory(pam)
 add_subdirectory(data)
 
 if(BUILD_TESTING)

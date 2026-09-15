@@ -171,9 +171,28 @@ pub enum VaultStatus {
     Unavailable,
 }
 
+pub const DEFAULT_SYSTEM_VAULT_ROOT: &str = "/var/lib/kfaceauth";
+
+#[must_use]
+pub fn system_vault_root() -> PathBuf {
+    if let Some(path) = env::var_os("KFACEAUTH_SYSTEM_VAULT_DIR").map(PathBuf::from) {
+        if path.is_absolute() {
+            return path;
+        }
+    }
+    PathBuf::from(DEFAULT_SYSTEM_VAULT_ROOT)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VaultKind {
+    UserSession,
+    System,
+}
+
 pub struct Vault {
     root: PathBuf,
     uid: u32,
+    kind: VaultKind,
 }
 
 impl Vault {
@@ -200,12 +219,64 @@ impl Vault {
         Ok(Self {
             root: base.join(PRODUCT_DIRECTORY),
             uid: current_uid(),
+            kind: VaultKind::UserSession,
         })
+    }
+
+    /// Constructs the system vault for a specific numeric UID under `/var/lib/kfaceauth/<uid>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an unavailable error if system vault path resolution fails.
+    pub fn system(uid: u32) -> Result<Self, VaultError> {
+        let base = system_vault_root();
+        Ok(Self {
+            root: base.join(uid.to_string()),
+            uid,
+            kind: VaultKind::System,
+        })
+    }
+
+    #[must_use]
+    pub fn system_with_root(root: &Path, uid: u32) -> Self {
+        Self {
+            root: root.join(uid.to_string()),
+            uid,
+            kind: VaultKind::System,
+        }
+    }
+
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    #[must_use]
+    pub const fn uid(&self) -> u32 {
+        self.uid
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> VaultKind {
+        self.kind
     }
 
     #[cfg(test)]
     fn for_test(root: PathBuf, uid: u32) -> Self {
-        Self { root, uid }
+        Self {
+            root,
+            uid,
+            kind: VaultKind::UserSession,
+        }
+    }
+
+    #[cfg(test)]
+    fn for_system_test(root: PathBuf, uid: u32) -> Self {
+        Self {
+            root,
+            uid,
+            kind: VaultKind::System,
+        }
     }
 
     /// Returns only aggregate, non-sensitive profile state.
@@ -214,7 +285,7 @@ impl Vault {
         if !self.root.exists() {
             return VaultStatus::Absent;
         }
-        if validate_directory(&self.root, self.uid).is_err() {
+        if validate_directory(&self.root, self.uid, self.kind).is_err() {
             return VaultStatus::Unavailable;
         }
         if !self.root.join(VAULT_FILE).exists() {
@@ -249,9 +320,13 @@ impl Vault {
     /// Filesystem, AEAD, schema, UID, model, and embedding failures are
     /// fail-closed and preserve the original file.
     pub fn open_profile(&self, key: &MasterKey) -> Result<Profile, VaultError> {
-        validate_directory(&self.root, self.uid)?;
-        let lock = VaultLock::acquire(&self.root, self.uid)?;
-        let bytes = SensitiveBytes(read_secure_file(&self.root.join(VAULT_FILE), self.uid)?);
+        validate_directory(&self.root, self.uid, self.kind)?;
+        let lock = VaultLock::acquire(&self.root, self.uid, self.kind)?;
+        let bytes = SensitiveBytes(read_secure_file(
+            &self.root.join(VAULT_FILE),
+            self.uid,
+            self.kind,
+        )?);
         let profile = decode_vault(&bytes.0, key, self.uid);
         drop(lock);
         profile
@@ -266,15 +341,22 @@ impl Vault {
     /// Returns without replacing the original vault if validation, encryption,
     /// temporary verification, fsync, or rename fails.
     pub fn commit_profile(&self, key: &MasterKey, profile: &Profile) -> Result<(), VaultError> {
-        ensure_directory(&self.root, self.uid)?;
-        let _lock = VaultLock::acquire(&self.root, self.uid)?;
+        ensure_directory(&self.root, self.uid, self.kind)?;
+        let _lock = VaultLock::acquire(&self.root, self.uid, self.kind)?;
         let final_path = self.root.join(VAULT_FILE);
         if final_path.exists() {
-            let existing = SensitiveBytes(read_secure_file(&final_path, self.uid)?);
+            let existing = SensitiveBytes(read_secure_file(&final_path, self.uid, self.kind)?);
             drop(decode_vault(&existing.0, key, self.uid)?);
         }
         let encoded = SensitiveBytes(encode_vault(profile, key, self.uid)?);
-        write_verified_atomic(&self.root, &final_path, &encoded.0, key, self.uid)
+        write_verified_atomic(
+            &self.root,
+            &final_path,
+            &encoded.0,
+            key,
+            self.uid,
+            self.kind,
+        )
     }
 
     /// Re-encrypts a validated profile under a new key using an atomic replace.
@@ -283,13 +365,20 @@ impl Vault {
     ///
     /// The old file remains untouched on any failure.
     pub fn rotate_key(&self, old_key: &MasterKey, new_key: &MasterKey) -> Result<(), VaultError> {
-        validate_directory(&self.root, self.uid)?;
-        let _lock = VaultLock::acquire(&self.root, self.uid)?;
+        validate_directory(&self.root, self.uid, self.kind)?;
+        let _lock = VaultLock::acquire(&self.root, self.uid, self.kind)?;
         let final_path = self.root.join(VAULT_FILE);
-        let old_bytes = SensitiveBytes(read_secure_file(&final_path, self.uid)?);
+        let old_bytes = SensitiveBytes(read_secure_file(&final_path, self.uid, self.kind)?);
         let profile = decode_vault(&old_bytes.0, old_key, self.uid)?;
         let new_bytes = SensitiveBytes(encode_vault(&profile, new_key, self.uid)?);
-        write_verified_atomic(&self.root, &final_path, &new_bytes.0, new_key, self.uid)
+        write_verified_atomic(
+            &self.root,
+            &final_path,
+            &new_bytes.0,
+            new_key,
+            self.uid,
+            self.kind,
+        )
     }
 
     /// Deletes a valid profile after authenticating it with the current key.
@@ -301,10 +390,10 @@ impl Vault {
     ///
     /// Rejects absent, unauthenticated, corrupt, or filesystem-unsafe data.
     pub fn delete_profile(&self, key: &MasterKey) -> Result<(), VaultError> {
-        validate_directory(&self.root, self.uid)?;
-        let _lock = VaultLock::acquire(&self.root, self.uid)?;
+        validate_directory(&self.root, self.uid, self.kind)?;
+        let _lock = VaultLock::acquire(&self.root, self.uid, self.kind)?;
         let path = self.root.join(VAULT_FILE);
-        let bytes = SensitiveBytes(read_secure_file(&path, self.uid)?);
+        let bytes = SensitiveBytes(read_secure_file(&path, self.uid, self.kind)?);
         drop(decode_vault(&bytes.0, key, self.uid)?);
         fs::remove_file(path)?;
         sync_directory(&self.root)
@@ -317,10 +406,10 @@ impl Vault {
     ///
     /// Rejects absent or filesystem-unsafe data and preserves it on failure.
     pub fn reset_unreadable(&self) -> Result<(), VaultError> {
-        validate_directory(&self.root, self.uid)?;
-        let _lock = VaultLock::acquire(&self.root, self.uid)?;
+        validate_directory(&self.root, self.uid, self.kind)?;
+        let _lock = VaultLock::acquire(&self.root, self.uid, self.kind)?;
         let path = self.root.join(VAULT_FILE);
-        validate_secure_path(&path, self.uid)?;
+        validate_secure_path(&path, self.uid, self.kind)?;
         fs::remove_file(path)?;
         sync_directory(&self.root)
     }
@@ -626,51 +715,91 @@ impl<'a> Cursor<'a> {
     }
 }
 
-fn ensure_directory(path: &Path, uid: u32) -> Result<(), VaultError> {
+fn ensure_directory(path: &Path, uid: u32, kind: VaultKind) -> Result<(), VaultError> {
     if !path.exists() {
         let mut builder = DirBuilder::new();
-        builder.recursive(true).mode(0o700);
+        let mode = match kind {
+            VaultKind::UserSession => 0o700,
+            VaultKind::System => 0o750,
+        };
+        builder.recursive(true).mode(mode);
         builder.create(path)?;
     }
-    validate_directory(path, uid)
+    validate_directory(path, uid, kind)
 }
 
-fn validate_directory(path: &Path, uid: u32) -> Result<(), VaultError> {
+fn validate_directory(path: &Path, uid: u32, kind: VaultKind) -> Result<(), VaultError> {
     let metadata = fs::symlink_metadata(path)?;
-    if !metadata.file_type().is_dir()
-        || metadata.file_type().is_symlink()
-        || metadata.uid() != uid
-        || metadata.mode() & 0o777 != 0o700
+    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() || metadata.uid() != uid
     {
         return Err(VaultError::UnsafeFilesystem);
+    }
+    let mode = metadata.mode() & 0o777;
+    match kind {
+        VaultKind::UserSession => {
+            if mode != 0o700 {
+                return Err(VaultError::UnsafeFilesystem);
+            }
+        }
+        VaultKind::System => {
+            if (mode != 0o750 && mode != 0o700) || (mode & 0o007 != 0) || (mode & 0o020 != 0) {
+                return Err(VaultError::UnsafeFilesystem);
+            }
+        }
     }
     Ok(())
 }
 
-fn validate_secure_path(path: &Path, uid: u32) -> Result<fs::Metadata, VaultError> {
+fn validate_secure_path(
+    path: &Path,
+    uid: u32,
+    kind: VaultKind,
+) -> Result<fs::Metadata, VaultError> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != uid
-        || metadata.mode() & 0o777 != 0o600
         || metadata.nlink() != 1
     {
         return Err(VaultError::UnsafeFilesystem);
     }
+    let mode = metadata.mode() & 0o777;
+    match kind {
+        VaultKind::UserSession => {
+            if mode != 0o600 {
+                return Err(VaultError::UnsafeFilesystem);
+            }
+        }
+        VaultKind::System => {
+            if (mode != 0o640 && mode != 0o600) || (mode & 0o007 != 0) || (mode & 0o020 != 0) {
+                return Err(VaultError::UnsafeFilesystem);
+            }
+        }
+    }
     Ok(metadata)
 }
 
-fn read_secure_file(path: &Path, uid: u32) -> Result<Vec<u8>, VaultError> {
-    let before = validate_secure_path(path, uid)?;
+#[allow(clippy::verbose_bit_mask)]
+fn read_secure_file(path: &Path, uid: u32, kind: VaultKind) -> Result<Vec<u8>, VaultError> {
+    let before = validate_secure_path(path, uid, kind)?;
     if usize::try_from(before.len()).map_or(true, |size| size > MAXIMUM_VAULT_BYTES) {
         return Err(VaultError::Oversized);
     }
     let file = OpenOptions::new().read(true).open(path)?;
     let after = file.metadata()?;
+    let expected_mode = after.mode() & 0o777;
+    let mode_valid = match kind {
+        VaultKind::UserSession => expected_mode == 0o600,
+        VaultKind::System => {
+            (expected_mode == 0o640 || expected_mode == 0o600)
+                && (expected_mode & 0o007 == 0)
+                && (expected_mode & 0o020 == 0)
+        }
+    };
     if before.dev() != after.dev()
         || before.ino() != after.ino()
         || after.uid() != uid
-        || after.mode() & 0o777 != 0o600
+        || !mode_valid
         || after.nlink() != 1
     {
         return Err(VaultError::UnsafeFilesystem);
@@ -695,25 +824,36 @@ struct VaultLock {
 }
 
 impl VaultLock {
-    fn acquire(root: &Path, uid: u32) -> Result<Self, VaultError> {
-        validate_directory(root, uid)?;
+    #[allow(clippy::verbose_bit_mask)]
+    fn acquire(root: &Path, uid: u32, kind: VaultKind) -> Result<Self, VaultError> {
+        validate_directory(root, uid, kind)?;
         let path = root.join(LOCK_FILE);
         let deadline = Instant::now()
             .checked_add(LOCK_TIMEOUT)
             .ok_or(VaultError::LockTimeout)?;
+        let create_mode = match kind {
+            VaultKind::UserSession => 0o600,
+            VaultKind::System => 0o640,
+        };
         loop {
             match OpenOptions::new()
                 .write(true)
                 .create_new(true)
-                .mode(0o600)
+                .mode(create_mode)
                 .open(&path)
             {
                 Ok(file) => {
                     let metadata = file.metadata()?;
-                    if metadata.uid() != uid
-                        || metadata.mode() & 0o777 != 0o600
-                        || metadata.nlink() != 1
-                    {
+                    let mode = metadata.mode() & 0o777;
+                    let mode_valid = match kind {
+                        VaultKind::UserSession => mode == 0o600,
+                        VaultKind::System => {
+                            (mode == 0o640 || mode == 0o600)
+                                && (mode & 0o007 == 0)
+                                && (mode & 0o020 == 0)
+                        }
+                    };
+                    if metadata.uid() != uid || !mode_valid || metadata.nlink() != 1 {
                         drop(file);
                         let _ = fs::remove_file(&path);
                         return Err(VaultError::UnsafeFilesystem);
@@ -745,6 +885,7 @@ fn write_verified_atomic(
     bytes: &[u8],
     key: &MasterKey,
     uid: u32,
+    kind: VaultKind,
 ) -> Result<(), VaultError> {
     if bytes.is_empty() || bytes.len() > MAXIMUM_VAULT_BYTES {
         return Err(VaultError::Oversized);
@@ -756,19 +897,39 @@ fn write_verified_atomic(
         path: temporary_path.clone(),
         armed: true,
     };
+    let file_mode = match kind {
+        VaultKind::UserSession => 0o600,
+        VaultKind::System => 0o640,
+    };
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(0o600)
+        .mode(file_mode)
         .open(&temporary_path)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
-    let verified = SensitiveBytes(read_secure_file(&temporary_path, uid)?);
+    let verified = SensitiveBytes(read_secure_file(&temporary_path, uid, kind)?);
     drop(decode_vault(&verified.0, key, uid)?);
     fs::rename(&temporary_path, final_path)?;
     cleanup.armed = false;
     sync_directory(root)
+}
+
+/// Migrates a verified profile from a legacy user-session vault to a system vault.
+///
+/// # Errors
+///
+/// Returns an error if the legacy vault cannot be opened/authenticated with `key`
+/// or if writing to the system vault fails.
+pub fn migrate_legacy_vault(
+    legacy_storage: &Vault,
+    system_storage: &Vault,
+    key: &MasterKey,
+) -> Result<ProfileSummary, VaultError> {
+    let profile = legacy_storage.open_profile(key)?;
+    system_storage.commit_profile(key, &profile)?;
+    system_storage.validate_integrity(key)
 }
 
 struct TemporaryFile {
@@ -1038,9 +1199,9 @@ mod tests {
         let original = fs::read(&final_path).unwrap();
 
         {
-            let _lock = VaultLock::acquire(&root, current_uid()).unwrap();
+            let _lock = VaultLock::acquire(&root, current_uid(), VaultKind::UserSession).unwrap();
             assert!(matches!(
-                VaultLock::acquire(&root, current_uid()),
+                VaultLock::acquire(&root, current_uid(), VaultKind::UserSession),
                 Err(VaultError::LockTimeout)
             ));
         }
@@ -1051,7 +1212,8 @@ mod tests {
                 &final_path,
                 &[0; OUTER_HEADER_BYTES],
                 &key,
-                current_uid()
+                current_uid(),
+                VaultKind::UserSession,
             )
             .is_err()
         );
@@ -1099,5 +1261,79 @@ mod tests {
             let mut provider = UnavailableProvider(state);
             assert_eq!(provider.master_key().err(), Some(state));
         }
+    }
+
+    #[test]
+    fn system_vault_permissions_and_dac_least_privilege() {
+        let root = temporary_root("system-dac");
+        let vault = Vault::for_system_test(root.clone(), current_uid());
+        let key = MasterKey::generate().unwrap();
+        vault.commit_profile(&key, &profile()).unwrap();
+
+        // Check directory permission is 0750
+        let dir_meta = fs::symlink_metadata(&root).unwrap();
+        assert_eq!(dir_meta.mode() & 0o777, 0o750);
+
+        // Check vault file permission is 0640
+        let file_path = root.join(VAULT_FILE);
+        let file_meta = fs::symlink_metadata(&file_path).unwrap();
+        assert_eq!(file_meta.mode() & 0o777, 0o640);
+
+        // Status and open succeed with 0750/0640
+        assert_eq!(
+            vault.status(Some(&key)),
+            VaultStatus::Ready(ProfileSummary {
+                enrolled: true,
+                sample_count: 3
+            })
+        );
+        assert_eq!(vault.open_profile(&key).unwrap().sample_count(), 3);
+
+        // Disallow group-writable mode (e.g. 0770 or 0660)
+        fs::set_permissions(&file_path, fs::Permissions::from_mode(0o660)).unwrap();
+        assert!(matches!(
+            vault.open_profile(&key),
+            Err(VaultError::UnsafeFilesystem)
+        ));
+
+        // Disallow others-readable mode (e.g. 0644)
+        fs::set_permissions(&file_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            vault.open_profile(&key),
+            Err(VaultError::UnsafeFilesystem)
+        ));
+
+        // Restore 0640
+        fs::set_permissions(&file_path, fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(vault.open_profile(&key).is_ok());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn system_vault_migration_round_trip() {
+        let legacy_root = temporary_root("legacy-src");
+        let system_root = temporary_root("system-dst");
+
+        let legacy_vault = Vault::for_test(legacy_root.clone(), current_uid());
+        let system_vault = Vault::for_system_test(system_root.clone(), current_uid());
+
+        let key = MasterKey::generate().unwrap();
+        legacy_vault.commit_profile(&key, &profile()).unwrap();
+
+        let summary = migrate_legacy_vault(&legacy_vault, &system_vault, &key).unwrap();
+        assert!(summary.enrolled);
+        assert_eq!(summary.sample_count, 3);
+
+        // Verify system vault properties
+        assert_eq!(system_vault.status(Some(&key)), VaultStatus::Ready(summary));
+        assert_eq!(system_vault.open_profile(&key).unwrap().sample_count(), 3);
+
+        let system_file = system_root.join(VAULT_FILE);
+        let meta = fs::symlink_metadata(&system_file).unwrap();
+        assert_eq!(meta.mode() & 0o777, 0o640);
+
+        fs::remove_dir_all(legacy_root).unwrap();
+        fs::remove_dir_all(system_root).unwrap();
     }
 }

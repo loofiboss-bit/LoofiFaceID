@@ -36,6 +36,22 @@ extern "C"
 
     uint32_t kfaceauth_current_uid(void);
 
+    int kfaceauth_socket_peer_cred(int socket_fd, uint32_t *uid, uint32_t *gid, int32_t *pid);
+
+    int kfaceauth_drop_privileges(const char *username, const char *groupname);
+
+    int kfaceauth_master_key_for_uid(uint32_t uid, uint8_t *key_out, size_t key_len, const char *custom_keys_dir);
+
+    int kfaceauth_seal_master_key(uint32_t uid, const uint8_t *key_in, size_t key_len, const char *custom_keys_dir);
+
+    int kfaceauth_systemd_listen_fds(void);
+
+    int kfaceauth_set_socket_permissions(const char *path, uint32_t mode, const char *groupname);
+
+    int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms,
+                               uint8_t *buffer, size_t buffer_size,
+                               uint32_t *width_out, uint32_t *height_out, uint32_t *format_out);
+
 #ifdef __cplusplus
 }
 #endif

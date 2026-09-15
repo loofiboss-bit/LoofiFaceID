@@ -1,0 +1,21 @@
+## <summary>LoofiFaceID face authentication daemon policy</summary>
+
+########################################
+## <summary>
+##	Connect to kfaceauthd over unix domain stream socket.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`kfaceauth_stream_connect',`
+	gen_require(`
+		type kfaceauth_t, kfaceauth_sock_t;
+	')
+
+	allow $1 kfaceauth_sock_t:dir search_dir_perms;
+	allow $1 kfaceauth_sock_t:sock_file write_sock_file_perms;
+	allow $1 kfaceauth_t:unix_stream_socket connectto;
+')

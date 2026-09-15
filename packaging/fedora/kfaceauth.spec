@@ -35,6 +35,8 @@ BuildRequires:  python3
 BuildRequires:  qt6-qtbase-devel >= 6.8.0
 BuildRequires:  qt6-qtdeclarative-devel >= 6.8.0
 BuildRequires:  qt6-qtmultimedia-devel >= 6.8.0
+BuildRequires:  checkpolicy
+BuildRequires:  pam-devel
 BuildRequires:  rust
 BuildRequires:  rustfmt
 BuildRequires:  systemd-devel
@@ -105,7 +107,16 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_libexecdir}/kfaceauth-camera-preview-worker
 %{_libexecdir}/kfaceauth-vision-worker
 %{_libexecdir}/kfaceauth-identity-worker
+%{_libexecdir}/kfaceauthd
+%{_bindir}/kfaceauth-migrate-vault
+%{_libdir}/security/pam_kfaceauth.so
+%{_unitdir}/kfaceauth.service
+%{_unitdir}/kfaceauth.socket
 %dir %{_datadir}/kfaceauth
+%dir %{_datadir}/kfaceauth/selinux
+%{_datadir}/kfaceauth/selinux/kfaceauth.te
+%{_datadir}/kfaceauth/selinux/kfaceauth.fc
+%{_datadir}/kfaceauth/selinux/kfaceauth.if
 %dir %{_datadir}/kfaceauth/models
 %dir %{_datadir}/kfaceauth/models/files
 %dir %{_datadir}/kfaceauth/models/licenses
@@ -118,6 +129,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_datadir}/kfaceauth/models/provenance/sface-2021dec.txt
 %{_datadir}/kfaceauth/models/provenance/yunet-2023mar.txt
 %{_datadir}/applications/kcm_kfaceauth.desktop
+%dir %attr(0750,root,kfaceauth) %{_sharedstatedir}/kfaceauth
+%dir %attr(0750,root,kfaceauth) %{_sysconfdir}/kfaceauth
+%dir %attr(0700,root,root) %{_sysconfdir}/kfaceauth/keys
 
 %changelog
 * Tue Jul 28 2026 Loofi <noreply@example.invalid> - 4.0.0-1

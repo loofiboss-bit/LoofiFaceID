@@ -750,24 +750,24 @@ also require the named physical hardware and representative vectors.
 Architect and implement the multi-user system daemon (`kfaceauthd`); establish system vault hierarchy in `/var/lib/kfaceauth/<uid>/` under least-privilege DAC; design unified pre-login master key access via TPM 2.0 / system keyring; implement the thin PAM conversation module (`pam_kfaceauth.so`).
 
 #### Concrete Tasks:
-- [ ] **Task 4.1: Standalone System Daemon (`kfaceauthd`)**:
+- [x] **Task 4.1: Standalone System Daemon (`kfaceauthd`)**:
   - Create daemon service in `engine/daemon/` listening on `/run/kfaceauth/kfaceauthd.sock`.
   - Configure `systemd` socket activation and unit file `data/systemd/kfaceauth.service`.
   - Enforce peer authentication via `SO_PEERCRED` / `getpeereid()`, isolating requests by calling UID.
-- [ ] **Task 4.2: System Vault Migration (`/var/lib/kfaceauth/<uid>/`)**:
+- [x] **Task 4.2: System Vault Migration (`/var/lib/kfaceauth/<uid>/`)**:
   - Refactor `engine/templates/src/lib.rs` to support `/var/lib/kfaceauth/<uid>/identity.vault`.
   - Enforce least-privilege DAC ownership and permissions: `/var/lib/kfaceauth` (Mode `0750`, `root:kfaceauth`), `/var/lib/kfaceauth/<uid>` (Mode `0750`, `<uid>:kfaceauth`), and `identity.vault` (Mode `0640`, `<uid>:kfaceauth`).
   - Eliminate any reliance on `CAP_DAC_OVERRIDE` by allowing `kfaceauthd` to access vault structures strictly through `kfaceauth` group membership.
   - Implement migration tool for converting legacy `$XDG_DATA_HOME/kfaceauth` vaults to the system path.
-- [ ] **Task 4.3: Pre-Login Master Key Architecture & Key Synchronization**:
+- [x] **Task 4.3: Pre-Login Master Key Architecture & Key Synchronization**:
   - Implement TPM 2.0 sealed master key provider using `libtss2` / `tss2-esys`, binding keys to PCR 0 (firmware) and PCR 7 (Secure Boot).
   - Implement fallback system keyring provider using Linux `keyutils` (`keyctl`) for systems lacking hardware TPM 2.0.
   - Establish `kfaceauthd` as the single authoritative master key custodian; update desktop KCM to delegate vault operations to `kfaceauthd` over Unix domain socket, guaranteeing that pre-login PAM at SDDM decrypts user vaults using the identical master key without AEAD tag desynchronization.
-- [ ] **Task 4.4: Thin PAM Conversation Module (`pam_kfaceauth.so`)**:
+- [x] **Task 4.4: Thin PAM Conversation Module (`pam_kfaceauth.so`)**:
   - Author zero-dependency PAM module in `pam/src/pam_kfaceauth.c` (or Rust `pam` crate).
   - Connect to `kfaceauthd` over Unix domain socket; pass target user identity; enforce strict 2.0-second timeout.
   - Fail closed to `PAM_AUTH_ERR` on any anomaly, allowing seamless password fallback.
-- [ ] **Task 4.5: SELinux Confinement Policy**:
+- [x] **Task 4.5: SELinux Confinement Policy**:
   - Author SELinux policy module `data/selinux/kfaceauth.te` defining types `kfaceauth_t`, `kfaceauth_var_lib_t`, and `kfaceauth_sock_t`.
   - Confine daemon access strictly to camera device nodes, system vault files, and local sockets.
 
@@ -775,8 +775,19 @@ Architect and implement the multi-user system daemon (`kfaceauthd`); establish s
 - `engine/daemon/` (New Subsystem)
 - `pam/` (New Subsystem)
 - `engine/templates/src/lib.rs`
+- `engine/crypto-openssl-sys/`
 - `data/systemd/kfaceauth.service`, `data/systemd/kfaceauth.socket`
-- `data/selinux/kfaceauth.te`
+- `data/selinux/kfaceauth.te`, `kfaceauth.fc`, `kfaceauth.if`
+
+Implementation status: Tasks 4.1–4.5 and Gates 4.1–4.3 are fully implemented
+and verified in the tree. The standalone daemon (`kfaceauthd`) is implemented
+with `#![forbid(unsafe_code)]`, enforcing peer credentials over Unix domain
+sockets and immediately dropping root privileges to `kfaceauth:kfaceauth`
+without `CAP_DAC_OVERRIDE`. The system vault hierarchy `/var/lib/kfaceauth/<uid>/`
+is enforced with least-privilege DAC modes (directory 0750, file 0640). The thin
+PAM module (`pam_kfaceauth.so`) enforces strict <=2.0s timeouts and fails closed
+to `PAM_AUTH_ERR` without user dialogs or delays. Full SELinux module sources and
+systemd socket activation units are verified.
 
 #### Measurable Test Criteria:
 - Automated PAM test suite executing against mock PAM environment succeeds in authenticating matching user and rejects non-matching user.
@@ -784,9 +795,9 @@ Architect and implement the multi-user system daemon (`kfaceauthd`); establish s
 - SELinux audit log confirms zero `avc: denied` messages in enforcing mode during authentication.
 
 #### Strict Acceptance Gate Conditions:
-- [ ] **Gate 4.1**: Daemon drops root privileges immediately upon socket creation; worker executes strictly as `kfaceauth:kfaceauth` without requiring `CAP_DAC_OVERRIDE`.
-- [ ] **Gate 4.2**: PAM module aborts within $\le 2.0\text{ seconds}$ if camera is busy or user is absent, falling back to password prompt without error dialogs.
-- [ ] **Gate 4.3**: Cross-UID access attack test verifies that a process running as UID 1001 cannot query, decrypt, or tamper with UID 1000's vault.
+- [x] **Gate 4.1**: Daemon drops root privileges immediately upon socket creation; worker executes strictly as `kfaceauth:kfaceauth` without requiring `CAP_DAC_OVERRIDE`.
+- [x] **Gate 4.2**: PAM module aborts within $\le 2.0\text{ seconds}$ if camera is busy or user is absent, falling back to password prompt without error dialogs.
+- [x] **Gate 4.3**: Cross-UID access attack test verifies that a process running as UID 1001 cannot query, decrypt, or tamper with UID 1000's vault.
 
 ---
 

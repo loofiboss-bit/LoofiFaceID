@@ -4,8 +4,11 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use std::ffi::c_int;
+use std::ffi::{CString, c_int};
 use std::fmt;
+use std::os::fd::{FromRawFd, RawFd};
+use std::os::unix::net::UnixListener;
+use std::path::Path;
 
 use zeroize::Zeroize;
 
@@ -57,6 +60,43 @@ unsafe extern "C" {
         output_size: usize,
     ) -> c_int;
     fn kfaceauth_current_uid() -> u32;
+    fn kfaceauth_socket_peer_cred(
+        socket_fd: c_int,
+        uid: *mut u32,
+        gid: *mut u32,
+        pid: *mut i32,
+    ) -> c_int;
+    fn kfaceauth_drop_privileges(
+        username: *const std::ffi::c_char,
+        groupname: *const std::ffi::c_char,
+    ) -> c_int;
+    fn kfaceauth_master_key_for_uid(
+        uid: u32,
+        key_out: *mut u8,
+        key_len: usize,
+        custom_keys_dir: *const std::ffi::c_char,
+    ) -> c_int;
+    fn kfaceauth_seal_master_key(
+        uid: u32,
+        key_in: *const u8,
+        key_len: usize,
+        custom_keys_dir: *const std::ffi::c_char,
+    ) -> c_int;
+    fn kfaceauth_systemd_listen_fds() -> c_int;
+    fn kfaceauth_set_socket_permissions(
+        path: *const std::ffi::c_char,
+        mode: u32,
+        groupname: *const std::ffi::c_char,
+    ) -> c_int;
+    fn kfaceauth_v4l2_capture(
+        device_path: *const std::ffi::c_char,
+        timeout_ms: u32,
+        buffer: *mut u8,
+        buffer_size: usize,
+        width_out: *mut u32,
+        height_out: *mut u32,
+        format_out: *mut u32,
+    ) -> c_int;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -253,9 +293,178 @@ pub fn sha256(input: &[u8]) -> Result<[u8; 32], CryptoError> {
     Ok(output)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PeerCredentials {
+    pub uid: u32,
+    pub gid: u32,
+    pub pid: i32,
+}
+
+/// Retrieves peer credentials from a connected Unix domain socket.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if the descriptor is invalid or `getsockopt(SO_PEERCRED)` fails.
+pub fn peer_credentials(raw_fd: RawFd) -> Result<PeerCredentials, CryptoError> {
+    let mut uid = 0_u32;
+    let mut gid = 0_u32;
+    let mut pid = 0_i32;
+    // SAFETY: pointers point to valid stack variables.
+    let status = unsafe { kfaceauth_socket_peer_cred(raw_fd, &mut uid, &mut gid, &mut pid) };
+    status_result(status)?;
+    Ok(PeerCredentials { uid, gid, pid })
+}
+
+/// Permanently drops root privileges to the specified user and group without retaining capabilities.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if user/group lookup fails or privilege change cannot be verified.
+pub fn drop_privileges(username: &str, groupname: &str) -> Result<(), CryptoError> {
+    let c_user = CString::new(username).map_err(|_| CryptoError::InvalidArgument)?;
+    let c_group = CString::new(groupname).map_err(|_| CryptoError::InvalidArgument)?;
+    // SAFETY: c_user and c_group are valid null-terminated C strings.
+    let status = unsafe { kfaceauth_drop_privileges(c_user.as_ptr(), c_group.as_ptr()) };
+    status_result(status)
+}
+
+/// Retrieves or creates an authoritative 32-byte master key for `uid`.
+///
+/// If TPM 2.0 is available and functional, tries to unseal from TPM.
+/// Otherwise, uses the root-protected system keyring (`/etc/kfaceauth/keys/<uid>.key` with Mode `0600`).
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] on I/O, crypto, or permission failures.
+pub fn master_key_for_uid(
+    uid: u32,
+    custom_keys_dir: Option<&Path>,
+) -> Result<[u8; KEY_BYTES], CryptoError> {
+    let mut key = [0_u8; KEY_BYTES];
+    let c_dir = match custom_keys_dir {
+        Some(path) => {
+            let s = path.to_str().ok_or(CryptoError::InvalidArgument)?;
+            Some(CString::new(s).map_err(|_| CryptoError::InvalidArgument)?)
+        }
+        None => None,
+    };
+    let dir_ptr = c_dir.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+    // SAFETY: key is a valid 32-byte buffer and dir_ptr is null or null-terminated string.
+    let status = unsafe { kfaceauth_master_key_for_uid(uid, key.as_mut_ptr(), KEY_BYTES, dir_ptr) };
+    if status != STATUS_OK {
+        key.zeroize();
+        return Err(match status {
+            STATUS_INVALID_ARGUMENT => CryptoError::InvalidArgument,
+            STATUS_AUTHENTICATION_FAILURE => CryptoError::AuthenticationFailure,
+            _ => CryptoError::ProviderFailure,
+        });
+    }
+    Ok(key)
+}
+
+/// Seals an authoritative master key for `uid` into the system key store.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] on failure to seal or persist the key.
+pub fn seal_master_key(
+    uid: u32,
+    key: &[u8; KEY_BYTES],
+    custom_keys_dir: Option<&Path>,
+) -> Result<(), CryptoError> {
+    let c_dir = match custom_keys_dir {
+        Some(path) => {
+            let s = path.to_str().ok_or(CryptoError::InvalidArgument)?;
+            Some(CString::new(s).map_err(|_| CryptoError::InvalidArgument)?)
+        }
+        None => None,
+    };
+    let dir_ptr = c_dir.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+    // SAFETY: key is a valid 32-byte slice and dir_ptr is null or null-terminated string.
+    let status = unsafe { kfaceauth_seal_master_key(uid, key.as_ptr(), KEY_BYTES, dir_ptr) };
+    status_result(status)
+}
+
+/// Checks for systemd socket activation and returns an inherited [`UnixListener`] if present.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] on failure to inspect or construct listener.
+pub fn systemd_socket_listener() -> Result<Option<UnixListener>, CryptoError> {
+    // SAFETY: FFI call safely reads and unsets LISTEN_PID and LISTEN_FDS in C.
+    let fds = unsafe { kfaceauth_systemd_listen_fds() };
+    if fds >= 1 {
+        // SD_LISTEN_FDS_START is fd 3
+        // SAFETY: fd 3 is inherited by systemd socket activation.
+        let listener = unsafe { UnixListener::from_raw_fd(3) };
+        Ok(Some(listener))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Sets permissions and optional group ownership on a socket or file path.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if path is invalid or chmod fails.
+pub fn set_socket_permissions(
+    path: &Path,
+    mode: u32,
+    groupname: Option<&str>,
+) -> Result<(), CryptoError> {
+    let s = path.to_str().ok_or(CryptoError::InvalidArgument)?;
+    let c_path = CString::new(s).map_err(|_| CryptoError::InvalidArgument)?;
+    let c_group = match groupname {
+        Some(g) => Some(CString::new(g).map_err(|_| CryptoError::InvalidArgument)?),
+        None => None,
+    };
+    let grp_ptr = c_group.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+    // SAFETY: valid C strings passed.
+    let status = unsafe { kfaceauth_set_socket_permissions(c_path.as_ptr(), mode, grp_ptr) };
+    status_result(status)
+}
+
+/// Attempts a single V4L2 camera capture.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if camera device is unavailable, busy, or capture fails.
+pub fn v4l2_capture(
+    device_path: Option<&str>,
+    timeout_ms: u32,
+    buffer: &mut [u8],
+) -> Result<(u32, u32, u32), CryptoError> {
+    let c_path = match device_path {
+        Some(d) => Some(CString::new(d).map_err(|_| CryptoError::InvalidArgument)?),
+        None => None,
+    };
+    let dev_ptr = c_path.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+    let mut width: u32 = 0;
+    let mut height: u32 = 0;
+    let mut format: u32 = 0;
+    // SAFETY: pointers point to valid stack memory and buffer slice.
+    let status = unsafe {
+        kfaceauth_v4l2_capture(
+            dev_ptr,
+            timeout_ms,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut width,
+            &mut height,
+            &mut format,
+        )
+    };
+    if status != STATUS_OK {
+        return Err(CryptoError::ProviderFailure);
+    }
+    Ok((width, height, format))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::net::UnixStream;
 
     #[test]
     fn round_trip_and_tamper_rejection() {
@@ -276,6 +485,12 @@ mod tests {
     }
 
     #[test]
+    fn systemd_socket_listener_returns_none_when_unset() {
+        let listener = systemd_socket_listener().unwrap();
+        assert!(listener.is_none());
+    }
+
+    #[test]
     fn random_nonces_are_unique() {
         assert_ne!(
             random::<NONCE_BYTES>().unwrap(),
@@ -291,5 +506,34 @@ mod tests {
             hex,
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn peer_credentials_from_unix_socket() {
+        use std::os::fd::AsRawFd;
+        let (sock_a, _sock_b) = UnixStream::pair().unwrap();
+        let creds = peer_credentials(sock_a.as_raw_fd()).unwrap();
+        assert_eq!(creds.uid, current_uid());
+    }
+
+    #[test]
+    fn master_key_generation_and_persistence() {
+        let tmp = std::env::temp_dir().join(format!("kfaceauth-key-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let uid = 1000_u32;
+        let key1 = master_key_for_uid(uid, Some(&tmp)).unwrap();
+        assert_ne!(key1, [0_u8; KEY_BYTES]);
+
+        // Second retrieval should yield identical key
+        let key2 = master_key_for_uid(uid, Some(&tmp)).unwrap();
+        assert_eq!(key1, key2);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn drop_privileges_as_non_root_succeeds() {
+        // When unprivileged, drop_privileges is a no-op success
+        assert!(drop_privileges("nobody", "nobody").is_ok());
     }
 }

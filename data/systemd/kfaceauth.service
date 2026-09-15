@@ -1,0 +1,36 @@
+[Unit]
+Description=KFaceAuth Standalone Face Authentication Daemon
+Documentation=man:kfaceauthd(8)
+Requires=kfaceauth.socket
+After=kfaceauth.socket local-fs.target systemd-udevd.service
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/kfaceauthd
+User=kfaceauth
+Group=kfaceauth
+StandardOutput=journal
+StandardError=journal
+Restart=on-failure
+RestartSec=1s
+
+# Hardening & Sandboxing (Gate 4.1 least-privilege)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/kfaceauth /run/kfaceauth
+ReadOnlyPaths=/usr/share/kfaceauth/models /etc/kfaceauth
+DeviceAllow=/dev/video* r
+DeviceAllow=/dev/tpmrm0 rw
+
+[Install]
+WantedBy=multi-user.target
