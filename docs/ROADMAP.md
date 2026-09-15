@@ -1,5 +1,9 @@
 # Roadmap
 
+> [!NOTE]
+> For the comprehensive v5.0 technical specification, quantitative latency budgets, and execution roadmap, see **[ROADMAP-V5.md](ROADMAP-V5.md)**.
+> For the complete repository and subsystem architecture audit, see **[REVIEW-V4.md](REVIEW-V4.md)**.
+
 ## Completed foundations
 
 - Milestone 1: standalone native-v4 identity, asynchronous status, closed Rust

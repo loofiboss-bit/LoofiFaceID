@@ -115,6 +115,10 @@ Architecture and threat boundaries are documented in
 maintained in [docs/HARDWARE-QUALIFICATION.md](docs/HARDWARE-QUALIFICATION.md)
 and [docs/V4-QUALIFICATION-REPORT.md](docs/V4-QUALIFICATION-REPORT.md).
 
+For deep-dive architecture audits and the next-generation specification:
+- [docs/REVIEW-V4.md](docs/REVIEW-V4.md): Complete repository review, subsystem architecture audit, and profiling of bottlenecks B1–B14.
+- [docs/ROADMAP-V5.md](docs/ROADMAP-V5.md): Technical specification and roadmap for v5.0, latency budgets, persistent worker-pools, and PAM/daemon decoupling.
+
 ## License
 
 Project code is GPL-3.0-or-later. YuNet weights are MIT. SFace weights and
