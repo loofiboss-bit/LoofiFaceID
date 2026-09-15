@@ -57,7 +57,8 @@ jobs:
             rpmlint \
             rust \
             rustfmt \
-            systemd-devel
+            systemd-devel \
+            systemd-rpm-macros
 
       - name: Build source archive
         run: packaging/fedora/create-source-archive.sh

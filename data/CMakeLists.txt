@@ -18,6 +18,13 @@ install(
     DESTINATION lib/systemd/system
 )
 
+# Systemd sysusers configuration
+install(
+    FILES
+        sysusers/kfaceauth.conf
+    DESTINATION lib/sysusers.d
+)
+
 # SELinux policy files
 install(
     FILES

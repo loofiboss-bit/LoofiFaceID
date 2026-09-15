@@ -16,6 +16,7 @@ Provides:       plasma-irlume = %{version}-%{release}
 
 BuildRequires:  cmake >= 3.22
 BuildRequires:  cmake-rpm-macros
+BuildRequires:  systemd-rpm-macros
 BuildRequires:  cargo
 BuildRequires:  clang-tools-extra
 BuildRequires:  clippy
@@ -116,6 +117,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_libdir}/security/pam_kfaceauth.so
 %{_unitdir}/kfaceauth.service
 %{_unitdir}/kfaceauth.socket
+%{_sysusersdir}/kfaceauth.conf
 %dir %{_datadir}/kfaceauth
 %dir %{_datadir}/kfaceauth/selinux
 %{_datadir}/kfaceauth/selinux/kfaceauth.te
