@@ -115,6 +115,19 @@ impl IdentityProvider {
             .ok()
             .and_then(|width| width.checked_mul(3))
             .ok_or(IdentityError::InvalidEmbedding)?;
+
+        let pad_decision = crate::liveness::PresentationAttackDetector::evaluate_single_frame(
+            &bgr.bytes.0,
+            bgr.width,
+            bgr.height,
+            stride,
+            detection,
+            None,
+        );
+        if let crate::liveness::LivenessDecision::SpoofDetected(spoof) = pad_decision {
+            return Err(IdentityError::SpoofDetected(spoof));
+        }
+
         let raw = self
             .recognizer
             .extract(&bgr.bytes.0, bgr.width, bgr.height, stride, detection)
@@ -194,21 +207,41 @@ pub enum IdentityError {
     PoorQuality,
     FaceGeometry,
     InvalidEmbedding,
+    SpoofDetected(crate::liveness::SpoofKind),
     Runtime(BridgeError),
 }
 
 impl fmt::Display for IdentityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Cancelled => "identity extraction was cancelled",
-            Self::DeadlineExceeded => "identity extraction deadline was exceeded",
-            Self::NoFace => "exactly one face is required",
-            Self::MultipleFaces => "multiple faces are not accepted",
-            Self::PoorQuality => "image quality is outside the accepted bounds",
-            Self::FaceGeometry => "face size or edge position is outside the accepted bounds",
-            Self::InvalidEmbedding => "embedding output violated the identity contract",
-            Self::Runtime(_) => "identity runtime failed",
-        })
+        match self {
+            Self::Cancelled => formatter.write_str("identity extraction was cancelled"),
+            Self::DeadlineExceeded => {
+                formatter.write_str("identity extraction deadline was exceeded")
+            }
+            Self::NoFace => formatter.write_str("exactly one face is required"),
+            Self::MultipleFaces => formatter.write_str("multiple faces are not accepted"),
+            Self::PoorQuality => {
+                formatter.write_str("image quality is outside the accepted bounds")
+            }
+            Self::FaceGeometry => {
+                formatter.write_str("face size or edge position is outside the accepted bounds")
+            }
+            Self::InvalidEmbedding => {
+                formatter.write_str("embedding output violated the identity contract")
+            }
+            Self::SpoofDetected(spoof) => write!(
+                formatter,
+                "presentation attack detected: {}",
+                match spoof {
+                    crate::liveness::SpoofKind::PrintAttack => "printed photo attack",
+                    crate::liveness::SpoofKind::ScreenReplay => "screen replay attack",
+                    crate::liveness::SpoofKind::UnnaturalBlink => "unnatural blink",
+                    crate::liveness::SpoofKind::PoseChallengeFailed => "pose challenge failed",
+                    crate::liveness::SpoofKind::LowNirReflectance => "low NIR reflectance",
+                }
+            ),
+            Self::Runtime(_) => formatter.write_str("identity runtime failed"),
+        }
     }
 }
 

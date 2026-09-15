@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const OPENCV_LIBRARIES: &[&str] = &[
+    "opencv_calib3d",
     "opencv_objdetect",
     "opencv_dnn",
     "opencv_imgproc",

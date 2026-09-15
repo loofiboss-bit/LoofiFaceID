@@ -3,6 +3,7 @@
 #include "yunet_bridge.h"
 #include "yunet_output_validation.h"
 
+#include <opencv2/calib3d.hpp>
 #include <opencv2/core/version.hpp>
 #include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
@@ -1121,5 +1122,276 @@ extern "C" void kfaceauth_sface_destroy(void *recognizer)
     catch (...)
     {
         // Destructors must never unwind across the C ABI.
+    }
+}
+
+extern "C" int kfaceauth_estimate_head_pose(const KFaceAuthYuNetDetection *detection, int32_t image_width,
+                                            int32_t image_height, KFaceAuthHeadPose *pose_out)
+{
+    if (!detection || !pose_out || image_width <= 0 || image_height <= 0)
+        return KFACEAUTH_YUNET_INVALID_ARGUMENT;
+    if (!std::all_of(std::begin(detection->values), std::end(detection->values),
+                     [](float value) { return std::isfinite(value); }))
+        return KFACEAUTH_YUNET_INVALID_ARGUMENT;
+
+    pose_out->yaw = 0.0F;
+    pose_out->pitch = 0.0F;
+    pose_out->roll = 0.0F;
+
+    try
+    {
+        const std::vector<cv::Point3f> objectPoints = {
+            cv::Point3f(32.0F, 33.0F, -15.0F),  cv::Point3f(-32.0F, 33.0F, -15.0F),  cv::Point3f(0.0F, 0.0F, 25.0F),
+            cv::Point3f(25.0F, -42.0F, -10.0F), cv::Point3f(-25.0F, -42.0F, -10.0F),
+        };
+
+        const std::vector<cv::Point2f> imagePoints = {
+            cv::Point2f(detection->values[4], detection->values[5]),
+            cv::Point2f(detection->values[6], detection->values[7]),
+            cv::Point2f(detection->values[8], detection->values[9]),
+            cv::Point2f(detection->values[10], detection->values[11]),
+            cv::Point2f(detection->values[12], detection->values[13]),
+        };
+
+        const auto focal_length = static_cast<double>(std::max(image_width, image_height));
+        const cv::Point2d center(static_cast<double>(image_width) / 2.0, static_cast<double>(image_height) / 2.0);
+        const cv::Mat cameraMatrix =
+            (cv::Mat_<double>(3, 3) << focal_length, 0.0, center.x, 0.0, focal_length, center.y, 0.0, 0.0, 1.0);
+        const cv::Mat distCoeffs = cv::Mat::zeros(4, 1, CV_64F);
+
+        cv::Mat rvec;
+        cv::Mat tvec;
+        bool success =
+            cv::solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs, rvec, tvec, false, cv::SOLVEPNP_EPNP);
+        if (!success)
+        {
+            success = cv::solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs, rvec, tvec, false,
+                                   cv::SOLVEPNP_ITERATIVE);
+        }
+        if (success)
+        {
+            cv::solvePnPRefineLM(objectPoints, imagePoints, cameraMatrix, distCoeffs, rvec, tvec);
+            cv::Mat rotationMatrix;
+            cv::Rodrigues(rvec, rotationMatrix);
+
+            const double r00 = rotationMatrix.at<double>(0, 0);
+            const double r10 = rotationMatrix.at<double>(1, 0);
+            const double r20 = rotationMatrix.at<double>(2, 0);
+            const double r21 = rotationMatrix.at<double>(2, 1);
+            const double r22 = rotationMatrix.at<double>(2, 2);
+
+            const double sy = std::sqrt(r00 * r00 + r10 * r10);
+            double pitch = 0.0;
+            double yaw = 0.0;
+            double roll = 0.0;
+            constexpr double Rad2Deg = 180.0 / 3.14159265358979323846;
+
+            if (sy > 1e-6)
+            {
+                pitch = std::atan2(-r20, sy) * Rad2Deg;
+                yaw = std::atan2(r10, r00) * Rad2Deg;
+                roll = std::atan2(r21, r22) * Rad2Deg;
+            }
+            else
+            {
+                pitch = std::atan2(-r20, sy) * Rad2Deg;
+                yaw = std::atan2(-rotationMatrix.at<double>(1, 2), rotationMatrix.at<double>(1, 1)) * Rad2Deg;
+                roll = 0.0;
+            }
+
+            clearMat(&rvec);
+            clearMat(&tvec);
+            clearMat(&rotationMatrix);
+
+            if (std::isfinite(yaw) && std::isfinite(pitch) && std::isfinite(roll))
+            {
+                pose_out->yaw = static_cast<float>(yaw);
+                pose_out->pitch = static_cast<float>(pitch);
+                pose_out->roll = static_cast<float>(roll);
+                return KFACEAUTH_YUNET_OK;
+            }
+        }
+        clearMat(&rvec);
+        clearMat(&tvec);
+        return KFACEAUTH_YUNET_RUNTIME_FAILURE;
+    }
+    catch (...)
+    {
+        return KFACEAUTH_YUNET_RUNTIME_FAILURE;
+    }
+}
+
+extern "C" int kfaceauth_analyze_texture(const uint8_t *bgr_bytes, size_t bgr_size, int32_t width, int32_t height,
+                                         size_t stride, const KFaceAuthYuNetDetection *detection,
+                                         KFaceAuthTextureMetrics *metrics_out)
+{
+    if (!bgr_bytes || !detection || !metrics_out || !validPackedBgr(bgr_size, width, height, stride))
+        return KFACEAUTH_YUNET_INVALID_ARGUMENT;
+    if (!std::all_of(std::begin(detection->values), std::end(detection->values),
+                     [](float value) { return std::isfinite(value); }))
+        return KFACEAUTH_YUNET_INVALID_ARGUMENT;
+
+    metrics_out->lbp_entropy = 0.0F;
+    metrics_out->moire_energy = 0.0F;
+
+    cv::Mat image;
+    cv::Mat gray;
+    cv::Mat crop;
+    cv::Mat floatCrop;
+    cv::Mat dftResult;
+    MatClearGuard guard1(&image, &gray, &crop);
+    MatClearGuard guard2(&floatCrop, &dftResult, nullptr);
+
+    try
+    {
+        image.create(height, width, CV_8UC3);
+        for (int32_t row = 0; row < height; ++row)
+        {
+            const auto rowOffset = static_cast<size_t>(row) * stride;
+            std::copy_n(bgr_bytes + rowOffset, stride, image.ptr<uint8_t>(row));
+        }
+
+        const float fx = detection->values[0];
+        const float fy = detection->values[1];
+        const float fw = detection->values[2];
+        const float fh = detection->values[3];
+
+        const int32_t x0 = std::clamp(static_cast<int32_t>(fx), 0, width - 1);
+        const int32_t y0 = std::clamp(static_cast<int32_t>(fy), 0, height - 1);
+        const int32_t x1 = std::clamp(static_cast<int32_t>(fx + fw), x0 + 1, width);
+        const int32_t y1 = std::clamp(static_cast<int32_t>(fy + fh), y0 + 1, height);
+
+        if (x1 - x0 < 16 || y1 - y0 < 16)
+            return KFACEAUTH_YUNET_INVALID_ARGUMENT;
+
+        const cv::Rect roi(x0, y0, x1 - x0, y1 - y0);
+        cv::cvtColor(image(roi), crop, cv::COLOR_BGR2GRAY);
+        cv::resize(crop, gray, cv::Size(112, 112));
+
+        // 1. Local Binary Pattern (LBP) calculation on 112x112 gray
+        std::array<uint32_t, 256> lbpHist = {0};
+        const int rows = gray.rows;
+        const int cols = gray.cols;
+        uint32_t totalLbp = 0;
+
+        for (int r = 1; r < rows - 1; ++r)
+        {
+            const uint8_t *prev = gray.ptr<uint8_t>(r - 1);
+            const uint8_t *curr = gray.ptr<uint8_t>(r);
+            const uint8_t *next = gray.ptr<uint8_t>(r + 1);
+            for (int c = 1; c < cols - 1; ++c)
+            {
+                const uint8_t centerVal = curr[c];
+                uint8_t code = 0;
+                if (prev[c - 1] >= centerVal)
+                    code = static_cast<uint8_t>(code | static_cast<uint8_t>(1U << 7));
+                if (prev[c] >= centerVal)
+                    code = static_cast<uint8_t>(code | static_cast<uint8_t>(1U << 6));
+                if (prev[c + 1] >= centerVal)
+                    code = static_cast<uint8_t>(code | static_cast<uint8_t>(1U << 5));
+                if (curr[c + 1] >= centerVal)
+                    code = static_cast<uint8_t>(code | static_cast<uint8_t>(1U << 4));
+                if (next[c + 1] >= centerVal)
+                    code = static_cast<uint8_t>(code | static_cast<uint8_t>(1U << 3));
+                if (next[c] >= centerVal)
+                    code = static_cast<uint8_t>(code | static_cast<uint8_t>(1U << 2));
+                if (next[c - 1] >= centerVal)
+                    code = static_cast<uint8_t>(code | static_cast<uint8_t>(1U << 1));
+                if (curr[c - 1] >= centerVal)
+                    code = static_cast<uint8_t>(code | static_cast<uint8_t>(1U << 0));
+                lbpHist[code]++;
+                totalLbp++;
+            }
+        }
+
+        double entropy = 0.0;
+        if (totalLbp > 0)
+        {
+            const auto total = static_cast<double>(totalLbp);
+            for (uint32_t count : lbpHist)
+            {
+                if (count > 0)
+                {
+                    const double p = static_cast<double>(count) / total;
+                    entropy -= p * (std::log(p) / std::log(2.0));
+                }
+            }
+        }
+        metrics_out->lbp_entropy = static_cast<float>(entropy);
+
+        // 2. 2D FFT Moiré / high-frequency periodicity analysis
+        gray.convertTo(floatCrop, CV_32F, 1.0 / 255.0);
+        cv::dft(floatCrop, dftResult, cv::DFT_COMPLEX_OUTPUT);
+
+        std::vector<cv::Mat> planes;
+        cv::split(dftResult, planes);
+        cv::Mat mag;
+        cv::magnitude(planes[0], planes[1], mag);
+        mag += cv::Scalar::all(1.0e-6);
+
+        const int cx = mag.cols / 2;
+        const int cy = mag.rows / 2;
+        cv::Mat q0(mag, cv::Rect(0, 0, cx, cy));
+        cv::Mat q1(mag, cv::Rect(cx, 0, cx, cy));
+        cv::Mat q2(mag, cv::Rect(0, cy, cx, cy));
+        cv::Mat q3(mag, cv::Rect(cx, cy, cx, cy));
+
+        cv::Mat tmp;
+        q0.copyTo(tmp);
+        q3.copyTo(q0);
+        tmp.copyTo(q3);
+
+        q1.copyTo(tmp);
+        q2.copyTo(q1);
+        tmp.copyTo(q2);
+
+        double totalEnergy = 0.0;
+        double highFreqEnergy = 0.0;
+        double maxHighFreqPeak = 0.0;
+        int highFreqCount = 0;
+
+        const int radiusInner = 15;
+        const int radiusOuter = 50;
+
+        for (int y = 0; y < mag.rows; ++y)
+        {
+            const float *magRow = mag.ptr<float>(y);
+            for (int x = 0; x < mag.cols; ++x)
+            {
+                const auto val = static_cast<double>(magRow[x]);
+                totalEnergy += val;
+                const double dist = std::sqrt(static_cast<double>((x - cx) * (x - cx) + (y - cy) * (y - cy)));
+                if (dist >= radiusInner && dist <= radiusOuter)
+                {
+                    highFreqEnergy += val;
+                    if (val > maxHighFreqPeak)
+                    {
+                        maxHighFreqPeak = val;
+                    }
+                    highFreqCount++;
+                }
+            }
+        }
+
+        double moireScore = 0.0;
+        if (highFreqCount > 0 && highFreqEnergy > 1e-6)
+        {
+            const double avgHighFreq = highFreqEnergy / static_cast<double>(highFreqCount);
+            const double papr = maxHighFreqPeak / avgHighFreq;
+            moireScore = papr * (highFreqEnergy / (totalEnergy + 1e-6));
+        }
+
+        metrics_out->moire_energy = static_cast<float>(moireScore);
+
+        clearMat(&tmp);
+        clearMat(&mag);
+        for (cv::Mat &p : planes)
+            clearMat(&p);
+
+        return KFACEAUTH_YUNET_OK;
+    }
+    catch (...)
+    {
+        return KFACEAUTH_YUNET_RUNTIME_FAILURE;
     }
 }

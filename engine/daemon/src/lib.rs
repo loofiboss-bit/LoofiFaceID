@@ -43,6 +43,7 @@ pub const STATUS_NO_PROFILE: u8 = 0x03;
 pub const STATUS_TIMEOUT: u8 = 0x04;
 pub const STATUS_DEVICE_BUSY: u8 = 0x05;
 pub const STATUS_INTERNAL_ERROR: u8 = 0x06;
+pub const STATUS_SPOOF_DETECTED: u8 = 0x07;
 
 #[derive(Clone, Debug)]
 pub struct DaemonConfig {
@@ -267,8 +268,12 @@ fn verify_frame_against_vault(
     let Ok(provider) = IdentityProvider::from_model_root(model_root) else {
         return STATUS_INTERNAL_ERROR;
     };
-    let Ok(embedding) = provider.extract(image, control) else {
-        return STATUS_AUTH_FAILED;
+    let embedding = match provider.extract(image, control) {
+        Ok(emb) => emb,
+        Err(kfaceauth_vision::identity::IdentityError::SpoofDetected(_)) => {
+            return STATUS_SPOOF_DETECTED;
+        }
+        Err(_) => return STATUS_AUTH_FAILED,
     };
     match vault.open_profile(key) {
         Ok(profile) => match profile.verify(&embedding) {

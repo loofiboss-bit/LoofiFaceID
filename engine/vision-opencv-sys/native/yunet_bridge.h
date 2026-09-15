@@ -84,6 +84,26 @@ extern "C"
 
     void kfaceauth_sface_destroy(void *recognizer);
 
+    typedef struct KFaceAuthHeadPose
+    {
+        float yaw;
+        float pitch;
+        float roll;
+    } KFaceAuthHeadPose;
+
+    typedef struct KFaceAuthTextureMetrics
+    {
+        float lbp_entropy;
+        float moire_energy;
+    } KFaceAuthTextureMetrics;
+
+    int kfaceauth_estimate_head_pose(const KFaceAuthYuNetDetection *detection, int32_t image_width,
+                                     int32_t image_height, KFaceAuthHeadPose *pose_out);
+
+    int kfaceauth_analyze_texture(const uint8_t *bgr_bytes, size_t bgr_size, int32_t width, int32_t height,
+                                  size_t stride, const KFaceAuthYuNetDetection *detection,
+                                  KFaceAuthTextureMetrics *metrics_out);
+
 #ifdef __cplusplus
 }
 #endif

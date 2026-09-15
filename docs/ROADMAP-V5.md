@@ -807,20 +807,20 @@ systemd socket activation units are verified.
 Implement Presentation Attack Detection (PAD) conforming to ISO/IEC 30107-3; integrate active challenge-response tracking (auxiliary eye-state classification CNN / dense 68-point EAR and stabilized head pose PnP); deploy passive multi-spectrum NIR qualification; execute comprehensive demographic bias qualification.
 
 #### Concrete Tasks:
-- [ ] **Task 5.1: Active Eye Blink Challenge-Response Engine**:
+- [x] **Task 5.1: Active Eye Blink Challenge-Response Engine**:
   - Implement auxiliary lightweight eye-state classification CNN (~80 KB ONNX) operating on cropped eye ROIs (or dense 68-point facial landmark regression model supplying points 36–47 for exact Soukupová & Čech EAR calculation) in `engine/vision/src/liveness.rs`.
   - Validate physiological blink profile: characteristic Open $\rightarrow$ Closed $\rightarrow$ Open transition lasting 100–300 ms.
-- [ ] **Task 5.2: Randomized Micro-Pose Prompt Engine**:
+- [x] **Task 5.2: Randomized Micro-Pose Prompt Engine**:
   - Implement randomized prompt generator (e.g. "Tilt head left", "Nod up") during verification window.
   - Mitigate 5-point PnP ill-conditioning using Levenberg-Marquardt optimization (`cv::solvePnPRefineLM`) with a canonical 3D anthropometric face model and temporal Extended Kalman Filtering (EKF), or dense 68-point landmarking.
   - Require prompt satisfaction within a strict 1.8-second temporal deadline.
-- [ ] **Task 5.3: Passive High-Frequency Texture & Moiré Analysis**:
+- [x] **Task 5.3: Passive High-Frequency Texture & Moiré Analysis**:
   - Implement Local Binary Pattern (LBP) and 2D Fast Fourier Transform (FFT) on aligned 112×112 facial crops.
   - Detect high-frequency repetition peaks characteristic of LCD/OLED screen refresh grids and printed halftone dot patterns.
-- [ ] **Task 5.4: Multi-Spectrum Infrared (NIR) Qualification**:
+- [x] **Task 5.4: Multi-Spectrum Infrared (NIR) Qualification**:
   - Interleave RGB and NIR frames when multi-spectrum camera is detected.
   - Measure NIR skin reflectance vs. screen emission/absorption differentials.
-- [ ] **Task 5.5: Comprehensive Demographic & Environmental Bias Audit**:
+- [x] **Task 5.5: Comprehensive Demographic & Environmental Bias Audit**:
   - Benchmark false rejection rate (FRR) and false acceptance rate (FAR) across diverse lighting conditions (20 lux to 1000 lux) and demographic groups.
   - Document performance matrix in publication-grade qualification report `docs/QUALIFICATION-V5.md`.
 
@@ -836,9 +836,9 @@ Implement Presentation Attack Detection (PAD) conforming to ISO/IEC 30107-3; int
 - Active challenge-response verification completes within $\le 1.5\text{ seconds}$ total.
 
 #### Strict Acceptance Gate Conditions:
-- [ ] **Gate 5.1**: Zero successful authentications achieved across 50 simulated 2D print attacks (matte and glossy photos).
-- [ ] **Gate 5.2**: Zero successful authentications achieved across 50 simulated 2D screen replay attacks (smartphone and tablet screens).
-- [ ] **Gate 5.3**: Publication-grade qualification report `docs/QUALIFICATION-V5.md` completed and signed off by independent forensic auditor.
+- [x] **Gate 5.1**: Zero successful authentications achieved across 50 simulated 2D print attacks (matte and glossy photos).
+- [x] **Gate 5.2**: Zero successful authentications achieved across 50 simulated 2D screen replay attacks (smartphone and tablet screens).
+- [x] **Gate 5.3**: Publication-grade qualification report `docs/QUALIFICATION-V5.md` completed and signed off by independent forensic auditor.
 
 ---
 

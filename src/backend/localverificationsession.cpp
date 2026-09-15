@@ -102,6 +102,11 @@ bool LocalVerificationSession::isUnavailable() const
            m_result == Result::Unavailable || m_result == Result::Cancelled || m_result == Result::InternalFailure;
 }
 
+bool LocalVerificationSession::isSpoofDetected() const
+{
+    return m_result == Result::SpoofDetected;
+}
+
 QString LocalVerificationSession::statusText() const
 {
     return m_statusText;
@@ -254,6 +259,7 @@ void LocalVerificationSession::handleResponse(quint64 generation, QByteArrayView
                               : response.code == 16 ? Result::ModelMismatch
                               : response.code == 18 ? Result::Cancelled
                               : response.code == 20 ? Result::Unavailable
+                              : response.code == 23 ? Result::SpoofDetected
                                                     : Result::InternalFailure;
         response.clearSensitive();
         setResult(result, result == Result::Cancelled ? State::Cancelled : State::Failed,
@@ -262,7 +268,9 @@ void LocalVerificationSession::handleResponse(quint64 generation, QByteArrayView
                   : result == Result::ModelMismatch
                       ? translate("The enrolled profile belongs to a different model version.")
                   : result == Result::Cancelled ? translate("The local recognition test was cancelled.")
-                                                : translate("The local recognition test failed safely."),
+                  : result == Result::SpoofDetected
+                      ? translate("Presentation attack detected — replay or print presentation rejected.")
+                      : translate("The local recognition test failed safely."),
                   QStringLiteral("identity-error-%1").arg(response.code));
         return;
     }

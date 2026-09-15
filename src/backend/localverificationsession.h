@@ -24,6 +24,7 @@ class LocalVerificationSession final : public QObject
     Q_PROPERTY(bool isNoMatch READ isNoMatch NOTIFY resultChanged)
     Q_PROPERTY(bool isAmbiguous READ isAmbiguous NOTIFY resultChanged)
     Q_PROPERTY(bool isUnavailable READ isUnavailable NOTIFY resultChanged)
+    Q_PROPERTY(bool isSpoofDetected READ isSpoofDetected NOTIFY resultChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY stateChanged)
 
@@ -52,6 +53,7 @@ class LocalVerificationSession final : public QObject
         Unavailable,
         Cancelled,
         InternalFailure,
+        SpoofDetected,
     };
     Q_ENUM(Result)
 
@@ -69,6 +71,7 @@ class LocalVerificationSession final : public QObject
     [[nodiscard]] bool isNoMatch() const;
     [[nodiscard]] bool isAmbiguous() const;
     [[nodiscard]] bool isUnavailable() const;
+    [[nodiscard]] bool isSpoofDetected() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorCode() const;
 

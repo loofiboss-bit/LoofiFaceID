@@ -44,6 +44,7 @@ BuildRequires:  systemd-devel
 Requires:       kf6-kcmutils >= 6.10.0
 Requires:       kf6-kirigami >= 6.10.0
 Requires:       kf6-kwallet >= 6.10.0
+Requires:       opencv-calib3d >= 4.8.0
 Requires:       opencv-core >= 4.8.0
 Requires:       opencv-dnn >= 4.8.0
 Requires:       opencv-imgproc >= 4.8.0

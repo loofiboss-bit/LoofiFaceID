@@ -75,6 +75,7 @@ pub enum WorkerErrorCode {
     ModelUnavailable = 20,
     RateLimited = 21,
     InternalFailure = 22,
+    SpoofDetected = 23,
 }
 
 #[derive(Debug)]
@@ -628,6 +629,7 @@ fn map_identity_error(error: &IdentityError) -> WorkerErrorCode {
         IdentityError::MultipleFaces => WorkerErrorCode::MultipleFaces,
         IdentityError::PoorQuality => WorkerErrorCode::PoorQuality,
         IdentityError::FaceGeometry => WorkerErrorCode::FaceGeometry,
+        IdentityError::SpoofDetected(_) => WorkerErrorCode::SpoofDetected,
         IdentityError::InvalidEmbedding | IdentityError::Runtime(_) => {
             WorkerErrorCode::InternalFailure
         }

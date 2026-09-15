@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod identity;
+pub mod liveness;
 pub mod model;
 mod sha256;
 pub mod worker;

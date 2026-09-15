@@ -749,6 +749,10 @@ msgstr "Den registrerade profilen tillhör en annan modellversion."
 msgid "The local recognition test failed safely."
 msgstr "Det lokala igenkänningstestet misslyckades på ett säkert sätt."
 
+#: src/backend/localverificationsession.cpp:270
+msgid "Presentation attack detected — replay or print presentation rejected."
+msgstr "Presentationsattack upptäcktes — replay- eller utskriftsförsök avvisades."
+
 #: src/backend/localverificationsession.cpp:236
 msgid "The local identity response was invalid."
 msgstr "Det lokala identitetssvaret var ogiltigt."

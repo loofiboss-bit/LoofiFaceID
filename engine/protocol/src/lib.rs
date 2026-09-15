@@ -106,7 +106,7 @@ impl Capabilities {
             authselect: OperationSupport::Unsupported,
             sddm_lock_screen: OperationSupport::Unsupported,
             sudo_polkit: OperationSupport::Unsupported,
-            liveness: OperationSupport::Unsupported,
+            liveness: OperationSupport::Supported,
             security_tiers: OperationSupport::Unsupported,
             privileged_services: OperationSupport::Unsupported,
             network_access: DisabledCapability::Disabled,
@@ -150,7 +150,7 @@ impl Status {
             authselect: OperationSupport::Unsupported,
             sddm_lock_screen: OperationSupport::Unsupported,
             sudo_polkit: OperationSupport::Unsupported,
-            liveness: OperationSupport::Unsupported,
+            liveness: OperationSupport::Supported,
             security_tiers: OperationSupport::Unsupported,
             privileged_services: OperationSupport::Unsupported,
         }

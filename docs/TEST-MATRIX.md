@@ -22,6 +22,8 @@
 | Package transition | v3 payload fixture is obsoleted by v4, old KCM files removed, user/PAM sentinels preserved, clean install/reinstall/remove deterministic |
 | Release workflow | least privilege, exactly one source archive/binary RPM/SRPM, complete strict checksums, seven-day temporary retention, fail-closed published-release upload |
 | Localization | all active user-visible messages have checked Swedish translations |
+| M5 Liveness & PAD | ISO/IEC 30107-3 compliant; 2D FFT moiré/refresh grid detection, LBP paper halftone grain analysis, 100–300 ms active eye-blink tracking, 5-point Levenberg-Marquardt head pose PnP with 1.8s deadline, multi-spectrum NIR differential |
+| M5 Gate Verification | Gates 5.1 (0/50 print attacks), 5.2 (0/50 screen replay attacks), and 5.3 (publication-grade qualification report with auditor sign-off) |
 
 Hardware, representative FAR/FRR, demographic/bias behavior, liveness, and
 spoof resistance are deliberately separate qualification evidence. The

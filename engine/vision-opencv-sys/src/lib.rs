@@ -103,6 +103,21 @@ unsafe extern "C" {
     ) -> c_int;
     fn kfaceauth_sface_backend(recognizer: *mut c_void) -> c_int;
     fn kfaceauth_sface_destroy(recognizer: *mut c_void);
+    fn kfaceauth_estimate_head_pose(
+        detection: *const RawDetection,
+        image_width: i32,
+        image_height: i32,
+        pose_out: *mut HeadPose,
+    ) -> c_int;
+    fn kfaceauth_analyze_texture(
+        bgr_bytes: *const u8,
+        bgr_size: usize,
+        width: i32,
+        height: i32,
+        stride: usize,
+        detection: *const RawDetection,
+        metrics_out: *mut TextureMetrics,
+    ) -> c_int;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -504,6 +519,72 @@ impl Drop for Recognizer {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HeadPose {
+    pub yaw: f32,
+    pub pitch: f32,
+    pub roll: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextureMetrics {
+    pub lbp_entropy: f32,
+    pub moire_energy: f32,
+}
+
+/// Estimates 3D head pose (yaw, pitch, roll in degrees) using 5-point canonical anthropometric PnP.
+///
+/// # Errors
+///
+/// Returns [`BridgeError`] on invalid input or runtime estimation failure.
+pub fn estimate_head_pose(
+    detection: &RawDetection,
+    image_width: u32,
+    image_height: u32,
+) -> Result<HeadPose, BridgeError> {
+    let width_i32 = i32::try_from(image_width).map_err(|_| BridgeError::InvalidArgument)?;
+    let height_i32 = i32::try_from(image_height).map_err(|_| BridgeError::InvalidArgument)?;
+    let mut pose = HeadPose::default();
+    // SAFETY: pointers are valid and bounds are checked.
+    let status =
+        unsafe { kfaceauth_estimate_head_pose(detection, width_i32, height_i32, &mut pose) };
+    status_result(status)?;
+    Ok(pose)
+}
+
+/// Analyzes high-frequency facial texture: Local Binary Pattern entropy and 2D FFT moiré energy.
+///
+/// # Errors
+///
+/// Returns [`BridgeError`] on invalid geometry or runtime failure.
+pub fn analyze_texture(
+    bgr_bytes: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    detection: &RawDetection,
+) -> Result<TextureMetrics, BridgeError> {
+    let width_i32 = i32::try_from(width).map_err(|_| BridgeError::InvalidArgument)?;
+    let height_i32 = i32::try_from(height).map_err(|_| BridgeError::InvalidArgument)?;
+    let mut metrics = TextureMetrics::default();
+    // SAFETY: pointer and slice length are guaranteed valid.
+    let status = unsafe {
+        kfaceauth_analyze_texture(
+            bgr_bytes.as_ptr(),
+            bgr_bytes.len(),
+            width_i32,
+            height_i32,
+            stride,
+            detection,
+            &mut metrics,
+        )
+    };
+    status_result(status)?;
+    Ok(metrics)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,5 +604,18 @@ mod tests {
     #[test]
     fn reports_an_opencv_version() {
         assert!(!opencv_version().is_empty());
+    }
+
+    #[test]
+    fn head_pose_and_texture_reject_invalid_inputs() {
+        let detection = RawDetection::default();
+        assert_eq!(
+            estimate_head_pose(&detection, 0, 0),
+            Err(BridgeError::InvalidArgument)
+        );
+        assert_eq!(
+            analyze_texture(&[], 0, 0, 0, &detection),
+            Err(BridgeError::InvalidArgument)
+        );
     }
 }
