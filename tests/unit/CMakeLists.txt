@@ -174,5 +174,6 @@ add_dependencies(camera_hardware_check ${KFACEAUTH_PREVIEW_WORKER})
 
 add_executable(test_pam test_pam.cpp ${PROJECT_SOURCE_DIR}/pam/src/pam_kfaceauth.c)
 target_include_directories(test_pam PRIVATE ${PROJECT_SOURCE_DIR}/pam/src)
+target_compile_definitions(test_pam PRIVATE KFACEAUTH_TEST_SOCKET_OVERRIDE=1)
 target_link_libraries(test_pam Qt6::Core Qt6::Test)
 add_test(NAME pam_conversation COMMAND test_pam)

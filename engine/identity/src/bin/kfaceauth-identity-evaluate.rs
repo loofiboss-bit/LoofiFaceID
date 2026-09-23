@@ -432,6 +432,9 @@ fn extract(
             kfaceauth_vision::identity::IdentityError::MultipleFaces => "multiple-faces",
             kfaceauth_vision::identity::IdentityError::PoorQuality => "poor-quality",
             kfaceauth_vision::identity::IdentityError::FaceGeometry => "face-geometry",
+            kfaceauth_vision::identity::IdentityError::LivenessUnavailable => {
+                "liveness-unavailable"
+            }
             kfaceauth_vision::identity::IdentityError::InvalidEmbedding => "invalid-embedding",
             kfaceauth_vision::identity::IdentityError::SpoofDetected(_) => "spoof-detected",
             kfaceauth_vision::identity::IdentityError::Runtime(_) => "runtime",

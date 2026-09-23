@@ -45,8 +45,14 @@ QByteArray framedResponse(QByteArrayView request, const QString &mode)
     quint8 code = 0;
     QByteArray body;
 
+    if (mode == QLatin1String("reject-sample"))
+    {
+        kind = 0xff;
+        code = 10;
+    }
     if (mode == QLatin1String("session") || mode == QLatin1String("session-hang-capture") ||
-        mode == QLatin1String("session-lifecycle") || mode == QLatin1String("session-fail-commit"))
+        mode == QLatin1String("session-lifecycle") || mode == QLatin1String("session-fail-commit") ||
+        mode == QLatin1String("session-reject-sample-once"))
     {
         if (operation == 1)
         {
@@ -101,7 +107,8 @@ int main(int argc, char **argv)
         return 2;
     QByteArray request = input.readAll();
 
-    const QString mode = QProcessEnvironment::systemEnvironment().value(QStringLiteral("KFACEAUTH_TEST_MODE"));
+    const QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    const QString mode = environment.value(QStringLiteral("KFACEAUTH_TEST_MODE"));
     if (mode == QLatin1String("crash"))
     {
         request.fill(0);
@@ -114,7 +121,19 @@ int main(int argc, char **argv)
     if (mode == QLatin1String("session-hang-capture") && request.size() >= 7 && static_cast<quint8>(request.at(6)) == 2)
         std::this_thread::sleep_for(std::chrono::seconds(30));
 
-    QByteArray response = framedResponse(request, mode);
+    QString responseMode = mode;
+    if (mode == QLatin1String("session-reject-sample-once") && request.size() >= 7 &&
+        static_cast<quint8>(request.at(6)) == 2)
+    {
+        QFile marker(environment.value(QStringLiteral("KFACEAUTH_TEST_REJECT_MARKER")));
+        if (!marker.exists() && marker.open(QIODevice::WriteOnly))
+        {
+            marker.write("rejected");
+            responseMode = QStringLiteral("reject-sample");
+        }
+    }
+
+    QByteArray response = framedResponse(request, responseMode);
     request.fill(0);
     request.clear();
     const bool written = !response.isEmpty() && writeAll(response);

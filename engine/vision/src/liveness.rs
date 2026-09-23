@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! ISO/IEC 30107-3 Presentation Attack Detection (PAD) and Liveness Architecture.
+//! Experimental, unqualified presentation-attack analysis primitives.
 //!
-//! Provides:
-//! 1. Passive High-Frequency Texture (LBP) and Moiré (2D FFT) Screen & Print Analysis.
-//! 2. Active Eye Blink Challenge-Response tracking with 100–300 ms physiological bounds.
-//! 3. Randomized Micro-Pose Prompt Engine with 5-point Levenberg-Marquardt `PnP` & EMA smoothing.
-//! 4. Multi-Spectrum NIR (Infrared) skin reflectance differential qualification.
+//! These heuristics are not an authentication system and do not constitute
+//! ISO/IEC 30107-3 testing or certification. Texture-analysis errors fail closed.
 
 #![forbid(unsafe_code)]
 
@@ -47,6 +44,7 @@ pub enum LivenessDecision {
     BonaFide,
     SpoofDetected(SpoofKind),
     AwaitingChallenge(PoseChallenge),
+    AnalysisFailed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -300,10 +298,13 @@ impl PresentationAttackDetector {
         }
 
         // 2. Passive texture analysis
-        if let Ok(metrics) = analyze_texture(bgr_bytes, width, height, stride, detection) {
-            if let Some(spoof) = PassiveTextureAnalyzer::evaluate(&metrics) {
-                return LivenessDecision::SpoofDetected(spoof);
+        match analyze_texture(bgr_bytes, width, height, stride, detection) {
+            Ok(metrics) => {
+                if let Some(spoof) = PassiveTextureAnalyzer::evaluate(&metrics) {
+                    return LivenessDecision::SpoofDetected(spoof);
+                }
             }
+            Err(_) => return LivenessDecision::AnalysisFailed,
         }
 
         LivenessDecision::BonaFide
@@ -333,8 +334,11 @@ impl PresentationAttackDetector {
             detection,
             nir_reflectance_ratio,
         );
-        if let LivenessDecision::SpoofDetected(kind) = passive {
-            return LivenessDecision::SpoofDetected(kind);
+        if matches!(
+            passive,
+            LivenessDecision::SpoofDetected(_) | LivenessDecision::AnalysisFailed
+        ) {
+            return passive;
         }
 
         if !self.require_active_challenge {
@@ -373,6 +377,15 @@ impl PresentationAttackDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn valid_detection() -> RawDetection {
+        RawDetection {
+            values: [
+                20.0, 20.0, 72.0, 72.0, 39.0, 44.0, 73.0, 44.0, 56.0, 55.0, 42.0, 74.0, 70.0, 74.0,
+                0.95,
+            ],
+        }
+    }
 
     #[test]
     fn passive_texture_detects_print_attacks() {
@@ -448,7 +461,7 @@ mod tests {
     fn head_pose_challenge_satisfaction_and_deadline() {
         let mut detector = PresentationAttackDetector::new(PoseChallenge::TurnLeft, true);
 
-        let detection = RawDetection::default();
+        let detection = valid_detection();
         let frame = vec![128_u8; 112 * 112 * 3];
 
         // Frame at t=0: awaiting challenge
@@ -503,7 +516,7 @@ mod tests {
             LivenessDecision::SpoofDetected(SpoofKind::LowNirReflectance)
         );
 
-        // Real skin has ratio 0.65 -> BonaFide
+        // Invalid geometry cannot be classified as bona fide, even when NIR looks acceptable.
         let decision = PresentationAttackDetector::evaluate_single_frame(
             &frame,
             112,
@@ -512,6 +525,6 @@ mod tests {
             &detection,
             Some(0.65),
         );
-        assert_eq!(decision, LivenessDecision::BonaFide);
+        assert_eq!(decision, LivenessDecision::AnalysisFailed);
     }
 }

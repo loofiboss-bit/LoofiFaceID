@@ -21,6 +21,8 @@ class VisionAnalysisSessionTest final : public QObject
     void poseClassification_data();
     void poseClassification();
     void persistentGuidanceSession();
+    void guidanceRecoversAfterRejectedEdgeResult();
+    void guidanceStopsAfterRepeatedInvalidResults();
 
   private:
     static QProcessEnvironment environmentFor(const QString &mode);
@@ -113,7 +115,12 @@ void VisionAnalysisSessionTest::workerFailures_data()
     QTest::newRow("stale") << QStringLiteral("stale") << QStringLiteral("stale-response") << 2000;
     QTest::newRow("model unavailable") << QStringLiteral("model-unavailable") << QStringLiteral("analysis-error-11")
                                        << 2000;
-    QTest::newRow("runtime output") << QStringLiteral("runtime-output") << QStringLiteral("analysis-error-12") << 2000;
+    QTest::newRow("legacy internal error")
+        << QStringLiteral("legacy-internal") << QStringLiteral("analysis-error-12") << 2000;
+    QTest::newRow("invalid runtime output")
+        << QStringLiteral("runtime-output") << QStringLiteral("analysis-error-14") << 2000;
+    QTest::newRow("runtime failure") << QStringLiteral("runtime-failure") << QStringLiteral("analysis-error-15")
+                                     << 2000;
     QTest::newRow("shutdown timeout") << QStringLiteral("shutdown-timeout") << QStringLiteral("shutdown-timeout")
                                       << 2500;
 }
@@ -226,6 +233,43 @@ void VisionAnalysisSessionTest::persistentGuidanceSession()
     analysis.stopGuidance();
     QCOMPARE(analysis.state(), VisionAnalysisSession::State::Idle);
     QVERIFY(!analysis.continuousTracking());
+}
+
+void VisionAnalysisSessionTest::guidanceRecoversAfterRejectedEdgeResult()
+{
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    startPreview(&preview);
+    VisionAnalysisSession analysis(&preview, QStringLiteral(KFACEAUTH_FAKE_VISION_WORKER_PATH),
+                                   environmentFor(QStringLiteral("edge-once")), nullptr);
+
+    analysis.startGuidance();
+    QTRY_COMPARE_WITH_TIMEOUT(analysis.errorCode(), QStringLiteral("analysis-error-13"), 2000);
+    QVERIFY(analysis.continuousTracking());
+    QVERIFY(!analysis.resultAvailable());
+    const quint64 rejectedGeneration = analysis.generation();
+    QTRY_VERIFY_WITH_TIMEOUT(analysis.generation() > rejectedGeneration, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(analysis.state() == VisionAnalysisSession::State::Complete &&
+                                 analysis.errorCode().isEmpty() &&
+                                 analysis.guidanceState() == VisionAnalysisSession::GuidanceState::Ready,
+                             2000);
+
+    analysis.stopGuidance();
+    QCOMPARE(analysis.state(), VisionAnalysisSession::State::Idle);
+    QVERIFY(!analysis.continuousTracking());
+}
+
+void VisionAnalysisSessionTest::guidanceStopsAfterRepeatedInvalidResults()
+{
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    startPreview(&preview);
+    VisionAnalysisSession analysis(&preview, QStringLiteral(KFACEAUTH_FAKE_VISION_WORKER_PATH),
+                                   environmentFor(QStringLiteral("edge-always")), nullptr);
+
+    analysis.startGuidance();
+    QTRY_COMPARE_WITH_TIMEOUT(analysis.state(), VisionAnalysisSession::State::Failed, 3000);
+    QCOMPARE(analysis.errorCode(), QStringLiteral("analysis-error-13"));
+    QVERIFY(!analysis.continuousTracking());
+    QVERIFY(!analysis.resultAvailable());
 }
 
 QTEST_GUILESS_MAIN(VisionAnalysisSessionTest)

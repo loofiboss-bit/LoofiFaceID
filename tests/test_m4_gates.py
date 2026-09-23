@@ -1,114 +1,100 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
-import socket
-import struct
-import subprocess
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class Milestone4GatesTest(unittest.TestCase):
-    def test_gate_4_1_least_privilege_and_privilege_dropping(self) -> None:
-        """Gate 4.1: Daemon drops root privileges immediately upon socket creation;
-        worker executes strictly as kfaceauth:kfaceauth without requiring CAP_DAC_OVERRIDE."""
-        service = (ROOT / "data/systemd/kfaceauth.service").read_text(encoding="utf-8")
-        self.assertIn("User=kfaceauth", service)
-        self.assertIn("Group=kfaceauth", service)
-        self.assertIn("CapabilityBoundingSet=", service)
-        self.assertIn("AmbientCapabilities=", service)
-        self.assertIn("NoNewPrivileges=true", service)
-
-        main_rs = (ROOT / "engine/daemon/src/main.rs").read_text(encoding="utf-8")
-        self.assertIn("drop_privileges(DEFAULT_DAEMON_USER, DEFAULT_DAEMON_GROUP)", main_rs)
-
-        bridge_c = (ROOT / "engine/crypto-openssl-sys/native/crypto_bridge.c").read_text(encoding="utf-8")
-        self.assertIn("initgroups(username, gr->gr_gid)", bridge_c)
-        self.assertIn("setgid(gr->gr_gid)", bridge_c)
-        self.assertIn("setuid(pw->pw_uid)", bridge_c)
-        self.assertIn("geteuid() == 0 || getegid() == 0", bridge_c)
-
-    def test_gate_4_2_pam_aborts_within_two_seconds_on_hang_or_busy(self) -> None:
-        """Gate 4.2: PAM module aborts within <= 2.0 seconds if camera is busy or user is absent."""
-        candidates = [
-            ROOT / "build/bin/test_pam",
-            ROOT / "redhat-linux-build/bin/test_pam",
-        ]
-        test_pam_bin = next((c for c in candidates if c.exists()), None)
-        self.assertIsNotNone(test_pam_bin, "test_pam binary must be built")
-
-        result = subprocess.run(
-            [str(test_pam_bin), "testHungServerAbortsWithinTwoSeconds"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            timeout=10,
+class ExperimentalAuthBoundaryTests(unittest.TestCase):
+    def test_default_build_and_base_rpm_exclude_system_authentication(self) -> None:
+        cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        data_cmake = (ROOT / "data/CMakeLists.txt").read_text(encoding="utf-8")
+        engine_cmake = (ROOT / "engine/CMakeLists.txt").read_text(encoding="utf-8")
+        spec = (ROOT / "packaging/fedora/kfaceauth.spec").read_text(encoding="utf-8")
+        release_status = (ROOT / "docs/RELEASE-QUALIFICATION-V5.1.md").read_text(
+            encoding="utf-8"
         )
-        self.assertEqual(result.returncode, 0, f"testHungServerAbortsWithinTwoSeconds failed: {result.stderr}")
-        self.assertIn("PASS   : TestPam::testHungServerAbortsWithinTwoSeconds()", result.stdout)
 
-    def test_gate_4_3_cross_uid_access_rejection(self) -> None:
-        """Gate 4.3: Cross-UID access attack test verifies that a process running as UID 1001
-        cannot query, decrypt, or tamper with UID 1000's vault."""
-        daemon_lib = (ROOT / "engine/daemon/src/lib.rs").read_text(encoding="utf-8")
-        self.assertIn("is_authorized(peer_uid: u32, target_uid: u32)", daemon_lib)
-        self.assertIn("peer_uid == 0 || peer_uid == target_uid", daemon_lib)
-        self.assertIn("STATUS_ACCESS_DENIED", daemon_lib)
-
-        # Run the cargo unit test asserting all opcodes fail for attacker UID 1001 against UID 1000
-        result = subprocess.run(
-            [
-                "cargo",
-                "test",
-                "--manifest-path",
-                str(ROOT / "engine/Cargo.toml"),
-                "--locked",
-                "--offline",
-                "-p",
-                "kfaceauth-daemon",
-                "--lib",
-                "tests::gate_4_3_cross_uid_tamper_defense_all_opcodes",
-                "--",
-                "--exact",
-            ],
-            cwd=ROOT / "engine",
-            capture_output=True,
-            text=True,
-            timeout=60,
+        self.assertRegex(
+            cmake,
+            r"(?ms)^option\(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS\n.*?^\s+OFF\n\)",
         )
-        self.assertEqual(result.returncode, 0, f"Cargo test failed: {result.stderr}")
-        self.assertIn("test tests::gate_4_3_cross_uid_tamper_defense_all_opcodes ... ok", result.stdout)
-
-    def test_system_vault_least_privilege_dac_modes(self) -> None:
-        """Verifies directory Mode 0750 and file Mode 0640 least-privilege DAC enforcement."""
-        templates_lib = (ROOT / "engine/templates/src/lib.rs").read_text(encoding="utf-8")
-        self.assertIn("0o640", templates_lib)
-        self.assertIn("0o750", templates_lib)
-        self.assertIn("DEFAULT_SYSTEM_VAULT_ROOT", templates_lib)
-        self.assertIn("KFACEAUTH_SYSTEM_VAULT_DIR", templates_lib)
-
-    def test_migrate_vault_tool_builds_and_runs(self) -> None:
-        """Verifies kfaceauth-migrate-vault binary exists and runs help."""
-        candidates = [
-            ROOT / "build/engine/target/debug/kfaceauth-migrate-vault",
-            ROOT / "build/engine/target/release/kfaceauth-migrate-vault",
-            ROOT / "redhat-linux-build/engine/target/debug/kfaceauth-migrate-vault",
-            ROOT / "redhat-linux-build/engine/target/release/kfaceauth-migrate-vault",
-            ROOT / "engine/target/debug/kfaceauth-migrate-vault",
-            ROOT / "engine/target/release/kfaceauth-migrate-vault",
-        ]
-        migrate_bin = next((c for c in candidates if c.exists()), None)
-        self.assertIsNotNone(migrate_bin, "kfaceauth-migrate-vault must exist")
-
-        result = subprocess.run(
-            [str(migrate_bin), "--help"],
-            capture_output=True,
-            text=True,
+        self.assertIn("if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)", cmake)
+        self.assertIn("add_subdirectory(data)", cmake)
+        self.assertIn("if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)", data_cmake)
+        self.assertIn("kcm_kfaceauth.desktop.in", data_cmake)
+        self.assertLess(
+            data_cmake.index("kcm_kfaceauth.desktop.in"),
+            data_cmake.index("if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)"),
         )
-        self.assertIn("kfaceauth-migrate-vault", result.stdout + result.stderr)
+        self.assertIn("systemd/kfaceauth.service", data_cmake)
+        self.assertIn("-DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=OFF", spec)
+        self.assertIn("if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)", engine_cmake)
+        self.assertIn("Face unlock is not shipped", release_status)
+
+        files = spec.split("%files -f kcm_kfaceauth.lang", 1)[1].split(
+            "%changelog", 1
+        )[0]
+        for artifact in (
+            "kfaceauthd",
+            "pam_kfaceauth",
+            "kfaceauth.service",
+            "kfaceauth.socket",
+            "kfaceauth.conf",
+            "kfaceauth-migrate-vault",
+        ):
+            with self.subTest(artifact=artifact):
+                self.assertNotIn(artifact, files)
+
+    def test_daemon_requests_are_uid_bound_and_narrow(self) -> None:
+        daemon = (ROOT / "engine/daemon/src/lib.rs").read_text(encoding="utf-8")
+
+        self.assertIn("peer_uid == target_uid", daemon)
+        self.assertNotIn("peer_uid == 0 ||", daemon)
+        for removed in (
+            "OP_GET_KEY",
+            "OP_VERIFY_FRAME",
+            "OP_DELETE_PROFILE",
+            "GetKey",
+            "VerifyFrame",
+            "DeleteProfile",
+        ):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, daemon)
+        self.assertIn("removed_key_export_and_broad_profile_operations_are_rejected", daemon)
+
+    def test_status_key_load_does_not_create_secret_material(self) -> None:
+        bridge = (ROOT / "engine/crypto-openssl-sys/native/crypto_bridge.c").read_text(
+            encoding="utf-8"
+        )
+        crypto_api = (ROOT / "engine/crypto-openssl-sys/src/lib.rs").read_text(
+            encoding="utf-8"
+        )
+        daemon = (ROOT / "engine/daemon/src/lib.rs").read_text(encoding="utf-8")
+        loader = bridge.split(
+            "int kfaceauth_load_master_key_for_uid", 1
+        )[1].split("int kfaceauth_seal_master_key", 1)[0]
+
+        self.assertNotIn("ensure_dir_exists", loader)
+        self.assertNotIn("kfaceauth_crypto_random", loader)
+        self.assertNotIn("write_key_file", loader)
+        self.assertIn("load_master_key_for_uid", crypto_api)
+        self.assertIn("load_master_key_for_uid", daemon)
+        self.assertIn("master_key_load_requires_explicit_provisioning", crypto_api)
+
+    def test_production_pam_uses_fixed_socket_and_test_override_is_test_only(self) -> None:
+        pam_source = (ROOT / "pam/src/pam_kfaceauth.c").read_text(encoding="utf-8")
+        pam_cmake = (ROOT / "pam/CMakeLists.txt").read_text(encoding="utf-8")
+        unit_cmake = (ROOT / "tests/unit/CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("#ifdef KFACEAUTH_TEST_SOCKET_OVERRIDE", pam_source)
+        self.assertIn('const char *sock_path = DEFAULT_SOCKET_PATH;', pam_source)
+        self.assertNotIn("KFACEAUTH_TEST_SOCKET_OVERRIDE", pam_cmake)
+        self.assertIn("KFACEAUTH_TEST_SOCKET_OVERRIDE=1", unit_cmake)
+        self.assertFalse(
+            (ROOT / "engine/templates/src/bin/kfaceauth-migrate-vault.rs").exists()
+        )
 
 
 if __name__ == "__main__":

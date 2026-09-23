@@ -83,6 +83,22 @@ class FakeVisionWorker final : public QObject
     }
 
   private:
+    void sendError(quint8 code, quint64 generation, bool continueSession)
+    {
+        QByteArray response;
+        appendU16(&response, 2);
+        response.append(static_cast<char>(0xff));
+        response.append(static_cast<char>(code));
+        appendU64(&response, generation);
+        writeAll(framed(response));
+        m_request.fill(0);
+        m_request.clear();
+        if (continueSession && m_sessionMode)
+            m_notifier.setEnabled(true);
+        else
+            QCoreApplication::quit();
+    }
+
     void readRequest()
     {
         char bytes[16384];
@@ -154,6 +170,22 @@ class FakeVisionWorker final : public QObject
                 mode = QStringLiteral("one");
         }
 
+        if (mode == QLatin1String("edge-once"))
+        {
+            if (m_requestCount++ == 0)
+            {
+                sendError(13, generation, true);
+                return;
+            }
+            mode = QStringLiteral("one");
+        }
+        else if (mode == QLatin1String("edge-always"))
+        {
+            ++m_requestCount;
+            sendError(13, generation, m_sessionMode);
+            return;
+        }
+
         if (mode == QLatin1String("crash"))
             ::_exit(17);
         if (mode == QLatin1String("timeout"))
@@ -171,15 +203,15 @@ class FakeVisionWorker final : public QObject
             writeAll(prefix);
             return;
         }
-        if (mode == QLatin1String("model-unavailable") || mode == QLatin1String("runtime-output"))
+        if (mode == QLatin1String("model-unavailable") || mode == QLatin1String("runtime-output") ||
+            mode == QLatin1String("runtime-failure") || mode == QLatin1String("legacy-internal"))
         {
-            QByteArray response;
-            appendU16(&response, 2);
-            response.append(static_cast<char>(0xff));
-            response.append(mode == QLatin1String("model-unavailable") ? static_cast<char>(11) : static_cast<char>(12));
-            appendU64(&response, generation);
-            writeAll(framed(response));
-            QCoreApplication::quit();
+            const quint8 code =
+                mode == QLatin1String("model-unavailable")
+                    ? 11
+                    : (mode == QLatin1String("runtime-output") ? 14
+                                                               : (mode == QLatin1String("runtime-failure") ? 15 : 12));
+            sendError(code, generation, false);
             return;
         }
 
@@ -244,6 +276,7 @@ class FakeVisionWorker final : public QObject
     QByteArray m_request;
     QString m_mode;
     bool m_sessionMode = false;
+    int m_requestCount = 0;
 };
 
 int main(int argc, char **argv)

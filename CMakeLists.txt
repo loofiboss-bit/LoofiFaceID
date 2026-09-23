@@ -44,6 +44,10 @@ if(OpenCV_VERSION VERSION_LESS "4.8.0")
 endif()
 
 option(KFACEAUTH_ENABLE_NATIVE_SANITIZERS "Enable ASan/UBSan for the native YuNet bridge test" OFF)
+option(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS
+    "Build and install unqualified PAM/system-auth engineering components (never enable for release packages)"
+    OFF
+)
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/po")
     ki18n_install(po)
@@ -51,8 +55,10 @@ endif()
 
 add_subdirectory(engine)
 add_subdirectory(src)
-add_subdirectory(pam)
 add_subdirectory(data)
+if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
+    add_subdirectory(pam)
+endif()
 
 if(BUILD_TESTING)
     find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS Test)

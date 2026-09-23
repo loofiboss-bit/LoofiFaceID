@@ -39,7 +39,11 @@ pub enum WorkerErrorCode {
     Cancelled = 9,
     DeadlineExceeded = 10,
     ModelUnavailable = 11,
+    /// Kept for compatibility with older workers that used one catch-all code.
     InternalError = 12,
+    FaceAtEdge = 13,
+    InvalidRuntimeOutput = 14,
+    RuntimeFailure = 15,
 }
 
 #[derive(Debug)]
@@ -232,7 +236,7 @@ fn process_request(provider: &dyn VisionProvider, request: AnalyzeRequest<'_>) -
         Ok(analysis) if valid_analysis(&analysis, request.image) => {
             encode_analysis(request.generation, &analysis)
         }
-        Ok(_) => encode_error(WorkerErrorCode::InternalError, request.generation),
+        Ok(_) => encode_error(WorkerErrorCode::InvalidRuntimeOutput, request.generation),
         Err(error) => encode_error(map_vision_error(error), request.generation),
     }
 }
@@ -348,16 +352,16 @@ const fn map_vision_error(error: VisionError) -> WorkerErrorCode {
     match error {
         VisionError::Cancelled => WorkerErrorCode::Cancelled,
         VisionError::DeadlineExceeded => WorkerErrorCode::DeadlineExceeded,
-        VisionError::RuntimeFailure | VisionError::InvalidRuntimeOutput => {
-            WorkerErrorCode::InternalError
-        }
+        VisionError::FaceAtEdge => WorkerErrorCode::FaceAtEdge,
+        VisionError::InvalidRuntimeOutput => WorkerErrorCode::InvalidRuntimeOutput,
+        VisionError::RuntimeFailure => WorkerErrorCode::RuntimeFailure,
     }
 }
 
 fn encode_analysis(generation: u64, analysis: &VisionAnalysis) -> Vec<u8> {
     let face_count = u8::try_from(analysis.faces.len()).unwrap_or(u8::MAX);
     if usize::from(face_count) > MAX_FACES {
-        return encode_error(WorkerErrorCode::InternalError, generation);
+        return encode_error(WorkerErrorCode::InvalidRuntimeOutput, generation);
     }
     let mut payload = Vec::with_capacity(16 + analysis.faces.len() * (8 + 20));
     payload.extend_from_slice(&WORKER_PROTOCOL_VERSION.to_be_bytes());
@@ -544,8 +548,36 @@ mod tests {
         }
     }
 
+    struct InvalidAnalysisProvider;
+
+    impl VisionProvider for InvalidAnalysisProvider {
+        fn analyze(
+            &self,
+            _image: ImageView<'_>,
+            _control: ProcessingControl<'_>,
+        ) -> Result<VisionAnalysis, VisionError> {
+            Ok(VisionAnalysis {
+                faces: vec![crate::FaceObservation {
+                    rectangle: crate::FaceRectangle {
+                        x: 2,
+                        y: 0,
+                        width: 1,
+                        height: 1,
+                    },
+                    landmarks: crate::FaceLandmarks { points: [0; 10] },
+                }],
+                quality: crate::QualityMetrics {
+                    brightness: 50,
+                    contrast: 50,
+                    sharpness: 50,
+                    flags: 0,
+                },
+            })
+        }
+    }
+
     #[test]
-    fn invalid_runtime_output_maps_to_internal_error() {
+    fn invalid_runtime_output_maps_to_specific_error() {
         let request = analyze_request(PixelFormat::Gray8, &[1, 33]);
         let mut output = Vec::new();
         serve_once_with_provider(
@@ -555,7 +587,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(output[6], RESPONSE_ERROR);
-        assert_eq!(output[7], WorkerErrorCode::InternalError as u8);
+        assert_eq!(output[7], WorkerErrorCode::InvalidRuntimeOutput as u8);
+    }
+
+    #[test]
+    fn invalid_analysis_geometry_does_not_use_legacy_internal_error() {
+        let request = analyze_request(PixelFormat::Gray8, &[1, 33]);
+        let mut output = Vec::new();
+        serve_once_with_provider(
+            &mut Cursor::new(framed(&request)),
+            &mut output,
+            &InvalidAnalysisProvider,
+        )
+        .unwrap();
+        assert_eq!(output[6], RESPONSE_ERROR);
+        assert_eq!(output[7], WorkerErrorCode::InvalidRuntimeOutput as u8);
+    }
+
+    #[test]
+    fn vision_failures_keep_distinct_protocol_codes() {
+        assert_eq!(
+            map_vision_error(VisionError::FaceAtEdge),
+            WorkerErrorCode::FaceAtEdge
+        );
+        assert_eq!(
+            map_vision_error(VisionError::InvalidRuntimeOutput),
+            WorkerErrorCode::InvalidRuntimeOutput
+        );
+        assert_eq!(
+            map_vision_error(VisionError::RuntimeFailure),
+            WorkerErrorCode::RuntimeFailure
+        );
     }
 
     #[test]

@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QProcessEnvironment>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTest>
 
 #ifndef KFACEAUTH_FAKE_IDENTITY_WORKER_PATH
@@ -113,6 +114,7 @@ class IdentitySessionsTest final : public QObject
     void verificationRejectsStaleWorkerResponse();
     void enrollmentCancellationClearsTransientSamples();
     void pageHideCancelsActiveEnrollmentWorker();
+    void rejectedSampleKeepsEnrollmentAvailable();
     void failedReplacementPreservesPreviousProfile();
     void guidePhaseAndCaptureSignal();
     void syntheticLifecycleRunsOneHundredCycles();
@@ -234,6 +236,37 @@ void IdentitySessionsTest::pageHideCancelsActiveEnrollmentWorker()
     QTRY_VERIFY(!worker.busy());
     QCOMPARE(enrollment.sampleCount(), 0);
     QCOMPARE(keys.storeCalls, 0);
+}
+
+void IdentitySessionsTest::rejectedSampleKeepsEnrollmentAvailable()
+{
+    QTemporaryDir markerDirectory;
+    QVERIFY(markerDirectory.isValid());
+    QProcessEnvironment environment = environmentFor(QStringLiteral("session-reject-sample-once"));
+    environment.insert(QStringLiteral("KFACEAUTH_TEST_REJECT_MARKER"),
+                       markerDirectory.filePath(QStringLiteral("sample-rejected")));
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    IdentityWorkerClient worker(QStringLiteral(KFACEAUTH_FAKE_IDENTITY_WORKER_PATH), environment, this);
+    FakeKeyProvider keys;
+    EnrollmentSession enrollment(&preview, &worker, &keys);
+    startPreview(&preview);
+    enrollment.setPageActive(true);
+    QTRY_COMPARE(enrollment.profileState(), EnrollmentSession::ProfileState::Absent);
+    enrollment.startEnrollment();
+    QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+
+    enrollment.captureSample();
+    QTRY_COMPARE(enrollment.errorCode(), QStringLiteral("identity-error-10"));
+    QCOMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+    QCOMPARE(enrollment.sampleCount(), 0);
+    QVERIFY(enrollment.canCapture());
+
+    enrollment.captureSample();
+    QTRY_COMPARE(enrollment.sampleCount(), 1);
+    QCOMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+    QVERIFY(enrollment.errorCode().isEmpty());
+    QCOMPARE(enrollment.guidePhase(), EnrollmentSession::GuidePhase::Left);
+    enrollment.cancel();
 }
 
 void IdentitySessionsTest::failedReplacementPreservesPreviousProfile()

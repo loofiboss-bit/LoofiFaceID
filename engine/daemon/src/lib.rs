@@ -32,9 +32,6 @@ pub const DEFAULT_PAM_TIMEOUT_MS: u32 = 2000;
 
 pub const OP_PAM_AUTH: u8 = 0x10;
 pub const OP_STATUS: u8 = 0x11;
-pub const OP_GET_KEY: u8 = 0x12;
-pub const OP_VERIFY_FRAME: u8 = 0x13;
-pub const OP_DELETE_PROFILE: u8 = 0x15;
 
 pub const STATUS_SUCCESS: u8 = 0x00;
 pub const STATUS_AUTH_FAILED: u8 = 0x01;
@@ -83,13 +80,11 @@ impl DaemonConfig {
     }
 }
 
-/// Enforces peer caller isolation (Gate 4.3).
-///
-/// Root (UID 0) is permitted to act on behalf of target users (e.g. PAM/display managers).
-/// Non-root callers are strictly restricted to their own numeric UID.
+/// Binds requests to the kernel-authenticated client identity. This generic
+/// socket does not allow privileged callers to act on behalf of another UID.
 #[must_use]
 pub const fn is_authorized(peer_uid: u32, target_uid: u32) -> bool {
-    peer_uid == 0 || peer_uid == target_uid
+    peer_uid == target_uid
 }
 
 #[derive(Debug)]
@@ -102,32 +97,13 @@ pub enum DaemonRequest {
     Status {
         target_uid: u32,
     },
-    GetKey {
-        target_uid: u32,
-    },
-    VerifyFrame {
-        target_uid: u32,
-        timeout_ms: u32,
-        width: u32,
-        height: u32,
-        stride: u32,
-        format: u8,
-        frame_bytes: Vec<u8>,
-    },
-    DeleteProfile {
-        target_uid: u32,
-    },
 }
 
 impl DaemonRequest {
     #[must_use]
     pub const fn target_uid(&self) -> u32 {
         match self {
-            Self::PamAuth { target_uid, .. }
-            | Self::Status { target_uid }
-            | Self::GetKey { target_uid }
-            | Self::VerifyFrame { target_uid, .. }
-            | Self::DeleteProfile { target_uid } => *target_uid,
+            Self::PamAuth { target_uid, .. } | Self::Status { target_uid } => *target_uid,
         }
     }
 }
@@ -166,28 +142,6 @@ pub fn decode_daemon_request(payload: &[u8]) -> Result<DaemonRequest, &'static s
             })
         }
         OP_STATUS => Ok(DaemonRequest::Status { target_uid }),
-        OP_GET_KEY => Ok(DaemonRequest::GetKey { target_uid }),
-        OP_VERIFY_FRAME => {
-            if payload.len() < 25 {
-                return Err("malformed verify frame header");
-            }
-            let timeout_ms = u32::from_be_bytes([payload[8], payload[9], payload[10], payload[11]]);
-            let width = u32::from_be_bytes([payload[12], payload[13], payload[14], payload[15]]);
-            let height = u32::from_be_bytes([payload[16], payload[17], payload[18], payload[19]]);
-            let stride = u32::from_be_bytes([payload[20], payload[21], payload[22], payload[23]]);
-            let format = payload[24];
-            let frame_bytes = payload[25..].to_vec();
-            Ok(DaemonRequest::VerifyFrame {
-                target_uid,
-                timeout_ms,
-                width,
-                height,
-                stride,
-                format,
-                frame_bytes,
-            })
-        }
-        OP_DELETE_PROFILE => Ok(DaemonRequest::DeleteProfile { target_uid }),
         _ => Err("unknown opcode"),
     }
 }
@@ -288,7 +242,7 @@ fn handle_pam_request(target_uid: u32, timeout_ms: u32, config: &DaemonConfig) -
     let effective_timeout_ms = timeout_ms.min(config.max_timeout_ms);
     let keys_dir = config.keys_dir.as_deref();
 
-    let Ok(key_bytes) = kfaceauth_crypto_openssl_sys::master_key_for_uid(target_uid, keys_dir)
+    let Ok(key_bytes) = kfaceauth_crypto_openssl_sys::load_master_key_for_uid(target_uid, keys_dir)
     else {
         return (STATUS_AUTH_FAILED, Vec::new());
     };
@@ -335,12 +289,12 @@ fn handle_pam_request(target_uid: u32, timeout_ms: u32, config: &DaemonConfig) -
 /// Dispatches a validated daemon request, strictly enforcing peer authorization.
 #[must_use]
 pub fn dispatch_request(
-    request: DaemonRequest,
+    request: &DaemonRequest,
     peer: &PeerCredentials,
     config: &DaemonConfig,
 ) -> Vec<u8> {
     let target_uid = request.target_uid();
-    // Gate 4.3: Cross-UID access attack verification
+    // Deny requests that attempt to target a UID other than the socket peer.
     if !is_authorized(peer.uid, target_uid) {
         return encode_daemon_response(STATUS_ACCESS_DENIED, &[]);
     }
@@ -350,13 +304,13 @@ pub fn dispatch_request(
             target_uid,
             timeout_ms,
             ..
-        } => handle_pam_request(target_uid, timeout_ms, config),
+        } => handle_pam_request(*target_uid, *timeout_ms, config),
         DaemonRequest::Status { target_uid } => {
             let keys_dir = config.keys_dir.as_deref();
-            match kfaceauth_crypto_openssl_sys::master_key_for_uid(target_uid, keys_dir) {
+            match kfaceauth_crypto_openssl_sys::load_master_key_for_uid(*target_uid, keys_dir) {
                 Ok(k) => {
                     let master_key = MasterKey::from_bytes(k);
-                    match open_vault_for_uid(target_uid, config) {
+                    match open_vault_for_uid(*target_uid, config) {
                         Ok(vault) => match vault.status(Some(&master_key)) {
                             VaultStatus::Ready(summary) => (
                                 STATUS_SUCCESS,
@@ -364,71 +318,6 @@ pub fn dispatch_request(
                             ),
                             VaultStatus::Absent => (STATUS_SUCCESS, vec![0, 0]),
                             _ => (STATUS_NO_PROFILE, vec![0, 0]),
-                        },
-                        Err(code) => (code, Vec::new()),
-                    }
-                }
-                Err(_) => (STATUS_INTERNAL_ERROR, Vec::new()),
-            }
-        }
-        DaemonRequest::GetKey { target_uid } => {
-            let keys_dir = config.keys_dir.as_deref();
-            match kfaceauth_crypto_openssl_sys::master_key_for_uid(target_uid, keys_dir) {
-                Ok(key) => (STATUS_SUCCESS, key.to_vec()),
-                Err(_) => (STATUS_INTERNAL_ERROR, Vec::new()),
-            }
-        }
-        DaemonRequest::VerifyFrame {
-            target_uid,
-            timeout_ms,
-            width,
-            height,
-            stride,
-            format,
-            frame_bytes,
-        } => {
-            let effective_timeout_ms = timeout_ms.min(config.max_timeout_ms);
-            let keys_dir = config.keys_dir.as_deref();
-            match kfaceauth_crypto_openssl_sys::master_key_for_uid(target_uid, keys_dir) {
-                Ok(key_bytes) => {
-                    let master_key = MasterKey::from_bytes(key_bytes);
-                    match open_vault_for_uid(target_uid, config) {
-                        Ok(vault) => {
-                            match vault.status(Some(&master_key)) {
-                                VaultStatus::Ready(ProfileSummary {
-                                    enrolled: true,
-                                    sample_count,
-                                }) if sample_count > 0 => {}
-                                _ => return encode_daemon_response(STATUS_NO_PROFILE, &[]),
-                            }
-                            let result = verify_frame_against_vault(
-                                &vault,
-                                &master_key,
-                                width,
-                                height,
-                                stride,
-                                format,
-                                &frame_bytes,
-                                effective_timeout_ms,
-                                &config.model_root,
-                            );
-                            (result, Vec::new())
-                        }
-                        Err(code) => (code, Vec::new()),
-                    }
-                }
-                Err(_) => (STATUS_INTERNAL_ERROR, Vec::new()),
-            }
-        }
-        DaemonRequest::DeleteProfile { target_uid } => {
-            let keys_dir = config.keys_dir.as_deref();
-            match kfaceauth_crypto_openssl_sys::master_key_for_uid(target_uid, keys_dir) {
-                Ok(key_bytes) => {
-                    let master_key = MasterKey::from_bytes(key_bytes);
-                    match open_vault_for_uid(target_uid, config) {
-                        Ok(vault) => match vault.delete_profile(&master_key) {
-                            Ok(()) => (STATUS_SUCCESS, Vec::new()),
-                            Err(_) => (STATUS_INTERNAL_ERROR, Vec::new()),
                         },
                         Err(code) => (code, Vec::new()),
                     }
@@ -470,7 +359,7 @@ pub fn handle_client_stream(mut stream: UnixStream, config: &DaemonConfig) -> io
     };
 
     let response = match decode_daemon_request(&payload) {
-        Ok(request) => dispatch_request(request, &peer, config),
+        Ok(request) => dispatch_request(&request, &peer, config),
         Err(_) => encode_daemon_response(STATUS_INTERNAL_ERROR, &[]),
     };
 
@@ -508,8 +397,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn peer_authorization_allows_root_and_self_rejects_cross_uid() {
-        assert!(is_authorized(0, 1000));
+    fn peer_authorization_is_bound_to_exact_uid() {
+        assert!(!is_authorized(0, 1000));
+        assert!(is_authorized(0, 0));
         assert!(is_authorized(1000, 1000));
         assert!(!is_authorized(1001, 1000));
         assert!(!is_authorized(1000, 1001));
@@ -554,12 +444,12 @@ mod tests {
             pid: 12345,
         };
         let config = DaemonConfig::default();
-        let resp = dispatch_request(req, &peer, &config);
+        let resp = dispatch_request(&req, &peer, &config);
         assert_eq!(resp[2], STATUS_ACCESS_DENIED);
     }
 
     #[test]
-    fn gate_4_3_cross_uid_tamper_defense_all_opcodes() {
+    fn cross_uid_requests_are_rejected_for_every_remaining_operation() {
         let attacker = PeerCredentials {
             uid: 1001,
             gid: 1001,
@@ -574,25 +464,25 @@ mod tests {
                 username: "victim".to_string(),
             },
             DaemonRequest::Status { target_uid: 1000 },
-            DaemonRequest::GetKey { target_uid: 1000 },
-            DaemonRequest::VerifyFrame {
-                target_uid: 1000,
-                timeout_ms: 2000,
-                width: 100,
-                height: 100,
-                stride: 300,
-                format: 1,
-                frame_bytes: vec![0; 30000],
-            },
-            DaemonRequest::DeleteProfile { target_uid: 1000 },
         ];
 
         for req in reqs {
-            let resp = dispatch_request(req, &attacker, &config);
+            let resp = dispatch_request(&req, &attacker, &config);
             assert_eq!(
                 resp[2], STATUS_ACCESS_DENIED,
-                "Gate 4.3 violation: attacker was not denied access!"
+                "cross-UID request was not denied"
             );
+        }
+    }
+
+    #[test]
+    fn removed_key_export_and_broad_profile_operations_are_rejected() {
+        for opcode in [0x12, 0x13, 0x15] {
+            let mut payload = Vec::from(DAEMON_PROTOCOL_VERSION.to_be_bytes());
+            payload.push(opcode);
+            payload.push(0);
+            payload.extend_from_slice(&1000_u32.to_be_bytes());
+            assert!(decode_daemon_request(&payload).is_err());
         }
     }
 
@@ -622,10 +512,11 @@ mod tests {
         write_frame(&mut client_sock, &req_payload, MAX_DAEMON_REQUEST_BYTES).unwrap();
 
         let resp_payload = read_frame(&mut client_sock, MAX_DAEMON_RESPONSE_BYTES).unwrap();
-        assert_eq!(resp_payload.len(), 6);
+        assert_eq!(resp_payload.len(), 4);
         let resp_version = u16::from_be_bytes([resp_payload[0], resp_payload[1]]);
         assert_eq!(resp_version, DAEMON_PROTOCOL_VERSION);
-        assert_eq!(resp_payload[2], STATUS_SUCCESS);
+        assert_eq!(resp_payload[2], STATUS_INTERNAL_ERROR);
+        assert!(!temp_dir.join(format!("{current_uid}.key")).exists());
 
         handle.join().unwrap();
         let _ = fs::remove_dir_all(&temp_dir);

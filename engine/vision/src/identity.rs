@@ -130,8 +130,15 @@ impl IdentityProvider {
             detection,
             None,
         );
-        if let crate::liveness::LivenessDecision::SpoofDetected(spoof) = pad_decision {
-            return Err(IdentityError::SpoofDetected(spoof));
+        match pad_decision {
+            crate::liveness::LivenessDecision::SpoofDetected(spoof) => {
+                return Err(IdentityError::SpoofDetected(spoof));
+            }
+            crate::liveness::LivenessDecision::AnalysisFailed => {
+                return Err(IdentityError::LivenessUnavailable);
+            }
+            crate::liveness::LivenessDecision::BonaFide
+            | crate::liveness::LivenessDecision::AwaitingChallenge(_) => {}
         }
 
         let raw = self
@@ -212,6 +219,7 @@ pub enum IdentityError {
     MultipleFaces,
     PoorQuality,
     FaceGeometry,
+    LivenessUnavailable,
     InvalidEmbedding,
     SpoofDetected(crate::liveness::SpoofKind),
     Runtime(BridgeError),
@@ -231,6 +239,9 @@ impl fmt::Display for IdentityError {
             }
             Self::FaceGeometry => {
                 formatter.write_str("face size or edge position is outside the accepted bounds")
+            }
+            Self::LivenessUnavailable => {
+                formatter.write_str("presentation attack analysis could not be completed")
             }
             Self::InvalidEmbedding => {
                 formatter.write_str("embedding output violated the identity contract")
@@ -258,6 +269,7 @@ impl From<VisionError> for IdentityError {
         match error {
             VisionError::Cancelled => Self::Cancelled,
             VisionError::DeadlineExceeded => Self::DeadlineExceeded,
+            VisionError::FaceAtEdge => Self::FaceGeometry,
             VisionError::RuntimeFailure => Self::Runtime(BridgeError::RuntimeFailure),
             VisionError::InvalidRuntimeOutput => Self::InvalidEmbedding,
         }
@@ -277,4 +289,17 @@ fn require_expected_metadata(entry: &ManifestEntry) -> Result<(), IdentityLoadEr
         return Err(IdentityLoadError::UnexpectedModelMetadata);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IdentityError, VisionError};
+
+    #[test]
+    fn clipped_detector_geometry_is_rejected_as_face_geometry() {
+        assert!(matches!(
+            IdentityError::from(VisionError::FaceAtEdge),
+            IdentityError::FaceGeometry
+        ));
+    }
 }
