@@ -3,7 +3,7 @@
 %global clamp_mtime_to_source_date_epoch 1
 
 Name:           kfaceauth
-Version:        5.0.0
+Version:        5.1.0
 Release:        1%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
@@ -11,7 +11,7 @@ License:        GPL-3.0-or-later AND MIT AND Apache-2.0
 URL:            https://github.com/loofiboss-bit/LoofiFaceID
 Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 
-Obsoletes:      plasma-irlume < 5.0.0
+Obsoletes:      plasma-irlume < 5.1.0
 Provides:       plasma-irlume = %{version}-%{release}
 
 BuildRequires:  cmake >= 3.22
@@ -36,7 +36,6 @@ BuildRequires:  python3
 BuildRequires:  qt6-qtbase-devel >= 6.8.0
 BuildRequires:  qt6-qtdeclarative-devel >= 6.8.0
 BuildRequires:  qt6-qtmultimedia-devel >= 6.8.0
-BuildRequires:  checkpolicy
 BuildRequires:  pam-devel
 BuildRequires:  rust
 BuildRequires:  rustfmt
@@ -62,8 +61,7 @@ utility for a logged-in Fedora 44/KDE Plasma session. The KCM provides private
 camera guidance, a five-pose enrollment flow, encrypted KWallet-backed profile
 storage, and one-frame local comparison. Installation does not configure or
 activate PAM, SDDM, privilege escalation, Polkit, or another system
-authentication service. The package contains separate engineering artifacts
-for future work, but the user-facing product makes no PAD, performance, or
+authentication service. The package makes no PAD, performance, or
 authentication qualification claim.
 
 %prep
@@ -72,14 +70,12 @@ authentication qualification claim.
 %build
 %cmake \
     %{?kfaceauth_cmake_extra} \
+    -DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=OFF \
     -DBUILD_TESTING=ON
 %cmake_build
 
 %install
 %cmake_install
-install -d -m 0750 %{buildroot}%{_sharedstatedir}/kfaceauth
-install -d -m 0750 %{buildroot}%{_sysconfdir}/kfaceauth
-install -d -m 0700 %{buildroot}%{_sysconfdir}/kfaceauth/keys
 if find %{buildroot}%{_datadir}/locale -type f -name 'kcm_kfaceauth.mo' -print -quit \
     | grep -q .; then
     %find_lang kcm_kfaceauth
@@ -111,17 +107,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_libexecdir}/kfaceauth-camera-preview-worker
 %{_libexecdir}/kfaceauth-vision-worker
 %{_libexecdir}/kfaceauth-identity-worker
-%{_libexecdir}/kfaceauthd
-%{_bindir}/kfaceauth-migrate-vault
-%{_libdir}/security/pam_kfaceauth.so
-%{_unitdir}/kfaceauth.service
-%{_unitdir}/kfaceauth.socket
-%{_sysusersdir}/kfaceauth.conf
 %dir %{_datadir}/kfaceauth
-%dir %{_datadir}/kfaceauth/selinux
-%{_datadir}/kfaceauth/selinux/kfaceauth.te
-%{_datadir}/kfaceauth/selinux/kfaceauth.fc
-%{_datadir}/kfaceauth/selinux/kfaceauth.if
 %dir %{_datadir}/kfaceauth/models
 %dir %{_datadir}/kfaceauth/models/files
 %dir %{_datadir}/kfaceauth/models/licenses
@@ -134,11 +120,13 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_datadir}/kfaceauth/models/provenance/sface-2021dec.txt
 %{_datadir}/kfaceauth/models/provenance/yunet-2023mar.txt
 %{_datadir}/applications/kcm_kfaceauth.desktop
-%dir %attr(0750,root,kfaceauth) %{_sharedstatedir}/kfaceauth
-%dir %attr(0750,root,kfaceauth) %{_sysconfdir}/kfaceauth
-%dir %attr(0700,root,root) %{_sysconfdir}/kfaceauth/keys
 
 %changelog
+* Wed Sep 23 2026 Loofi <noreply@example.invalid> - 5.1.0-1
+- Separate YuNet edge, invalid-output, and runtime errors with bounded guidance recovery
+- Keep system authentication components out of the base package while KDE and physical qualification gates remain open
+- Load system keys only when explicitly provisioned; status requests never create key material
+
 * Tue Sep 15 2026 Loofi <noreply@example.invalid> - 5.0.0-1
 - Experimental local profile/comparison KCM with guided five-pose enrollment
 - Persistent vision guidance session, validated YuNet landmarks, and typed recovery states

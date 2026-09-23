@@ -395,7 +395,7 @@ static int try_tpm2_unseal(const char *tpm_path, uint8_t *key_out, size_t key_le
 }
 #endif
 
-int kfaceauth_master_key_for_uid(uint32_t uid, uint8_t *key_out, size_t key_len, const char *custom_keys_dir)
+int kfaceauth_load_master_key_for_uid(uint32_t uid, uint8_t *key_out, size_t key_len, const char *custom_keys_dir)
 {
     if (key_out == NULL || key_len != KeyBytes)
         return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
@@ -403,8 +403,6 @@ int kfaceauth_master_key_for_uid(uint32_t uid, uint8_t *key_out, size_t key_len,
     char dir[384];
     if (resolve_keys_dir(dir, sizeof(dir), custom_keys_dir) != 0)
         return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
-
-    ensure_dir_exists(dir);
 
     char key_path[512];
     int path_len = snprintf(key_path, sizeof(key_path), "%s/%u.key", dir, uid);
@@ -422,31 +420,9 @@ int kfaceauth_master_key_for_uid(uint32_t uid, uint8_t *key_out, size_t key_len,
 #endif
 
     if (read_key_file(key_path, key_out, key_len) == 0)
-    {
-#if defined(KFACEAUTH_HAS_KEYUTILS) && KFACEAUTH_HAS_KEYUTILS
-        char desc[64];
-        snprintf(desc, sizeof(desc), "kfaceauth:%u", uid);
-        add_key("user", desc, key_out, key_len, KEY_SPEC_USER_KEYRING);
-#endif
         return KFACEAUTH_CRYPTO_OK;
-    }
-
-    if (kfaceauth_crypto_random(key_out, key_len) != KFACEAUTH_CRYPTO_OK)
-        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
-
-    if (write_key_file(dir, key_path, key_out, key_len) != 0)
-    {
-        OPENSSL_cleanse(key_out, key_len);
-        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
-    }
-
-#if defined(KFACEAUTH_HAS_KEYUTILS) && KFACEAUTH_HAS_KEYUTILS
-    char desc[64];
-    snprintf(desc, sizeof(desc), "kfaceauth:%u", uid);
-    add_key("user", desc, key_out, key_len, KEY_SPEC_USER_KEYRING);
-#endif
-
-    return KFACEAUTH_CRYPTO_OK;
+    OPENSSL_cleanse(key_out, key_len);
+    return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 }
 
 int kfaceauth_seal_master_key(uint32_t uid, const uint8_t *key_in, size_t key_len, const char *custom_keys_dir)

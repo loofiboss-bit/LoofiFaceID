@@ -20,9 +20,25 @@ set(KFACEAUTH_IDENTITY_WORKER_BINARY
 set(KFACEAUTH_DAEMON_BINARY
     "${KFACEAUTH_CARGO_TARGET_DIR}/${KFACEAUTH_CARGO_PROFILE}/kfaceauthd"
 )
-set(KFACEAUTH_MIGRATE_VAULT_BINARY
-    "${KFACEAUTH_CARGO_TARGET_DIR}/${KFACEAUTH_CARGO_PROFILE}/kfaceauth-migrate-vault"
+set(KFACEAUTH_RUST_OUTPUTS
+    "${KFACEAUTH_VISION_WORKER_BINARY}"
+    "${KFACEAUTH_IDENTITY_WORKER_BINARY}"
 )
+set(KFACEAUTH_RUST_PACKAGES
+    --package kfaceauth-vision
+    --bin "${KFACEAUTH_VISION_WORKER}"
+    --package kfaceauth-identity
+    --bin "${KFACEAUTH_IDENTITY_WORKER}"
+)
+if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
+    list(APPEND KFACEAUTH_RUST_OUTPUTS
+        "${KFACEAUTH_DAEMON_BINARY}"
+    )
+    list(APPEND KFACEAUTH_RUST_PACKAGES
+        --package kfaceauth-daemon
+        --bin kfaceauthd
+    )
+endif()
 set(KFACEAUTH_REPRODUCIBLE_CXXFLAGS
     "$ENV{CXXFLAGS} -gno-record-gcc-switches"
 )
@@ -52,11 +68,7 @@ file(GLOB_RECURSE KFACEAUTH_RUST_SOURCES CONFIGURE_DEPENDS
 )
 
 add_custom_command(
-    OUTPUT
-        "${KFACEAUTH_VISION_WORKER_BINARY}"
-        "${KFACEAUTH_IDENTITY_WORKER_BINARY}"
-        "${KFACEAUTH_DAEMON_BINARY}"
-        "${KFACEAUTH_MIGRATE_VAULT_BINARY}"
+    OUTPUT ${KFACEAUTH_RUST_OUTPUTS}
     COMMAND
         "${CMAKE_COMMAND}" -E env
         "CARGO_TARGET_DIR=${KFACEAUTH_CARGO_TARGET_DIR}"
@@ -72,14 +84,7 @@ add_custom_command(
         --config "${PROJECT_SOURCE_DIR}/.cargo/config.toml"
         build
         --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml"
-        --package kfaceauth-vision
-        --bin "${KFACEAUTH_VISION_WORKER}"
-        --package kfaceauth-identity
-        --bin "${KFACEAUTH_IDENTITY_WORKER}"
-        --package kfaceauth-daemon
-        --bin kfaceauthd
-        --package kfaceauth-templates
-        --bin kfaceauth-migrate-vault
+        ${KFACEAUTH_RUST_PACKAGES}
         --locked
         --offline
         ${KFACEAUTH_CARGO_PROFILE_ARGUMENTS}
@@ -91,15 +96,11 @@ add_custom_command(
         "${PROJECT_SOURCE_DIR}/models/files/face_detection_yunet_2023mar.onnx"
         "${PROJECT_SOURCE_DIR}/models/files/face_recognition_sface_2021dec.onnx"
     VERBATIM
-    COMMENT "Building the offline Rust vision and daemon workers"
+    COMMENT "Building the offline Rust vision and identity workers"
 )
 
 add_custom_target(kfaceauth_vision_worker ALL
-    DEPENDS
-        "${KFACEAUTH_VISION_WORKER_BINARY}"
-        "${KFACEAUTH_IDENTITY_WORKER_BINARY}"
-        "${KFACEAUTH_DAEMON_BINARY}"
-        "${KFACEAUTH_MIGRATE_VAULT_BINARY}"
+    DEPENDS ${KFACEAUTH_RUST_OUTPUTS}
 )
 
 add_custom_target(kfaceauth_verify_models ALL
@@ -124,15 +125,13 @@ install(PROGRAMS "${KFACEAUTH_IDENTITY_WORKER_BINARY}"
     RENAME "${KFACEAUTH_IDENTITY_WORKER}"
 )
 
-install(PROGRAMS "${KFACEAUTH_DAEMON_BINARY}"
-    DESTINATION libexec
-    RENAME "kfaceauthd"
-)
+if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
+    install(PROGRAMS "${KFACEAUTH_DAEMON_BINARY}"
+        DESTINATION libexec
+        RENAME "kfaceauthd"
+    )
 
-install(PROGRAMS "${KFACEAUTH_MIGRATE_VAULT_BINARY}"
-    DESTINATION bin
-    RENAME "kfaceauth-migrate-vault"
-)
+endif()
 
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/models/"
     DESTINATION "${KDE_INSTALL_DATADIR}/${KFACEAUTH_MODEL_DIRECTORY}"

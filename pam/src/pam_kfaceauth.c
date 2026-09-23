@@ -83,11 +83,15 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     }
     uint32_t target_uid = (uint32_t)pw->pw_uid;
 
+#ifdef KFACEAUTH_TEST_SOCKET_OVERRIDE
     const char *sock_path = getenv("KFACEAUTH_SOCKET_PATH");
     if (sock_path == NULL || sock_path[0] == '\0')
     {
         sock_path = DEFAULT_SOCKET_PATH;
     }
+#else
+    const char *sock_path = DEFAULT_SOCKET_PATH;
+#endif
 
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0)

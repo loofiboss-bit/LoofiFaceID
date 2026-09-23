@@ -943,13 +943,21 @@ msgstr ""
 "YuNet är inte tillgängligt eller klarade inte modellverifieringen. "
 "Installera om KFaceAuth och försök igen."
 
-#: src/backend/visionanalysissession.cpp:636
-msgid ""
-"The local YuNet detector returned invalid data. Try another frame or "
-"reinstall OpenCV."
-msgstr ""
-"Den lokala YuNet-detektorn returnerade ogiltiga data. Försök med en annan "
-"bildruta eller installera om OpenCV."
+#: src/backend/visionanalysissession.cpp
+msgid "The vision worker reported an older, unspecific error. Try another frame; if it continues, refresh Diagnostics."
+msgstr "Synarbetaren rapporterade ett äldre, ospecifikt fel. Försök med en annan bildruta och uppdatera Diagnostik om felet kvarstår."
+
+#: src/backend/visionanalysissession.cpp
+msgid "Your face crosses the camera frame edge. Move back until the whole face is visible."
+msgstr "Ansiktet går utanför kamerabildens kant. Flytta dig bakåt tills hela ansiktet syns."
+
+#: src/backend/visionanalysissession.cpp
+msgid "The vision result failed validation and was discarded. Adjust your framing and try another frame."
+msgstr "Synresultatet klarade inte valideringen och kasserades. Justera bildutsnittet och försök igen."
+
+#: src/backend/visionanalysissession.cpp
+msgid "The local vision runtime failed. Retry once; if it continues, refresh Diagnostics."
+msgstr "Den lokala synkörningen misslyckades. Försök igen och uppdatera Diagnostik om felet kvarstår."
 
 #: src/backend/visionanalysissession.cpp:638
 msgid "Local vision analysis could not process this frame."
@@ -1206,6 +1214,12 @@ msgstr "Den krypterade profilen är oläsbar"
 
 msgid "A local worker needs attention"
 msgstr "En lokal worker behöver åtgärdas"
+
+msgid "The local vision result failed validation"
+msgstr "Det lokala synresultatet klarade inte valideringen"
+
+msgid "Discard the result and retry. If invalid results continue, refresh Diagnostics; this error does not indicate that OpenCV needs reinstalling."
+msgstr "Kassera resultatet och försök igen. Uppdatera Diagnostik om felet kvarstår; det här felet visar inte att OpenCV behöver installeras om."
 
 msgid "Verify the installed YuNet and SFace files against the offline model manifest, then refresh."
 msgstr "Verifiera de installerade YuNet- och SFace-filerna mot det offline modellmanifestet och uppdatera sedan."

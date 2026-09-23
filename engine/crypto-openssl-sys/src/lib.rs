@@ -70,7 +70,7 @@ unsafe extern "C" {
         username: *const std::ffi::c_char,
         groupname: *const std::ffi::c_char,
     ) -> c_int;
-    fn kfaceauth_master_key_for_uid(
+    fn kfaceauth_load_master_key_for_uid(
         uid: u32,
         key_out: *mut u8,
         key_len: usize,
@@ -328,7 +328,7 @@ pub fn drop_privileges(username: &str, groupname: &str) -> Result<(), CryptoErro
     status_result(status)
 }
 
-/// Retrieves or creates an authoritative 32-byte master key for `uid`.
+/// Loads an existing authoritative 32-byte master key for `uid` without creating one.
 ///
 /// If TPM 2.0 is available and functional, tries to unseal from TPM.
 /// Otherwise, uses the root-protected system keyring (`/etc/kfaceauth/keys/<uid>.key` with Mode `0600`).
@@ -336,7 +336,7 @@ pub fn drop_privileges(username: &str, groupname: &str) -> Result<(), CryptoErro
 /// # Errors
 ///
 /// Returns [`CryptoError`] on I/O, crypto, or permission failures.
-pub fn master_key_for_uid(
+pub fn load_master_key_for_uid(
     uid: u32,
     custom_keys_dir: Option<&Path>,
 ) -> Result<[u8; KEY_BYTES], CryptoError> {
@@ -350,7 +350,8 @@ pub fn master_key_for_uid(
     };
     let dir_ptr = c_dir.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
     // SAFETY: key is a valid 32-byte buffer and dir_ptr is null or null-terminated string.
-    let status = unsafe { kfaceauth_master_key_for_uid(uid, key.as_mut_ptr(), KEY_BYTES, dir_ptr) };
+    let status =
+        unsafe { kfaceauth_load_master_key_for_uid(uid, key.as_mut_ptr(), KEY_BYTES, dir_ptr) };
     if status != STATUS_OK {
         key.zeroize();
         return Err(match status {
@@ -517,17 +518,17 @@ mod tests {
     }
 
     #[test]
-    fn master_key_generation_and_persistence() {
+    fn master_key_load_requires_explicit_provisioning() {
         let tmp = std::env::temp_dir().join(format!("kfaceauth-key-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let _ = std::fs::create_dir_all(&tmp);
         let uid = 1000_u32;
-        let key1 = master_key_for_uid(uid, Some(&tmp)).unwrap();
-        assert_ne!(key1, [0_u8; KEY_BYTES]);
-
-        // Second retrieval should yield identical key
-        let key2 = master_key_for_uid(uid, Some(&tmp)).unwrap();
-        assert_eq!(key1, key2);
+        assert!(load_master_key_for_uid(uid, Some(&tmp)).is_err());
+        let mut key = random::<KEY_BYTES>().unwrap();
+        seal_master_key(uid, &key, Some(&tmp)).unwrap();
+        let loaded = load_master_key_for_uid(uid, Some(&tmp)).unwrap();
+        assert_eq!(key, loaded);
+        key.zeroize();
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

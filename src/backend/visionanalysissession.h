@@ -217,6 +217,7 @@ class VisionAnalysisSession final : public QObject
     std::optional<Result> m_pendingResult;
     bool m_ignoringProcessExit = false;
     bool m_responseReceived = false;
+    int m_consecutiveVisionErrors = 0;
     bool m_replacementRequested = false;
     quint16 m_requestWidth = 0;
     quint16 m_requestHeight = 0;

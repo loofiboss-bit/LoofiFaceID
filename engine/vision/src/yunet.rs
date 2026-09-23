@@ -299,16 +299,22 @@ pub(crate) fn validate_detections(
         let height = detection.values[3];
         let right = x + width;
         let bottom = y + height;
-        if x < 0.0
-            || y < 0.0
-            || width <= 0.0
-            || height <= 0.0
-            || !right.is_finite()
-            || !bottom.is_finite()
-            || right > image_width_f32
-            || bottom > image_height_f32
-        {
+        let score = detection.values[14];
+        if score + SCORE_TOLERANCE < YUNET_SCORE_THRESHOLD || score > 1.0 + SCORE_TOLERANCE {
             return Err(VisionError::InvalidRuntimeOutput);
+        }
+        if width <= 0.0 || height <= 0.0 || !right.is_finite() || !bottom.is_finite() {
+            return Err(VisionError::InvalidRuntimeOutput);
+        }
+        if x < 0.0 || y < 0.0 || right > image_width_f32 || bottom > image_height_f32 {
+            let intersects_image =
+                right > 0.0 && bottom > 0.0 && x < image_width_f32 && y < image_height_f32;
+            let plausible_size = width <= image_width_f32 && height <= image_height_f32;
+            return Err(if intersects_image && plausible_size {
+                VisionError::FaceAtEdge
+            } else {
+                VisionError::InvalidRuntimeOutput
+            });
         }
         for landmark in detection.values[4..14].chunks_exact(2) {
             if landmark[0] < 0.0
@@ -319,11 +325,6 @@ pub(crate) fn validate_detections(
                 return Err(VisionError::InvalidRuntimeOutput);
             }
         }
-        let score = detection.values[14];
-        if score + SCORE_TOLERANCE < YUNET_SCORE_THRESHOLD || score > 1.0 + SCORE_TOLERANCE {
-            return Err(VisionError::InvalidRuntimeOutput);
-        }
-
         let left = x.floor();
         let top = y.floor();
         let right = right.ceil();
@@ -464,13 +465,19 @@ mod tests {
         negative.values[0] = -0.1;
         assert_eq!(
             validate_detections(&[negative], 64, 64),
+            Err(VisionError::FaceAtEdge)
+        );
+        let mut wholly_outside = valid_detection();
+        wholly_outside.values[0] = 64.0;
+        assert_eq!(
+            validate_detections(&[wholly_outside], 64, 64),
             Err(VisionError::InvalidRuntimeOutput)
         );
         let mut rectangle_outside = valid_detection();
         rectangle_outside.values[2] = 60.0;
         assert_eq!(
             validate_detections(&[rectangle_outside], 64, 64),
-            Err(VisionError::InvalidRuntimeOutput)
+            Err(VisionError::FaceAtEdge)
         );
         let mut landmark_outside = valid_detection();
         landmark_outside.values[4] = 64.0;
@@ -500,6 +507,38 @@ mod tests {
         assert!(
             validated[0].landmarks.points[1]
                 < validated[0].rectangle.y + validated[0].rectangle.height
+        );
+    }
+
+    #[test]
+    fn accepts_a_valid_face_touching_the_image_edge_without_clamping_it() {
+        let mut near_image_edge = valid_detection();
+        near_image_edge.values[0] = 0.25;
+        near_image_edge.values[4] = 5.0;
+        near_image_edge.values[6] = 18.0;
+        near_image_edge.values[8] = 14.0;
+        near_image_edge.values[10] = 6.0;
+        near_image_edge.values[12] = 18.0;
+        let validated = validate_detections(&[near_image_edge], 64, 64).unwrap();
+        assert_eq!(validated.len(), 1);
+        assert_eq!(validated[0].rectangle.x, 0);
+        assert_eq!(validated[0].landmarks.points[0], 5);
+    }
+
+    #[test]
+    fn rejects_clipped_and_impossible_detection_geometry_distinctly() {
+        let mut clipped = valid_detection();
+        clipped.values[0] = -2.0;
+        assert_eq!(
+            validate_detections(&[clipped], 64, 64),
+            Err(VisionError::FaceAtEdge)
+        );
+
+        let mut impossible = valid_detection();
+        impossible.values[0] = -65.0;
+        assert_eq!(
+            validate_detections(&[impossible], 64, 64),
+            Err(VisionError::InvalidRuntimeOutput)
         );
     }
 

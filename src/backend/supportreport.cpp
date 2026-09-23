@@ -112,6 +112,12 @@ void SupportReport::setTransientIssueCode(const QString &code)
         normalized = QStringLiteral("model-unavailable");
     else if (code == QLatin1String("analysis-error-12"))
         normalized = QStringLiteral("worker-crashed");
+    else if (code == QLatin1String("analysis-error-13"))
+        normalized.clear();
+    else if (code == QLatin1String("analysis-error-14"))
+        normalized = QStringLiteral("invalid-runtime-output");
+    else if (code == QLatin1String("analysis-error-15"))
+        normalized = QStringLiteral("worker-crashed");
     else if (timeoutCodes.contains(code))
         normalized = QStringLiteral("worker-timeout");
     else if (workerCodes.contains(code))
@@ -129,6 +135,7 @@ void SupportReport::setTransientIssueCode(const QString &code)
         QStringLiteral("kwallet-unavailable"),
         QStringLiteral("worker-crashed"),
         QStringLiteral("worker-timeout"),
+        QStringLiteral("invalid-runtime-output"),
         QStringLiteral("identity-worker-unavailable"),
         QStringLiteral("identity-protocol-error"),
         QStringLiteral("protocol-error"),
@@ -227,6 +234,8 @@ QString SupportReport::titleForCode(const QString &code)
         return translate("Encrypted profile status is unavailable");
     if (code == QLatin1String("kwallet-unavailable"))
         return translate("KWallet is unavailable");
+    if (code == QLatin1String("invalid-runtime-output"))
+        return translate("The local vision result failed validation");
     if (code == QLatin1String("worker-crashed") || code == QLatin1String("worker-timeout") ||
         code == QLatin1String("identity-worker-unavailable") || code == QLatin1String("identity-protocol-error") ||
         code == QLatin1String("protocol-error"))
@@ -262,6 +271,9 @@ QString SupportReport::actionForCode(const QString &code)
     if (code == QLatin1String("kwallet-unavailable"))
         return translate(
             "Enable and unlock KWallet in the current user session, then refresh. No profile key is stored elsewhere.");
+    if (code == QLatin1String("invalid-runtime-output"))
+        return translate("Discard the result and retry. If invalid results continue, refresh Diagnostics; this error "
+                         "does not indicate that OpenCV needs reinstalling.");
     if (code == QLatin1String("worker-crashed") || code == QLatin1String("worker-timeout") ||
         code == QLatin1String("identity-worker-unavailable") || code == QLatin1String("identity-protocol-error") ||
         code == QLatin1String("protocol-error"))

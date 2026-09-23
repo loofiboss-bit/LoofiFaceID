@@ -22,6 +22,18 @@ This is not an authentication factor. It does not unlock the desktop, log in
 to a display manager, approve `sudo`/Polkit requests, or provide a PAD or
 performance qualification claim.
 
+The v5.1.0 work is an unreleased stabilization target. Its default build and
+base RPM omit the experimental daemon, PAM module, and system service files.
+KDE lock-screen unlock is not implemented or qualified. See the [v5.1.0
+qualification status](docs/RELEASE-QUALIFICATION-V5.1.md) before treating any
+security or physical test result as release evidence.
+
+The currently published [v5.0.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0)
+describes production PAM authentication and PAD results. The repository's
+supported workflow and current qualification evidence do not substantiate
+those claims. Do not use that release as an authentication mechanism; this
+source correction has not been published.
+
 ## Supported release matrix
 
 | Component | Supported baseline |

@@ -40,7 +40,7 @@ extern "C"
 
     int kfaceauth_drop_privileges(const char *username, const char *groupname);
 
-    int kfaceauth_master_key_for_uid(uint32_t uid, uint8_t *key_out, size_t key_len, const char *custom_keys_dir);
+    int kfaceauth_load_master_key_for_uid(uint32_t uid, uint8_t *key_out, size_t key_len, const char *custom_keys_dir);
 
     int kfaceauth_seal_master_key(uint32_t uid, const uint8_t *key_in, size_t key_len, const char *custom_keys_dir);
 

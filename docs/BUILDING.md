@@ -7,6 +7,7 @@ sudo dnf install \
   cargo clang-tools-extra cmake extra-cmake-modules gcc-c++ ninja-build rust \
   kf6-kcmutils-devel kf6-kcoreaddons-devel kf6-ki18n-devel \
   kf6-kirigami-devel kf6-kwallet-devel \
+  pam-devel \
   qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel \
   opencv-devel openssl-devel systemd-devel
 ```
@@ -16,8 +17,15 @@ Fedora OpenCV 4.13, OpenSSL 3, and KWallet. OpenVINO is optional: when the
 OpenCV build exposes its inference-engine backend, the worker probes it at
 runtime and falls back to CPU if it is unavailable. Vulkan is also optional
 and is enabled only after the worker sandbox is applied. Neither accelerator
-runtime is bundled. `systemd-devel` supplies libudev headers only; no systemd
-unit or runtime service is added.
+runtime is bundled. `systemd-devel` supplies libudev headers only. The default
+build does not build or install the experimental daemon, PAM module, systemd
+units, sysusers entry, or SELinux files.
+
+`KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS` defaults to `OFF`. Turning it on
+builds unqualified engineering components only; it does not qualify them,
+install a PAM stack, or make them suitable for a login or lock-screen flow.
+Fedora release packaging must keep it off. See
+[v5.1.0 qualification status](RELEASE-QUALIFICATION-V5.1.md).
 
 ## Full local gates
 
@@ -110,7 +118,7 @@ DESTDIR="$PWD/stage" cmake --install build
 find stage -type f -o -type l
 ```
 
-The payload includes the KCM, translation, camera/vision/identity workers,
-YuNet/SFace models, licenses, provenance, and manifest. It contains no
-evaluator, fake provider, PAM module, service, privileged helper, enrolled
-profile, or key.
+The default payload includes the KCM, translation, camera/vision/identity
+workers, YuNet/SFace models, licenses, provenance, and manifest. It contains no
+evaluator, fake provider, PAM module, system service, privileged daemon,
+migration utility, enrolled profile, or key.

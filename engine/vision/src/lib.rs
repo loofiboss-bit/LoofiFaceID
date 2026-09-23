@@ -235,6 +235,7 @@ pub struct VisionAnalysis {
 pub enum VisionError {
     Cancelled,
     DeadlineExceeded,
+    FaceAtEdge,
     RuntimeFailure,
     InvalidRuntimeOutput,
 }
@@ -244,6 +245,7 @@ impl fmt::Display for VisionError {
         formatter.write_str(match self {
             Self::Cancelled => "vision processing was cancelled",
             Self::DeadlineExceeded => "vision processing deadline was exceeded",
+            Self::FaceAtEdge => "face detection intersects the image boundary",
             Self::RuntimeFailure => "vision runtime failed",
             Self::InvalidRuntimeOutput => "vision runtime returned invalid output",
         })

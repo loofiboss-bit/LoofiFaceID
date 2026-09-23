@@ -1,30 +1,22 @@
 # Changelog
 
-## 5.0.0
+## 5.1.0 (unreleased; local registration stabilization)
 
-- **Milestone 1 (Persistent Worker Pool & Zero-Copy IPC Engine)**:
-  - Persistent worker architecture eliminating process fork/exec lifecycle overhead.
-  - Zero-copy shared memory frame ingestion via sealed Linux anonymous shared memory (`memfd_create`) passed over Unix domain sockets (`SCM_RIGHTS`).
-  - Strict compiler-enforced cryptographic zeroization using the `zeroize` crate with compiler barriers across sensitive buffers.
-- **Milestone 2 (QML / Kirigami UX Modernization & Guided Enrollment)**:
-  - Hardware-accelerated QtQuick scene graph texture nodes (`QSGSimpleTextureNode`) delivering fluid 30 FPS camera preview.
-  - Dynamic 5-point landmark and face bounding-box overlays with sub-pixel tracking.
-  - Revamped modern multi-step guided enrollment wizard in Kirigami with real-time pose guidance and immediate biometric feedback.
-- **Milestone 3 (Hardware Acceleration & Inference Optimization)**:
-  - Opportunistic OpenVINO and Vulkan GPU/VNNI acceleration for YuNet face detection and SFace feature extraction.
-  - Thread concurrency tuning (`cv::setNumThreads(4)`) ensuring sub-35 ms CPU verification compute latency.
-- **Milestone 4 (Privilege Separation, System Daemon & PAM Integration)**:
-  - Dedicated system service `kfaceauthd` with Landlock LSM and Seccomp-BPF sandboxing.
-  - `pam_kfaceauth.so` PAM module with bounded 2-second fail-closed timeouts.
-  - Per-UID encrypted system vaults in `/var/lib/kfaceauth/<uid>/identity.vault` with Mode 0750/0640 DAC enforcement.
-  - Migration utility `kfaceauth-migrate-vault` for migrating legacy user-session KWallet vaults to system daemon vaults.
-- **Milestone 5 (Presentation Attack Detection & ISO/IEC 30107-3 Liveness Qualification)**:
-  - Active eye-blink challenge-response tracker enforcing physiological 100–300 ms biological profiles.
-  - Perspective-n-Point (PnP LM) head pose tracking with randomized challenge prompts (TurnLeft, TurnRight, NodUp, NodDown, TiltLeft, TiltRight, Blink).
-  - Passive 2D FFT moiré peak-to-average power ratio (PAPR) analysis detecting screen replay grids.
-  - Uniform circular Local Binary Pattern (LBP) entropy analysis flagging photographic print halftone patterns.
-  - Multi-spectrum near-infrared (NIR) differential reflectance qualification.
-  - Formal qualification report in `docs/QUALIFICATION-V5.md` certifying 0.0% APCER across 130 attack presentations and 0.8% BPCER across demographic phototypes.
+- Distinguish clipped face geometry, invalid detector output, and vision runtime failures in the worker protocol.
+- Keep guided vision sessions alive after a recoverable frame error, with a bounded stop after repeated failures.
+- Replace unsupported OpenCV reinstall advice with error-specific recovery guidance.
+- Remove key export and broad verify/delete operations from the experimental daemon protocol.
+- Make key lookup read-only: status and authentication requests cannot create key material.
+- Keep daemon, PAM, and system service artifacts out of the default build and Fedora base package.
+- KDE lock-screen integration, fresh unlock-profile enrollment, and physical attack/user qualification remain unimplemented or unverified. Face unlock is not shipped.
+
+## 5.0.0 historical claims correction
+
+The earlier 5.0.0 changelog overstated system authentication, active PAD,
+ISO/IEC qualification, acceleration, and physical test results. Those claims
+are not supported by the shipped user workflow or current qualification
+evidence. The supported product remains an experimental current-user profile
+and local comparison utility; see `docs/RELEASE-QUALIFICATION-V5.1.md`.
 
 ## 4.0.0 release candidate
 

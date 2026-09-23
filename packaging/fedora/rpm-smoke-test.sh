@@ -136,7 +136,6 @@ required_paths=(
     "/usr/libexec/kfaceauth-camera-preview-worker"
     "/usr/libexec/kfaceauth-vision-worker"
     "/usr/libexec/kfaceauth-identity-worker"
-    "/usr/libexec/kfaceauthd"
     "/usr/share/applications/kcm_kfaceauth.desktop"
     "/usr/share/kfaceauth/models/manifest.kfaceauth"
     "/usr/share/kfaceauth/models/files/face_detection_yunet_2023mar.onnx"
@@ -154,7 +153,6 @@ if find \
     "${smoke_root}/usr/libexec/kfaceauth-camera-preview-worker" \
     "${smoke_root}/usr/libexec/kfaceauth-vision-worker" \
     "${smoke_root}/usr/libexec/kfaceauth-identity-worker" \
-    "${smoke_root}/usr/libexec/kfaceauthd" \
     -perm /6000 -print -quit | grep -q .; then
     echo "KFaceAuth workers must not be setuid or setgid" >&2
     exit 1
@@ -163,8 +161,7 @@ if command -v getcap >/dev/null 2>&1 &&
     getcap \
         "${smoke_root}/usr/libexec/kfaceauth-camera-preview-worker" \
         "${smoke_root}/usr/libexec/kfaceauth-vision-worker" \
-        "${smoke_root}/usr/libexec/kfaceauth-identity-worker" \
-        "${smoke_root}/usr/libexec/kfaceauthd" | grep -q .; then
+        "${smoke_root}/usr/libexec/kfaceauth-identity-worker" | grep -q .; then
     echo "KFaceAuth workers must not have file capabilities" >&2
     exit 1
 fi
@@ -247,4 +244,4 @@ rpm --root "${smoke_root}" --erase kfaceauth
 [[ "$(sha256sum "${smoke_root}/home/test/.config/plasma-irlume.conf")" == "${legacy_user_hash_before}" ]]
 [[ ! -e "${smoke_root}/home/test/.local/share/kfaceauth" ]]
 
-echo "RPM v3-to-v4 transition and clean install/reinstall/remove lifecycle smoke test passed"
+echo "RPM v3-to-v5.1 transition and clean install/reinstall/remove lifecycle smoke test passed"

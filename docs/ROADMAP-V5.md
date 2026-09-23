@@ -6,6 +6,12 @@
 > qualification material below is roadmap or historical review content, not a
 > current capability claim. The beginner flow does not activate any system
 > authentication service.
+>
+> **Qualification correction:** Checked tasks and gates in this archived draft
+> are historical status claims, not reproducible test evidence. The former
+> v5.0 PAD/authentication results are withdrawn. See
+> [the current v5.1.0 qualification status](RELEASE-QUALIFICATION-V5.1.md);
+> no face-unlock or physical qualification gate has passed.
 
 **Target Release**: KFaceAuth v5.0.0  
 **Target Platform**: Fedora Linux 44+ / KDE Plasma 6.7+ / KF6 6.30+ / Linux Kernel 6.12+  
@@ -694,9 +700,9 @@ Deliver fluid 30 FPS camera preview using hardware-accelerated Qt Quick scene gr
 - Build compiles cleanly without KF6 6.30 deprecation warnings.
 
 #### Strict Acceptance Gate Conditions:
-- [x] **Gate 2.1**: Camera preview achieves 30 FPS sustained playback on standard 720p/1080p webcam hardware with zero UI thread stutter.
-- [x] **Gate 2.2**: Bounding box overlay aligns with detected facial position within $\le 2\text{ pixels}$ error margin across test video streams.
-- [x] **Gate 2.3**: Guided enrollment wizard records 0 occurrences of `identity-error-11` (duplicate pose) across 20 test enrollments, and subsequent verification passes with 100% genuine acceptance across all 5 enrolled poses under top-K / pose-clustered matching.
+- [ ] **Gate 2.1**: Camera preview achieves 30 FPS sustained playback on standard 720p/1080p webcam hardware with zero UI thread stutter. **Not verified for this release.**
+- [ ] **Gate 2.2**: Bounding box overlay aligns with detected facial position within $\le 2\text{ pixels}$ error margin across test video streams. **Not verified for this release.**
+- [ ] **Gate 2.3**: Guided enrollment duplicate-pose and genuine-acceptance evaluation across 20 physical registrations. **Not run; prior numerical claim withdrawn.**
 
 ---
 
@@ -762,24 +768,24 @@ also require the named physical hardware and representative vectors.
 Architect and implement the multi-user system daemon (`kfaceauthd`); establish system vault hierarchy in `/var/lib/kfaceauth/<uid>/` under least-privilege DAC; design unified pre-login master key access via TPM 2.0 / system keyring; implement the thin PAM conversation module (`pam_kfaceauth.so`).
 
 #### Concrete Tasks:
-- [x] **Task 4.1: Standalone System Daemon (`kfaceauthd`)**:
+- [ ] **Task 4.1: Standalone System Daemon (`kfaceauthd`)**:
   - Create daemon service in `engine/daemon/` listening on `/run/kfaceauth/kfaceauthd.sock`.
   - Configure `systemd` socket activation and unit file `data/systemd/kfaceauth.service`.
   - Enforce peer authentication via `SO_PEERCRED` / `getpeereid()`, isolating requests by calling UID.
-- [x] **Task 4.2: System Vault Migration (`/var/lib/kfaceauth/<uid>/`)**:
+- [ ] **Task 4.2: System Vault Migration (`/var/lib/kfaceauth/<uid>/`)**:
   - Refactor `engine/templates/src/lib.rs` to support `/var/lib/kfaceauth/<uid>/identity.vault`.
   - Enforce least-privilege DAC ownership and permissions: `/var/lib/kfaceauth` (Mode `0750`, `root:kfaceauth`), `/var/lib/kfaceauth/<uid>` (Mode `0750`, `<uid>:kfaceauth`), and `identity.vault` (Mode `0640`, `<uid>:kfaceauth`).
   - Eliminate any reliance on `CAP_DAC_OVERRIDE` by allowing `kfaceauthd` to access vault structures strictly through `kfaceauth` group membership.
   - Implement migration tool for converting legacy `$XDG_DATA_HOME/kfaceauth` vaults to the system path.
-- [x] **Task 4.3: Pre-Login Master Key Architecture & Key Synchronization**:
+- [ ] **Task 4.3: Pre-Login Master Key Architecture & Key Synchronization**:
   - Implement TPM 2.0 sealed master key provider using `libtss2` / `tss2-esys`, binding keys to PCR 0 (firmware) and PCR 7 (Secure Boot).
   - Implement fallback system keyring provider using Linux `keyutils` (`keyctl`) for systems lacking hardware TPM 2.0.
   - Establish `kfaceauthd` as the single authoritative master key custodian; update desktop KCM to delegate vault operations to `kfaceauthd` over Unix domain socket, guaranteeing that pre-login PAM at SDDM decrypts user vaults using the identical master key without AEAD tag desynchronization.
-- [x] **Task 4.4: Thin PAM Conversation Module (`pam_kfaceauth.so`)**:
+- [ ] **Task 4.4: Thin PAM Conversation Module (`pam_kfaceauth.so`)**:
   - Author zero-dependency PAM module in `pam/src/pam_kfaceauth.c` (or Rust `pam` crate).
   - Connect to `kfaceauthd` over Unix domain socket; pass target user identity; enforce strict 2.0-second timeout.
   - Fail closed to `PAM_AUTH_ERR` on any anomaly, allowing seamless password fallback.
-- [x] **Task 4.5: SELinux Confinement Policy**:
+- [ ] **Task 4.5: SELinux Confinement Policy**:
   - Author SELinux policy module `data/selinux/kfaceauth.te` defining types `kfaceauth_t`, `kfaceauth_var_lib_t`, and `kfaceauth_sock_t`.
   - Confine daemon access strictly to camera device nodes, system vault files, and local sockets.
 
@@ -791,15 +797,13 @@ Architect and implement the multi-user system daemon (`kfaceauthd`); establish s
 - `data/systemd/kfaceauth.service`, `data/systemd/kfaceauth.socket`
 - `data/selinux/kfaceauth.te`, `kfaceauth.fc`, `kfaceauth.if`
 
-Implementation status: Tasks 4.1–4.5 and Gates 4.1–4.3 are fully implemented
-and verified in the tree. The standalone daemon (`kfaceauthd`) is implemented
-with `#![forbid(unsafe_code)]`, enforcing peer credentials over Unix domain
-sockets and immediately dropping root privileges to `kfaceauth:kfaceauth`
-without `CAP_DAC_OVERRIDE`. The system vault hierarchy `/var/lib/kfaceauth/<uid>/`
-is enforced with least-privilege DAC modes (directory 0750, file 0640). The thin
-PAM module (`pam_kfaceauth.so`) enforces strict <=2.0s timeouts and fails closed
-to `PAM_AUTH_ERR` without user dialogs or delays. Full SELinux module sources and
-systemd socket activation units are verified.
+Implementation status: The prior completion statement for Tasks 4.1–4.5 and
+Gates 4.1–4.3 is withdrawn. Source review found missing enrollment and
+activation flows, broken camera capture, unsafe legacy daemon operations, and
+unqualified PAM integration. The default build and Fedora package exclude
+these components. Current daemon unit tests cover narrow protocol decoding,
+exact-UID checks, and read-only key loading; they do not qualify system
+authentication. See [the current qualification status](RELEASE-QUALIFICATION-V5.1.md).
 
 #### Measurable Test Criteria:
 - Automated PAM test suite executing against mock PAM environment succeeds in authenticating matching user and rejects non-matching user.
@@ -807,32 +811,32 @@ systemd socket activation units are verified.
 - SELinux audit log confirms zero `avc: denied` messages in enforcing mode during authentication.
 
 #### Strict Acceptance Gate Conditions:
-- [x] **Gate 4.1**: Daemon drops root privileges immediately upon socket creation; worker executes strictly as `kfaceauth:kfaceauth` without requiring `CAP_DAC_OVERRIDE`.
-- [x] **Gate 4.2**: PAM module aborts within $\le 2.0\text{ seconds}$ if camera is busy or user is absent, falling back to password prompt without error dialogs.
-- [x] **Gate 4.3**: Cross-UID access attack test verifies that a process running as UID 1001 cannot query, decrypt, or tamper with UID 1000's vault.
+- [ ] **Gate 4.1**: Verify a production-ready daemon identity, storage, and privilege boundary. **Open.**
+- [ ] **Gate 4.2**: Verify supported PAM behavior and unchanged password fallback on the target lock screen. **Open; no supported lock-screen integration.**
+- [ ] **Gate 4.3**: Independently test cross-UID isolation across the production request surface. **Open; code-level unit tests are not production qualification.**
 
 ---
 
-### Milestone 5: Liveness Qualification & Anti-Spoofing Architecture
+### Milestone 5: Experimental Presentation-Attack Prototypes (Unqualified)
 
 #### Objectives:
-Implement Presentation Attack Detection (PAD) conforming to ISO/IEC 30107-3; integrate active challenge-response tracking (auxiliary eye-state classification CNN / dense 68-point EAR and stabilized head pose PnP); deploy passive multi-spectrum NIR qualification; execute comprehensive demographic bias qualification.
+Explore presentation-attack analysis prototypes. This roadmap does not establish ISO/IEC 30107-3 conformance or certification, working randomized challenges, NIR qualification, or demographic qualification.
 
 #### Concrete Tasks:
-- [x] **Task 5.1: Active Eye Blink Challenge-Response Engine**:
+- [ ] **Task 5.1: Active Eye Blink Challenge-Response Engine**:
   - Implement auxiliary lightweight eye-state classification CNN (~80 KB ONNX) operating on cropped eye ROIs (or dense 68-point facial landmark regression model supplying points 36–47 for exact Soukupová & Čech EAR calculation) in `engine/vision/src/liveness.rs`.
   - Validate physiological blink profile: characteristic Open $\rightarrow$ Closed $\rightarrow$ Open transition lasting 100–300 ms.
-- [x] **Task 5.2: Randomized Micro-Pose Prompt Engine**:
+- [ ] **Task 5.2: Randomized Micro-Pose Prompt Engine**:
   - Implement randomized prompt generator (e.g. "Tilt head left", "Nod up") during verification window.
   - Mitigate 5-point PnP ill-conditioning using Levenberg-Marquardt optimization (`cv::solvePnPRefineLM`) with a canonical 3D anthropometric face model and temporal Extended Kalman Filtering (EKF), or dense 68-point landmarking.
   - Require prompt satisfaction within a strict 1.8-second temporal deadline.
-- [x] **Task 5.3: Passive High-Frequency Texture & Moiré Analysis**:
+- [ ] **Task 5.3: Passive High-Frequency Texture & Moiré Analysis**:
   - Implement Local Binary Pattern (LBP) and 2D Fast Fourier Transform (FFT) on aligned 112×112 facial crops.
   - Detect high-frequency repetition peaks characteristic of LCD/OLED screen refresh grids and printed halftone dot patterns.
-- [x] **Task 5.4: Multi-Spectrum Infrared (NIR) Qualification**:
+- [ ] **Task 5.4: Multi-Spectrum Infrared (NIR) Qualification**:
   - Interleave RGB and NIR frames when multi-spectrum camera is detected.
   - Measure NIR skin reflectance vs. screen emission/absorption differentials.
-- [x] **Task 5.5: Comprehensive Demographic & Environmental Bias Audit**:
+- [ ] **Task 5.5: Comprehensive Demographic & Environmental Bias Audit**:
   - Benchmark false rejection rate (FRR) and false acceptance rate (FAR) across diverse lighting conditions (20 lux to 1000 lux) and demographic groups.
   - Document performance matrix in publication-grade qualification report `docs/QUALIFICATION-V5.md`.
 
@@ -843,14 +847,14 @@ Implement Presentation Attack Detection (PAD) conforming to ISO/IEC 30107-3; int
 - `docs/TEST-MATRIX.md`, `docs/QUALIFICATION-V5.md`
 
 #### Measurable Test Criteria:
-- Attack Presentation Classification Error Rate (APCER) $\le 1.0\%$ against standard 2D print and screen replay attacks.
-- Bona Fide Presentation Classification Error Rate (BPCER) $\le 1.5\%$ under normal user interaction.
-- Active challenge-response verification completes within $\le 1.5\text{ seconds}$ total.
+- APCER $\le 1\%$ separately for photos and screen replay, based on at least 300 consent-based presentations per attack type.
+- BPCER $\le 5\%$ for bona fide users; false-match rate $\le 0.1\%$ across at least 3,000 other-person comparisons.
+- At least 20 physical registration/unlock cycles across two RGB cameras and three lighting conditions, with camera failure, timeout, resume, multi-user, activation/deactivation, and password fallback checks.
 
 #### Strict Acceptance Gate Conditions:
-- [x] **Gate 5.1**: Zero successful authentications achieved across 50 simulated 2D print attacks (matte and glossy photos).
-- [x] **Gate 5.2**: Zero successful authentications achieved across 50 simulated 2D screen replay attacks (smartphone and tablet screens).
-- [x] **Gate 5.3**: Publication-grade qualification report `docs/QUALIFICATION-V5.md` completed and signed off by independent forensic auditor.
+- [ ] **Gate 5.1**: Meet the photo APCER threshold with at least 300 consent-based presentations. **Not run.**
+- [ ] **Gate 5.2**: Meet the screen-replay APCER threshold with at least 300 consent-based presentations. **Not run.**
+- [ ] **Gate 5.3**: Meet the bona fide and other-person thresholds and publish aggregate-only test conditions and results. **Not run; prior claims withdrawn.**
 
 ---
 

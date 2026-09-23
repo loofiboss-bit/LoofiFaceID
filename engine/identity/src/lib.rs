@@ -629,6 +629,7 @@ fn map_identity_error(error: &IdentityError) -> WorkerErrorCode {
         IdentityError::MultipleFaces => WorkerErrorCode::MultipleFaces,
         IdentityError::PoorQuality => WorkerErrorCode::PoorQuality,
         IdentityError::FaceGeometry => WorkerErrorCode::FaceGeometry,
+        IdentityError::LivenessUnavailable => WorkerErrorCode::InternalFailure,
         IdentityError::SpoofDetected(_) => WorkerErrorCode::SpoofDetected,
         IdentityError::InvalidEmbedding | IdentityError::Runtime(_) => {
             WorkerErrorCode::InternalFailure

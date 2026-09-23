@@ -32,6 +32,8 @@ constexpr quint8 AnalyzeOperation = 1;
 constexpr quint8 Rgb8PixelFormat = 1;
 constexpr quint8 SuccessResponse = 0x81;
 constexpr quint8 ErrorResponse = 0xff;
+constexpr int LegacyInternalError = 12;
+constexpr int RuntimeFailureError = 15;
 constexpr quint8 KnownQualityFlags = 0x0f;
 constexpr quint32 InferenceTimeoutMs = 2000;
 constexpr qsizetype RequestHeaderBytes = 24;
@@ -47,6 +49,16 @@ constexpr int GuidanceIntervalMs = 250;
 QString translate(const char *text)
 {
     return QCoreApplication::translate("VisionAnalysisSession", text);
+}
+
+bool isRecoverableVisionError(const QString &errorCode)
+{
+    const QString prefix = QStringLiteral("analysis-error-");
+    if (!errorCode.startsWith(prefix))
+        return false;
+    bool ok = false;
+    const int code = errorCode.mid(prefix.size()).toInt(&ok);
+    return ok && code >= LegacyInternalError && code <= RuntimeFailureError;
 }
 
 void appendU16(QByteArray *bytes, quint16 value)
@@ -510,6 +522,8 @@ void VisionAnalysisSession::startWorker(QByteArray request)
     }
 
     m_sessionMode = m_continuousTracking;
+    if (m_sessionMode)
+        m_consecutiveVisionErrors = 0;
     m_errorCode.clear();
     m_ignoringProcessExit = false;
     m_responseReceived = false;
@@ -636,6 +650,29 @@ void VisionAnalysisSession::readResponse()
     const QByteArrayView payload(m_responseBytes.constData() + 4, payloadSize);
     if (!parseResponse(payload, &result, &responseError))
     {
+        if (m_sessionMode && m_continuousTracking && isRecoverableVisionError(responseError))
+        {
+            m_inferenceTimer.stop();
+            m_responseBytes.fill(0);
+            m_responseBytes.clear();
+            m_requestInFlight = false;
+            clearSensitiveData();
+            m_requestWidth = 0;
+            m_requestHeight = 0;
+            m_responseReceived = true;
+            clearResult();
+            if (++m_consecutiveVisionErrors > 3)
+            {
+                fail(responseError);
+                return;
+            }
+            m_state = State::Complete;
+            m_errorCode = responseError;
+            m_statusText = textForError(responseError);
+            Q_EMIT stateChanged();
+            Q_EMIT availabilityChanged();
+            return;
+        }
         fail(responseError.isEmpty() ? QStringLiteral("protocol-error") : responseError);
         return;
     }
@@ -646,6 +683,7 @@ void VisionAnalysisSession::readResponse()
     m_requestInFlight = false;
     if (m_sessionMode)
     {
+        m_consecutiveVisionErrors = 0;
         clearSensitiveData();
         setState(State::Complete, translate("Live guidance is ready. No image was saved."));
         applyResult(result);
@@ -951,7 +989,15 @@ QString VisionAnalysisSession::textForError(const QString &errorCode) const
     if (errorCode == QLatin1String("analysis-error-11"))
         return translate("YuNet is unavailable or failed model verification. Reinstall KFaceAuth and try again.");
     if (errorCode == QLatin1String("analysis-error-12"))
-        return translate("The local YuNet detector returned invalid data. Try another frame or reinstall OpenCV.");
+        return translate("The vision worker reported an older, unspecific error. Try another frame; if it continues, "
+                         "refresh Diagnostics.");
+    if (errorCode == QLatin1String("analysis-error-13"))
+        return translate("Your face crosses the camera frame edge. Move back until the whole face is visible.");
+    if (errorCode == QLatin1String("analysis-error-14"))
+        return translate(
+            "The vision result failed validation and was discarded. Adjust your framing and try another frame.");
+    if (errorCode == QLatin1String("analysis-error-15"))
+        return translate("The local vision runtime failed. Retry once; if it continues, refresh Diagnostics.");
     if (errorCode.startsWith(QLatin1String("analysis-error-")))
         return translate("Local vision analysis could not process this frame.");
     return translate("Local vision analysis returned invalid data.");
