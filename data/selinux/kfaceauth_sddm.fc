@@ -1,0 +1,1 @@
+/run/kfaceauth(/.*)? system_u:object_r:kfaceauth_sddm_sock_t:s0

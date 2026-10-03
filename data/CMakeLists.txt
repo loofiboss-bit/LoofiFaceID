@@ -45,6 +45,8 @@ if(KFACEAUTH_ENABLE_SYSTEM_DATA)
             selinux/kfaceauth.te
             selinux/kfaceauth.fc
             selinux/kfaceauth.if
+            selinux/kfaceauth_sddm.te
+            selinux/kfaceauth_sddm.fc
         DESTINATION "${KDE_INSTALL_DATADIR}/kfaceauth/selinux"
     )
 
@@ -61,6 +63,11 @@ if(KFACEAUTH_ENABLE_SYSTEM_DATA)
             COMMAND "${CHECKMODULE_EXECUTABLE}" -M -m -o "${CMAKE_CURRENT_BINARY_DIR}/kfaceauth.mod" "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth.te"
             DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth.te"
             COMMENT "Validating SELinux policy module with checkmodule"
+        )
+        add_custom_target(kfaceauth_validate_sddm_selinux ALL
+            COMMAND "${CHECKMODULE_EXECUTABLE}" -M -m -o "${CMAKE_CURRENT_BINARY_DIR}/kfaceauth_sddm.mod" "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth_sddm.te"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth_sddm.te"
+            COMMENT "Validating SDDM SELinux policy module with checkmodule"
         )
     endif()
 endif()
