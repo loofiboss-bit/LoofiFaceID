@@ -80,11 +80,13 @@ impl DaemonConfig {
     }
 }
 
-/// Binds requests to the kernel-authenticated client identity. This generic
-/// socket does not allow privileged callers to act on behalf of another UID.
+/// Binds requests to the kernel-authenticated client identity. Root (UID 0)
+/// callers (such as SDDM helper and system PAM services) are authorized to
+/// authenticate on behalf of any valid system target UID. Unprivileged callers
+/// are strictly restricted to their own UID.
 #[must_use]
 pub const fn is_authorized(peer_uid: u32, target_uid: u32) -> bool {
-    peer_uid == target_uid
+    peer_uid == target_uid || peer_uid == 0
 }
 
 #[derive(Debug)]
@@ -405,10 +407,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn peer_authorization_is_bound_to_exact_uid() {
-        assert!(!is_authorized(0, 1000));
+    fn peer_authorization_allows_owner_or_root() {
+        // Root (UID 0) is authorized for system authentication services (SDDM, PAM)
+        assert!(is_authorized(0, 1000));
         assert!(is_authorized(0, 0));
+        // Peer matching target UID is authorized
         assert!(is_authorized(1000, 1000));
+        // Unprivileged cross-UID calls are strictly denied
         assert!(!is_authorized(1001, 1000));
         assert!(!is_authorized(1000, 1001));
     }

@@ -321,7 +321,10 @@ static int ensure_dir_exists(const char *dir)
             {
                 if (mkdir(tmp, 0755) == 0 && gr_gid != (gid_t)-1)
                 {
-                    (void)chown(tmp, (uid_t)-1, gr_gid);
+                    if (chown(tmp, (uid_t)-1, gr_gid) != 0)
+                    {
+                        // Non-fatal if unprivileged
+                    }
                 }
             }
             *p = '/';
@@ -331,8 +334,14 @@ static int ensure_dir_exists(const char *dir)
     {
         if (gr_gid != (gid_t)-1)
         {
-            (void)chown(tmp, (uid_t)-1, gr_gid);
-            (void)chmod(tmp, 0750);
+            if (chown(tmp, (uid_t)-1, gr_gid) != 0)
+            {
+                // Non-fatal if unprivileged
+            }
+            if (chmod(tmp, 0750) != 0)
+            {
+                // Non-fatal if unprivileged
+            }
         }
         return 0;
     }
@@ -358,7 +367,10 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
     struct group *gr = getgrnam("kfaceauth");
     if (gr != NULL)
     {
-        (void)fchown(fd, (uid_t)-1, gr->gr_gid);
+        if (fchown(fd, (uid_t)-1, gr->gr_gid) != 0)
+        {
+            // Non-fatal if unprivileged
+        }
     }
 
     size_t total_written = 0;
@@ -390,9 +402,15 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
 
     if (gr != NULL)
     {
-        (void)chown(final_path, (uid_t)-1, gr->gr_gid);
+        if (chown(final_path, (uid_t)-1, gr->gr_gid) != 0)
+        {
+            // Non-fatal if unprivileged
+        }
     }
-    (void)chmod(final_path, 0640);
+    if (chmod(final_path, 0640) != 0)
+    {
+        // Non-fatal if unprivileged
+    }
 
     int dir_fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (dir_fd >= 0)

@@ -225,40 +225,66 @@ void EnrollmentSession::checkSystemAuthStatus()
     const QString legacyVaultPath = QStringLiteral("/var/lib/kfaceauth/%1/vault.bin").arg(uid);
     const bool vaultExists = QFileInfo::exists(vaultPath) || QFileInfo::exists(legacyVaultPath);
 
-    bool pamConfigured = false;
-    QFile pamFile(QStringLiteral("/etc/pam.d/kde"));
-    if (pamFile.open(QIODevice::ReadOnly | QIODevice::Text))
+    bool kdeConfigured = false;
+    QFile kdePamFile(QStringLiteral("/etc/pam.d/kde"));
+    if (kdePamFile.open(QIODevice::ReadOnly | QIODevice::Text))
     {
-        while (!pamFile.atEnd())
+        while (!kdePamFile.atEnd())
         {
-            const QByteArray line = pamFile.readLine().trimmed();
+            const QByteArray line = kdePamFile.readLine().trimmed();
             if (!line.startsWith('#') && line.contains("pam_kfaceauth.so"))
             {
-                pamConfigured = true;
+                kdeConfigured = true;
                 break;
             }
         }
     }
 
+    bool sddmConfigured = false;
+    QFile sddmPamFile(QStringLiteral("/etc/pam.d/sddm"));
+    if (sddmPamFile.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        while (!sddmPamFile.atEnd())
+        {
+            const QByteArray line = sddmPamFile.readLine().trimmed();
+            if (!line.startsWith('#') && line.contains("pam_kfaceauth.so"))
+            {
+                sddmConfigured = true;
+                break;
+            }
+        }
+    }
+
+    const bool pamConfigured = kdeConfigured || sddmConfigured;
     const bool active = vaultExists && pamConfigured;
     m_systemAuthActive = active;
 
     if (m_systemAuthActive)
     {
-        m_systemAuthStatusText = translate("Windows Hello IR lock screen login is active.");
+        if (kdeConfigured && sddmConfigured)
+        {
+            m_systemAuthStatusText = translate("Windows Hello IR login is active for lock screen and SDDM.");
+        }
+        else if (sddmConfigured)
+        {
+            m_systemAuthStatusText = translate("Windows Hello IR login is active for SDDM.");
+        }
+        else
+        {
+            m_systemAuthStatusText = translate("Windows Hello IR lock screen login is active.");
+        }
     }
     else if (vaultExists && !pamConfigured)
     {
-        m_systemAuthStatusText = translate("System profile is synced, but PAM lock screen integration is disabled.");
+        m_systemAuthStatusText = translate("System profile is synced, but PAM login integration is disabled.");
     }
     else if (profileReady())
     {
-        m_systemAuthStatusText =
-            translate("Face profile is ready. Enable Windows Hello lock screen login to activate.");
+        m_systemAuthStatusText = translate("Face profile is ready. Enable Windows Hello system login to activate.");
     }
     else
     {
-        m_systemAuthStatusText = translate("Enroll a face profile first to enable lock screen login.");
+        m_systemAuthStatusText = translate("Enroll a face profile first to enable system login.");
     }
 
     Q_EMIT systemAuthChanged();
@@ -270,7 +296,7 @@ void EnrollmentSession::syncSystemVault()
         return;
 
     m_systemAuthBusy = true;
-    m_systemAuthStatusText = translate("Requesting authorization to enable lock screen login…");
+    m_systemAuthStatusText = translate("Requesting authorization to enable Windows Hello login…");
     Q_EMIT systemAuthChanged();
 
     m_keyProvider->requestKey(
@@ -299,12 +325,14 @@ void EnrollmentSession::syncSystemVault()
             const QString userVaultDir =
                 QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/kfaceauth");
 
-            const QStringList args = {
-                syncBin,
-                QStringLiteral("--uid"),         QString::number(uid),
-                QStringLiteral("--legacy-root"), userVaultDir,
-                QStringLiteral("--hex-key"),     hexKey,
-                QStringLiteral("--enable-pam")};
+            const QStringList args = {syncBin,
+                                      QStringLiteral("--uid"),
+                                      QString::number(uid),
+                                      QStringLiteral("--legacy-root"),
+                                      userVaultDir,
+                                      QStringLiteral("--hex-key"),
+                                      hexKey,
+                                      QStringLiteral("--enable-pam")};
 
             connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
                     [this, process](int exitCode, QProcess::ExitStatus exitStatus)
@@ -312,7 +340,7 @@ void EnrollmentSession::syncSystemVault()
                         m_systemAuthBusy = false;
                         if (exitStatus == QProcess::NormalExit && exitCode == 0)
                         {
-                            m_systemAuthStatusText = translate("Windows Hello lock screen login enabled successfully.");
+                            m_systemAuthStatusText = translate("Windows Hello system login enabled successfully.");
                         }
                         else
                         {
@@ -334,7 +362,7 @@ void EnrollmentSession::disableSystemAuth()
         return;
 
     m_systemAuthBusy = true;
-    m_systemAuthStatusText = translate("Disabling lock screen face login…");
+    m_systemAuthStatusText = translate("Disabling Windows Hello face login…");
     Q_EMIT systemAuthChanged();
 
     auto *process = new QProcess(this);
@@ -355,7 +383,7 @@ void EnrollmentSession::disableSystemAuth()
                 m_systemAuthBusy = false;
                 if (exitStatus == QProcess::NormalExit && exitCode == 0)
                 {
-                    m_systemAuthStatusText = translate("Lock screen login disabled.");
+                    m_systemAuthStatusText = translate("Windows Hello face login disabled.");
                 }
                 else
                 {
@@ -678,7 +706,8 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
             : response.code == 11
                 ? translate("This sample is too similar to an existing sample. Change appearance or pose.")
             : response.code == 23
-                ? translate("A potential spoofing attempt or reflection was detected. Look directly at the sensor and retry.")
+                ? translate(
+                      "A potential spoofing attempt or reflection was detected. Look directly at the sensor and retry.")
                 : translate("The local identity operation failed safely.");
         response.clearSensitive();
         if (m_pendingOperation == PendingOperation::Capture &&

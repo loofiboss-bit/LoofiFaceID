@@ -1,23 +1,36 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Helper script to safely configure KScreenLocker (KDE Lock Screen) PAM
+# Helper script to safely configure KScreenLocker (KDE Lock Screen) and SDDM
 # for Windows Hello-style face authentication using pam_kfaceauth.so.
 
 set -euo pipefail
 
-PAM_FILE="/etc/pam.d/kde"
-BACKUP_FILE="/etc/pam.d/kde.bak.kfaceauth"
+KDE_PAM_FILE="/etc/pam.d/kde"
+KDE_BACKUP_FILE="/etc/pam.d/kde.bak.kfaceauth"
+SDDM_PAM_FILE="/etc/pam.d/sddm"
+SDDM_BACKUP_FILE="/etc/pam.d/sddm.bak.kfaceauth"
+
 PAM_MODULE="pam_kfaceauth.so"
 PAM_LINE="auth        sufficient    pam_kfaceauth.so"
 
 status_check() {
     local target_uid="${1:-${UID:-$(id -u)}}"
+    local kde_enabled=0
+    local sddm_enabled=0
     local enabled=0
     local socket_active=0
     local vault_synced=0
 
-    if grep -q "$PAM_MODULE" "$PAM_FILE" 2>/dev/null; then
+    if [[ -f "$KDE_PAM_FILE" ]] && grep -q "$PAM_MODULE" "$KDE_PAM_FILE" 2>/dev/null; then
+        kde_enabled=1
+    fi
+
+    if [[ -f "$SDDM_PAM_FILE" ]] && grep -q "$PAM_MODULE" "$SDDM_PAM_FILE" 2>/dev/null; then
+        sddm_enabled=1
+    fi
+
+    if [[ $kde_enabled -eq 1 ]]; then
         enabled=1
     fi
 
@@ -30,8 +43,49 @@ status_check() {
     fi
 
     echo "pam_enabled=$enabled"
+    echo "kde_enabled=$kde_enabled"
+    echo "sddm_enabled=$sddm_enabled"
     echo "socket_active=$socket_active"
     echo "vault_synced=$vault_synced"
+}
+
+configure_target() {
+    local pam_file="$1"
+    local backup_file="$2"
+    local label="$3"
+
+    if [[ ! -f "$pam_file" ]]; then
+        echo "Note: $pam_file not present on this system, skipping $label."
+        return 0
+    fi
+
+    if grep -q "$PAM_MODULE" "$pam_file"; then
+        echo "$label PAM already configured for $PAM_MODULE."
+    else
+        if [[ ! -f "$backup_file" ]]; then
+            cp -p "$pam_file" "$backup_file"
+        fi
+
+        # Prefer inserting before password-auth substack for clean fail-closed ordering
+        if grep -q "^auth.*substack.*password-auth" "$pam_file"; then
+            sed -i "/^auth.*substack.*password-auth/i $PAM_LINE" "$pam_file"
+        elif grep -q "^auth" "$pam_file"; then
+            sed -i "0,/^auth/s//$PAM_LINE\n&/" "$pam_file"
+        else
+            echo -e "$PAM_LINE\n$(cat "$pam_file")" > "$pam_file"
+        fi
+        echo "Configured $pam_file with $PAM_LINE"
+    fi
+}
+
+remove_target() {
+    local pam_file="$1"
+    local label="$2"
+
+    if [[ -f "$pam_file" ]] && grep -q "$PAM_MODULE" "$pam_file"; then
+        sed -i "\|$PAM_MODULE|d" "$pam_file"
+        echo "Removed $PAM_MODULE from $pam_file ($label)."
+    fi
 }
 
 enable_pam() {
@@ -40,25 +94,8 @@ enable_pam() {
         exit 1
     fi
 
-    if [[ ! -f "$PAM_FILE" ]]; then
-        echo "Error: $PAM_FILE does not exist on this system." >&2
-        exit 1
-    fi
-
-    if grep -q "$PAM_MODULE" "$PAM_FILE"; then
-        echo "KScreenLocker PAM already configured for $PAM_MODULE."
-    else
-        if [[ ! -f "$BACKUP_FILE" ]]; then
-            cp -p "$PAM_FILE" "$BACKUP_FILE"
-        fi
-
-        # Insert as the first auth rule in /etc/pam.d/kde
-        sed -i "0,/^auth/s//$PAM_LINE\n&/" "$PAM_FILE" 2>/dev/null || {
-            # Fallback if no line starts with auth
-            echo -e "$PAM_LINE\n$(cat "$PAM_FILE")" > "$PAM_FILE"
-        }
-        echo "Configured $PAM_FILE with $PAM_LINE"
-    fi
+    configure_target "$KDE_PAM_FILE" "$KDE_BACKUP_FILE" "KScreenLocker"
+    configure_target "$SDDM_PAM_FILE" "$SDDM_BACKUP_FILE" "SDDM"
 
     # Enable systemd socket
     systemctl daemon-reload 2>/dev/null || true
@@ -72,10 +109,8 @@ disable_pam() {
         exit 1
     fi
 
-    if [[ -f "$PAM_FILE" ]] && grep -q "$PAM_MODULE" "$PAM_FILE"; then
-        sed -i "\|$PAM_MODULE|d" "$PAM_FILE"
-        echo "Removed $PAM_MODULE from $PAM_FILE."
-    fi
+    remove_target "$KDE_PAM_FILE" "KScreenLocker"
+    remove_target "$SDDM_PAM_FILE" "SDDM"
 
     systemctl stop kfaceauth.socket kfaceauth.service 2>/dev/null || true
     systemctl disable kfaceauth.socket 2>/dev/null || true

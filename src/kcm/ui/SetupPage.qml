@@ -711,7 +711,7 @@ Kirigami.ScrollablePage {
 
                                 Kirigami.Heading {
                                     level: 4
-                                    text: i18n("Windows Hello / Lock Screen Login")
+                                    text: i18n("Windows Hello / System Login")
                                 }
 
                                 QQC2.Label {
@@ -729,8 +729,8 @@ Kirigami.ScrollablePage {
                                 id: toggleLockScreenAuthBtn
                                 objectName: "toggleLockScreenAuthButton"
                                 text: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive)
-                                    ? i18n("Disable Lock Screen Login")
-                                    : i18n("Enable Lock Screen Login")
+                                    ? i18n("Disable System Login")
+                                    : i18n("Enable System Login")
                                 icon.name: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive) ? "security-low" : "security-high"
                                 enabled: root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy
                                 activeFocusOnTab: true
