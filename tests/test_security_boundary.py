@@ -184,6 +184,7 @@ class SecurityBoundaryTests(unittest.TestCase):
                 or "target" in path.parts
                 or path.suffix in {".gz", ".rpm"}
                 or path.name.startswith("CHATT_LOGG_")
+                or any(part.startswith("LoofiFaceID-") for part in path.parts)
             ):
                 continue
             relative = path.relative_to(ROOT)

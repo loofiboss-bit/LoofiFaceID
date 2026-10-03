@@ -369,16 +369,16 @@ pub(crate) fn calculate_quality(
             u8::try_from(average).expect("average difference is at most 255")
         });
     let mut flags = 0;
-    if brightness < 40 {
+    if brightness < 20 {
         flags |= QUALITY_TOO_DARK;
     }
-    if brightness > 215 {
+    if brightness > 220 {
         flags |= QUALITY_TOO_BRIGHT;
     }
     if contrast < 16 {
         flags |= QUALITY_LOW_CONTRAST;
     }
-    if sharpness < 4 {
+    if sharpness < 1 {
         flags |= QUALITY_LOW_SHARPNESS;
     }
     Ok(QualityMetrics {

@@ -41,6 +41,8 @@ tar \
     --exclude='./redhat-linux-build' \
     --exclude='./engine/target' \
     --exclude='./rpmbuild' \
+    --exclude='./LoofiFaceID*' \
+    --exclude='./CHATT_LOGG_*' \
     --exclude='./*.rpm' \
     --exclude='./*.src.rpm' \
     --exclude='./*.tar.gz' \

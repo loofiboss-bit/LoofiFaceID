@@ -59,6 +59,15 @@ QVector<CameraDescriptor> CameraProvider::discover()
         descriptor.deviceNode = node;
         m_devices.push_back(descriptor);
     }
+    std::stable_sort(m_devices.begin(), m_devices.end(),
+                     [](const CameraDescriptor &a, const CameraDescriptor &b)
+                     {
+                         const bool aIsIr = (a.spectrum == QStringLiteral("ir"));
+                         const bool bIsIr = (b.spectrum == QStringLiteral("ir"));
+                         if (aIsIr && !bIsIr)
+                             return true;
+                         return false;
+                     });
     return m_devices;
 }
 
@@ -130,6 +139,7 @@ void CameraProvider::stop()
     m_camera.reset();
     m_spectrum.clear();
     m_frameThrottle.invalidate();
+    m_consecutiveDarkFrames = 0;
 }
 
 bool CameraProvider::active() const
@@ -225,17 +235,26 @@ QString CameraProvider::spectrumForNode(const QString &node)
     }
     const char *infrared = udev_device_get_property_value(device, "ID_INFRARED_CAMERA");
     const char *capabilities = udev_device_get_property_value(device, "ID_V4L_CAPABILITIES");
+    const char *product = udev_device_get_property_value(device, "ID_V4L_PRODUCT");
     const QString spectrum = classifyProperties(infrared ? QByteArrayView(infrared) : QByteArrayView{},
-                                                capabilities ? QByteArrayView(capabilities) : QByteArrayView{});
+                                                capabilities ? QByteArrayView(capabilities) : QByteArrayView{},
+                                                product ? QByteArrayView(product) : QByteArrayView{});
     udev_device_unref(device);
     udev_unref(context);
     return spectrum;
 }
 
-QString CameraProvider::classifyProperties(QByteArrayView infraredProperty, QByteArrayView capabilitiesProperty)
+QString CameraProvider::classifyProperties(QByteArrayView infraredProperty, QByteArrayView capabilitiesProperty,
+                                           QByteArrayView productProperty)
 {
     if (infraredProperty == "1")
         return QStringLiteral("ir");
+    if (!productProperty.isEmpty())
+    {
+        const QByteArray prod = productProperty.toByteArray().toLower();
+        if (prod.contains("ir camera") || prod.contains("infrared") || prod.contains("ir sensor"))
+            return QStringLiteral("ir");
+    }
     if (capabilitiesProperty.contains(":capture:"))
         return QStringLiteral("rgb");
     return QStringLiteral("unknown");
@@ -272,15 +291,53 @@ QString CameraProvider::preflightNode(const QString &node)
     return QStringLiteral("camera-unavailable");
 }
 
+bool CameraProvider::isDarkIrFrame(const QImage &image)
+{
+    if (image.isNull() || image.width() <= 0 || image.height() <= 0)
+        return true;
+    const int w = image.width();
+    const int h = image.height();
+    const int stepX = std::max(1, w / 16);
+    const int stepY = std::max(1, h / 16);
+    quint64 sum = 0;
+    quint64 count = 0;
+    for (int y = stepY; y < h - stepY; y += stepY)
+    {
+        for (int x = stepX; x < w - stepX; x += stepX)
+        {
+            sum += qGray(image.pixel(x, y));
+            ++count;
+        }
+    }
+    if (count == 0)
+        return true;
+    return (static_cast<double>(sum) / count) < 5.0;
+}
+
 void CameraProvider::handleFrame(const QVideoFrame &frame)
 {
     if (!frame.isValid())
         return;
+    const QImage image = frame.toImage();
+    if (image.isNull())
+        return;
+
+    const bool isIr = (m_spectrum == QStringLiteral("ir"));
+    if (isIr && isDarkIrFrame(image))
+    {
+        if (++m_consecutiveDarkFrames < 15)
+            return;
+        m_consecutiveDarkFrames = 0;
+    }
+    else
+    {
+        m_consecutiveDarkFrames = 0;
+    }
+
     const qint64 minimumInterval = 1000 / PreviewProtocol::MaxFramesPerSecond;
     if (m_frameThrottle.isValid() && m_frameThrottle.elapsed() < minimumInterval)
         return;
     m_frameThrottle.restart();
-    const QImage image = frame.toImage();
     const QImage bounded =
         image.width() > PreviewProtocol::MaxWidth || image.height() > PreviewProtocol::MaxHeight
             ? image.scaled(PreviewProtocol::MaxWidth, PreviewProtocol::MaxHeight, Qt::KeepAspectRatio)

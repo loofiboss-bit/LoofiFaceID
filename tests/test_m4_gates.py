@@ -42,10 +42,11 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
             "kfaceauth.service",
             "kfaceauth.socket",
             "kfaceauth.conf",
-            "kfaceauth-migrate-vault",
+            "kfaceauth-sync-vault",
         ):
             with self.subTest(artifact=artifact):
-                self.assertNotIn(artifact, files)
+                self.assertIn(artifact, files)
+        self.assertNotIn("kfaceauth-migrate-vault", files)
 
     def test_daemon_requests_are_uid_bound_and_narrow(self) -> None:
         daemon = (ROOT / "engine/daemon/src/lib.rs").read_text(encoding="utf-8")

@@ -9,6 +9,7 @@ Type=exec
 ExecStart=/usr/libexec/kfaceauthd
 User=kfaceauth
 Group=kfaceauth
+SupplementaryGroups=video
 StandardOutput=journal
 StandardError=journal
 Restart=on-failure
@@ -29,7 +30,8 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 ReadWritePaths=/var/lib/kfaceauth /run/kfaceauth
 ReadOnlyPaths=/usr/share/kfaceauth/models /etc/kfaceauth
-DeviceAllow=/dev/video* r
+DevicePolicy=auto
+DeviceAllow=char-video4linux rw
 DeviceAllow=/dev/tpmrm0 rw
 
 [Install]

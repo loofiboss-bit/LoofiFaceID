@@ -199,7 +199,7 @@ bool IdentityProtocol::parseResponse(QByteArrayView payload, quint64 expectedGen
         (kind == static_cast<quint8>(ResponseKind::Sample) && code == 0 && bodySize == EmbeddingBytes) ||
         (kind == static_cast<quint8>(ResponseKind::Ack) && code == 0 && bodySize == 0) ||
         (kind == static_cast<quint8>(ResponseKind::Verification) && code >= 1 && code <= 3 && bodySize == 0) ||
-        (kind == static_cast<quint8>(ResponseKind::Error) && code >= 1 && code <= 22 && bodySize == 0);
+        (kind == static_cast<quint8>(ResponseKind::Error) && code >= 1 && code <= 32 && bodySize == 0);
     if (!valid)
     {
         if (error)

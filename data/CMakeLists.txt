@@ -11,12 +11,25 @@ install(
 )
 
 if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
+    set(KFACEAUTH_ENABLE_SYSTEM_DATA ON)
+elseif(KFACEAUTH_BUILD_SYSTEM_AUTH)
+    set(KFACEAUTH_ENABLE_SYSTEM_DATA ON)
+endif()
+
+if(KFACEAUTH_ENABLE_SYSTEM_DATA)
     # Systemd socket activation and service units
     install(
         FILES
             systemd/kfaceauth.service
             systemd/kfaceauth.socket
         DESTINATION lib/systemd/system
+    )
+
+    install(
+        PROGRAMS
+            pam/kfaceauth-pam-setup.sh
+        DESTINATION bin
+        RENAME "kfaceauth-pam-setup"
     )
 
     # Systemd sysusers configuration
@@ -33,6 +46,13 @@ if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
             selinux/kfaceauth.fc
             selinux/kfaceauth.if
         DESTINATION "${KDE_INSTALL_DATADIR}/kfaceauth/selinux"
+    )
+
+    # Polkit policy
+    install(
+        FILES
+            polkit/org.kde.kfaceauth.policy
+        DESTINATION "${KDE_INSTALL_DATADIR}/polkit-1/actions"
     )
 
     find_program(CHECKMODULE_EXECUTABLE checkmodule)

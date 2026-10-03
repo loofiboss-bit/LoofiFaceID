@@ -495,7 +495,20 @@ bool CameraPreviewSession::handleDevices(const QCborMap &record)
     beginResetModel();
     m_devices = devices;
     endResetModel();
-    m_selectedDeviceIndex = m_devices.isEmpty() ? -1 : 0;
+    int preferredIndex = -1;
+    if (!m_devices.isEmpty())
+    {
+        preferredIndex = 0;
+        for (int i = 0; i < m_devices.size(); ++i)
+        {
+            if (m_devices.at(i).spectrum == QStringLiteral("ir"))
+            {
+                preferredIndex = i;
+                break;
+            }
+        }
+    }
+    m_selectedDeviceIndex = preferredIndex;
     Q_EMIT devicesChanged();
     Q_EMIT selectionChanged();
     if (m_devices.isEmpty())

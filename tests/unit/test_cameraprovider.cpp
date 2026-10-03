@@ -14,6 +14,7 @@ class CameraProviderTest final : public QObject
     void classifiesOnlyReviewedUdevProperties();
     void selectsBestBoundedFormat();
     void scalesAndBoundsJpeg();
+    void detectsDarkIrStrobeFrames();
 };
 
 void CameraProviderTest::classifiesOnlyReviewedUdevProperties()
@@ -53,6 +54,23 @@ void CameraProviderTest::scalesAndBoundsJpeg()
     QVERIFY(!decoded.isNull());
     QVERIFY(decoded.width() <= PreviewProtocol::MaxWidth);
     QVERIFY(decoded.height() <= PreviewProtocol::MaxHeight);
+}
+
+void CameraProviderTest::detectsDarkIrStrobeFrames()
+{
+    QImage blackImage(640, 360, QImage::Format_Grayscale8);
+    blackImage.fill(0);
+    QVERIFY(CameraProvider::isDarkIrFrame(blackImage));
+
+    QImage faintNoiseImage(640, 360, QImage::Format_Grayscale8);
+    faintNoiseImage.fill(2);
+    QVERIFY(CameraProvider::isDarkIrFrame(faintNoiseImage));
+
+    QImage illuminatedImage(640, 360, QImage::Format_Grayscale8);
+    illuminatedImage.fill(80);
+    QVERIFY(!CameraProvider::isDarkIrFrame(illuminatedImage));
+
+    QVERIFY(CameraProvider::isDarkIrFrame(QImage{}));
 }
 
 QTEST_GUILESS_MAIN(CameraProviderTest)

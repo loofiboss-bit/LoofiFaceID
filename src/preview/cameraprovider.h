@@ -49,7 +49,9 @@ class CameraProvider final : public QObject
     [[nodiscard]] static int selectFormatIndex(const QVector<CameraFormatCandidate> &formats);
     [[nodiscard]] static QByteArray encodeFrame(const QImage &image);
     [[nodiscard]] static QString classifyProperties(QByteArrayView infraredProperty,
-                                                    QByteArrayView capabilitiesProperty);
+                                                    QByteArrayView capabilitiesProperty,
+                                                    QByteArrayView productProperty = {});
+    [[nodiscard]] static bool isDarkIrFrame(const QImage &image);
 
   Q_SIGNALS:
     void started();
@@ -71,4 +73,5 @@ class CameraProvider final : public QObject
     std::unique_ptr<QVideoSink> m_videoSink;
     QElapsedTimer m_frameThrottle;
     QString m_spectrum;
+    int m_consecutiveDarkFrames = 0;
 };

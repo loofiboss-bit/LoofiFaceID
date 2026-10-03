@@ -8,10 +8,19 @@
 #include "kwalletkeyprovider.h"
 
 #include <QCoreApplication>
+#include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QProcess>
+#include <QStandardPaths>
 
 #include <algorithm>
+#include <cstring>
+#include <endian.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 namespace
 {
@@ -66,6 +75,7 @@ EnrollmentSession::EnrollmentSession(CameraPreviewSession *preview, IdentityWork
                         m_sessionTimer.start();
                 }
             });
+    checkSystemAuthStatus();
 }
 
 EnrollmentSession::~EnrollmentSession()
@@ -195,6 +205,267 @@ QString EnrollmentSession::statusText() const
 QString EnrollmentSession::errorCode() const
 {
     return m_errorCode;
+}
+
+bool EnrollmentSession::systemAuthActive() const
+{
+    return m_systemAuthActive;
+}
+
+QString EnrollmentSession::systemAuthStatusText() const
+{
+    return m_systemAuthStatusText;
+}
+
+bool EnrollmentSession::systemAuthBusy() const
+{
+    return m_systemAuthBusy;
+}
+
+void EnrollmentSession::checkSystemAuthStatus()
+{
+    const uid_t uid = getuid();
+    const QString vaultPath = QStringLiteral("/var/lib/kfaceauth/%1/identity.vault").arg(uid);
+    const QString legacyVaultPath = QStringLiteral("/var/lib/kfaceauth/%1/vault.bin").arg(uid);
+    const bool vaultExists = QFileInfo::exists(vaultPath) || QFileInfo::exists(legacyVaultPath);
+
+    bool kdeConfigured = false;
+    QFile kdePamFile(QStringLiteral("/etc/pam.d/kde"));
+    if (kdePamFile.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        while (!kdePamFile.atEnd())
+        {
+            const QByteArray line = kdePamFile.readLine().trimmed();
+            if (!line.startsWith('#') && line.contains("pam_kfaceauth.so"))
+            {
+                kdeConfigured = true;
+                break;
+            }
+        }
+    }
+
+    bool sddmConfigured = false;
+    QFile sddmPamFile(QStringLiteral("/etc/pam.d/sddm"));
+    if (sddmPamFile.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        while (!sddmPamFile.atEnd())
+        {
+            const QByteArray line = sddmPamFile.readLine().trimmed();
+            if (!line.startsWith('#') && line.contains("pam_kfaceauth.so"))
+            {
+                sddmConfigured = true;
+                break;
+            }
+        }
+    }
+
+    const bool pamConfigured = kdeConfigured || sddmConfigured;
+
+    // Verify daemon socket readiness and usable enrolled profile
+    bool daemonReady = false;
+    const QString socketPath = QStringLiteral("/run/kfaceauth/kfaceauthd.sock");
+    if (QFileInfo::exists(socketPath))
+    {
+        int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        if (fd >= 0)
+        {
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 250000; // 250 ms timeout
+            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+            struct sockaddr_un addr;
+            std::memset(&addr, 0, sizeof(addr));
+            addr.sun_family = AF_UNIX;
+            std::strncpy(addr.sun_path, socketPath.toUtf8().constData(), sizeof(addr.sun_path) - 1);
+
+            if (::connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0)
+            {
+                // Send OP_STATUS frame: 4 bytes payload len + 8 bytes payload
+                uint32_t payloadLen = 8;
+                uint32_t frameHdr = htobe32(payloadLen);
+                uint16_t versionBe = htobe16(1);
+                uint8_t opcode = 0x11; // OP_STATUS
+                uint8_t reserved = 0;
+                uint32_t uidBe = htobe32(static_cast<uint32_t>(uid));
+
+                uint8_t req[12];
+                std::memcpy(req, &frameHdr, 4);
+                std::memcpy(req + 4, &versionBe, 2);
+                req[6] = opcode;
+                req[7] = reserved;
+                std::memcpy(req + 8, &uidBe, 4);
+
+                if (::send(fd, req, sizeof(req), MSG_NOSIGNAL) == sizeof(req))
+                {
+                    uint8_t resp[16];
+                    ssize_t n = ::recv(fd, resp, sizeof(resp), 0);
+                    if (n >= 8)
+                    {
+                        uint8_t statusCode = resp[6];
+                        if (statusCode == 0) // STATUS_SUCCESS
+                        {
+                            if (n >= 10 && resp[8] > 0) // enrolled > 0
+                            {
+                                daemonReady = true;
+                            }
+                        }
+                    }
+                }
+            }
+            ::close(fd);
+        }
+    }
+
+    const bool active = vaultExists && pamConfigured && daemonReady;
+    m_systemAuthActive = active;
+
+    if (m_systemAuthActive)
+    {
+        if (kdeConfigured && sddmConfigured)
+        {
+            m_systemAuthStatusText = translate("Windows Hello IR login is active for lock screen and SDDM.");
+        }
+        else if (sddmConfigured)
+        {
+            m_systemAuthStatusText = translate("Windows Hello IR login is active for SDDM.");
+        }
+        else
+        {
+            m_systemAuthStatusText = translate("Windows Hello IR lock screen login is active.");
+        }
+    }
+    else if (vaultExists && pamConfigured && !daemonReady)
+    {
+        m_systemAuthStatusText = translate(
+            "System profile is provisioned and PAM is configured, but the authentication daemon or key is not ready.");
+    }
+    else if (vaultExists && !pamConfigured)
+    {
+        m_systemAuthStatusText = translate("System profile is synced, but PAM login integration is disabled.");
+    }
+    else if (profileReady())
+    {
+        m_systemAuthStatusText = translate("Face profile is ready. Enable Windows Hello system login to activate.");
+    }
+    else
+    {
+        m_systemAuthStatusText = translate("Enroll a face profile first to enable system login.");
+    }
+
+    Q_EMIT systemAuthChanged();
+}
+
+void EnrollmentSession::syncSystemVault()
+{
+    if (m_systemAuthBusy || !profileReady())
+        return;
+
+    m_systemAuthBusy = true;
+    m_systemAuthStatusText = translate("Requesting authorization to enable Windows Hello login…");
+    Q_EMIT systemAuthChanged();
+
+    m_keyProvider->requestKey(
+        [this](KWalletKeyProvider::Result result)
+        {
+            if (result.state != KWalletKeyProvider::State::Available || result.key.isEmpty())
+            {
+                m_systemAuthBusy = false;
+                m_systemAuthStatusText = translate("Failed to retrieve vault key from KWallet.");
+                Q_EMIT systemAuthChanged();
+                return;
+            }
+
+            const QString hexKey = QString::fromLatin1(result.key.toHex());
+            result.clear();
+
+            auto *process = new QProcess(this);
+            const uid_t uid = getuid();
+
+            QString syncBin = QStringLiteral("/usr/libexec/kfaceauth-sync-vault");
+            if (!QFileInfo::exists(syncBin))
+            {
+                syncBin = QStringLiteral("/usr/local/libexec/kfaceauth-sync-vault");
+            }
+
+            const QString userVaultDir =
+                QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/kfaceauth");
+
+            const QStringList args = {
+                syncBin,      QStringLiteral("--uid"),       QString::number(uid), QStringLiteral("--legacy-root"),
+                userVaultDir, QStringLiteral("--enable-pam")};
+
+            connect(process, &QProcess::started, this,
+                    [process, hexKey]()
+                    {
+                        process->write(hexKey.toUtf8());
+                        process->write("\n");
+                        process->closeWriteChannel();
+                    });
+
+            connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                    [this, process](int exitCode, QProcess::ExitStatus exitStatus)
+                    {
+                        m_systemAuthBusy = false;
+                        if (exitStatus == QProcess::NormalExit && exitCode == 0)
+                        {
+                            m_systemAuthStatusText = translate("Windows Hello system login enabled successfully.");
+                        }
+                        else
+                        {
+                            const QString err = QString::fromUtf8(process->readAllStandardError()).trimmed();
+                            m_systemAuthStatusText = err.isEmpty() ? translate("Failed to configure system face login.")
+                                                                   : translate("Configuration error: %1").arg(err);
+                        }
+                        process->deleteLater();
+                        checkSystemAuthStatus();
+                    });
+
+            process->start(QStringLiteral("pkexec"), args);
+        });
+}
+
+void EnrollmentSession::disableSystemAuth()
+{
+    if (m_systemAuthBusy)
+        return;
+
+    m_systemAuthBusy = true;
+    m_systemAuthStatusText = translate("Disabling Windows Hello face login…");
+    Q_EMIT systemAuthChanged();
+
+    auto *process = new QProcess(this);
+    const uid_t uid = getuid();
+
+    QString syncBin = QStringLiteral("/usr/libexec/kfaceauth-sync-vault");
+    if (!QFileInfo::exists(syncBin))
+    {
+        syncBin = QStringLiteral("/usr/local/libexec/kfaceauth-sync-vault");
+    }
+
+    const QStringList args = {syncBin, QStringLiteral("--uid"), QString::number(uid), QStringLiteral("--delete"),
+                              QStringLiteral("--disable-pam")};
+
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, process](int exitCode, QProcess::ExitStatus exitStatus)
+            {
+                m_systemAuthBusy = false;
+                if (exitStatus == QProcess::NormalExit && exitCode == 0)
+                {
+                    m_systemAuthStatusText = translate("Windows Hello face login disabled.");
+                }
+                else
+                {
+                    const QString err = QString::fromUtf8(process->readAllStandardError()).trimmed();
+                    m_systemAuthStatusText = err.isEmpty() ? translate("Failed to disable system face login.")
+                                                           : translate("Error: %1").arg(err);
+                }
+                process->deleteLater();
+                checkSystemAuthStatus();
+            });
+
+    process->start(QStringLiteral("pkexec"), args);
 }
 
 EnrollmentSession::GuidePhase EnrollmentSession::guidePhase() const
@@ -504,9 +775,13 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
             : response.code == 10 ? translate("Move the face away from the frame edge and retry.")
             : response.code == 11
                 ? translate("This sample is too similar to an existing sample. Change appearance or pose.")
+            : response.code == 23
+                ? translate(
+                      "A potential spoofing attempt or reflection was detected. Look directly at the sensor and retry.")
                 : translate("The local identity operation failed safely.");
         response.clearSensitive();
-        if (m_pendingOperation == PendingOperation::Capture && response.code >= 7 && response.code <= 11)
+        if (m_pendingOperation == PendingOperation::Capture &&
+            ((response.code >= 7 && response.code <= 11) || response.code == 23))
         {
             m_pendingOperation = PendingOperation::None;
             handleSampleError(code, guidance);
@@ -533,6 +808,7 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
                          : response.code == 3 ? ProfileState::ModelMismatch
                                               : ProfileState::Unavailable;
         Q_EMIT profileChanged();
+        checkSystemAuthStatus();
         break;
     case PendingOperation::Capture:
     {
@@ -568,6 +844,7 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
         clearSensitive();
         setState(State::Complete, translate("Your encrypted local face profile was saved."));
         Q_EMIT profileChanged();
+        checkSystemAuthStatus();
         break;
     case PendingOperation::Delete:
     case PendingOperation::Reset:
@@ -588,12 +865,14 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
                     fail(QStringLiteral("vault-key-delete-failed"),
                          translate("The encrypted profile was deleted, but its KWallet key could not be removed."));
                     Q_EMIT profileChanged();
+                    checkSystemAuthStatus();
                     return;
                 }
                 m_profileState = ProfileState::Absent;
                 m_storedSampleCount = 0;
                 setState(State::Complete, translate("The local face profile was deleted."));
                 Q_EMIT profileChanged();
+                checkSystemAuthStatus();
             });
         break;
     case PendingOperation::None:

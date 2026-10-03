@@ -1,6 +1,16 @@
 # Changelog
 
-## 5.1.0 (unreleased; local registration stabilization)
+## 5.2.0 (Windows Hello IR Lock Screen Release)
+
+- **IR-First Hardware Priority**: Automatic discovery and prioritization of infrared cameras (`ID_INFRARED_CAMERA=1`, "HP IR Camera") over standard RGB webcams in preview, enrollment, and daemon services.
+- **Hardware Infrared Illumination**: Native UVC Extension Unit (XU) control query triggers for Realtek/Chicony IR emitters directly in the V4L2 MMAP capture pipeline.
+- **Direct V4L2 MMAP Video Pipeline**: Native single-plane and multi-planar V4L2 memory-mapped camera capture supporting `V4L2_PIX_FMT_GREY` (640x360 @ 15fps) and `V4L2_PIX_FMT_YUYV` without GStreamer overhead.
+- **Safe KScreenLocker PAM Integration**: Targeted KDE Lock Screen integration via `/etc/pam.d/kde` with `auth sufficient pam_kfaceauth.so` and strict 2.0-second timeout, falling back seamlessly to password prompt with zero lockout risk.
+- **System Vault Provisioning**: Hardened `kfaceauth-sync-vault` utility with Polkit authorization (`org.kde.kfaceauth.manage-vault` & `org.kde.kfaceauth.manage-pam`), sealing master keys into `/etc/kfaceauth/keys/<uid>.key` (mode 0600) and syncing encrypted profile to `/var/lib/kfaceauth/<uid>/vault.bin`.
+- **Systemd Socket Activation**: Fast socket-activated daemon `kfaceauthd` listening on `/run/kfaceauth/kfaceauth.sock`, running under dedicated system user/group `kfaceauth` with video device access and strict sandboxing.
+- **KCM Lock Screen Control**: One-click toggle in KDE System Settings to enable or disable Windows Hello-style lock screen login.
+
+## 5.1.0 (local registration stabilization)
 
 - Distinguish clipped face geometry, invalid detector output, and vision runtime failures in the worker protocol.
 - Keep guided vision sessions alive after a recoverable frame error, with a bounded stop after repeated failures.
