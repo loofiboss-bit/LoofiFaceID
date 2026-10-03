@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>KFaceAuth</vendor>
+  <vendor_url>https://github.com/loofiboss-bit/LoofiFaceID</vendor_url>
+
+  <action id="org.kde.kfaceauth.manage-vault">
+    <description>Provision or remove system face authentication profile</description>
+    <description xml:lang="sv">Hantera systemets ansiktsprofil för inloggning</description>
+    <message>Authentication is required to configure face login</message>
+    <message xml:lang="sv">Autentisering krävs för att konfigurera ansiktsinloggning</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/kfaceauth-sync-vault</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+  <action id="org.kde.kfaceauth.manage-pam">
+    <description>Enable or disable lock-screen face authentication PAM service</description>
+    <description xml:lang="sv">Aktivera eller avaktivera PAM-ansiktsautentisering för låsskärmen</description>
+    <message>Authentication is required to modify PAM configuration</message>
+    <message xml:lang="sv">Autentisering krävs för att ändra PAM-konfigurationen</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/kfaceauth-pam-setup</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

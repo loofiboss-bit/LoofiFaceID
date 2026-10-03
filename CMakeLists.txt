@@ -45,8 +45,12 @@ endif()
 
 option(KFACEAUTH_ENABLE_NATIVE_SANITIZERS "Enable ASan/UBSan for the native YuNet bridge test" OFF)
 option(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS
-    "Build and install unqualified PAM/system-auth engineering components (never enable for release packages)"
+    "Build experimental PAM, systemd daemon, and system authentication components"
     OFF
+)
+option(KFACEAUTH_BUILD_SYSTEM_AUTH
+    "Build and install PAM, systemd daemon, and Windows Hello lock-screen authentication components"
+    ON
 )
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/po")
@@ -57,6 +61,8 @@ add_subdirectory(engine)
 add_subdirectory(src)
 add_subdirectory(data)
 if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
+    add_subdirectory(pam)
+elseif(KFACEAUTH_BUILD_SYSTEM_AUTH)
     add_subdirectory(pam)
 endif()
 

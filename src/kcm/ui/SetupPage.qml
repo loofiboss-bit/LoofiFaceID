@@ -681,6 +681,73 @@ Kirigami.ScrollablePage {
                         Accessible.name: text
                     }
 
+                    // Windows Hello / Lock Screen IR Authentication Section
+                    Kirigami.Separator {
+                        Layout.fillWidth: true
+                        visible: !root.isEnrolling && root.enrollmentSession !== null && root.enrollmentSession.profileReady
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
+                        visible: !root.isEnrolling && root.enrollmentSession !== null && root.enrollmentSession.profileReady
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Kirigami.Icon {
+                                source: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive) ? "security-high" : "preferences-security-symbolic"
+                                implicitWidth: Kirigami.Units.iconSizes.smallMedium
+                                implicitHeight: Kirigami.Units.iconSizes.smallMedium
+                                color: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive)
+                                    ? Kirigami.Theme.positiveTextColor
+                                    : Kirigami.Theme.disabledTextColor
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Kirigami.Heading {
+                                    level: 4
+                                    text: i18n("Windows Hello / Lock Screen Login")
+                                }
+
+                                QQC2.Label {
+                                    Layout.fillWidth: true
+                                    text: root.enrollmentSession !== null ? root.enrollmentSession.systemAuthStatusText : ""
+                                    color: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive)
+                                        ? Kirigami.Theme.positiveTextColor
+                                        : Kirigami.Theme.disabledTextColor
+                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                    wrapMode: Text.Wrap
+                                }
+                            }
+
+                            QQC2.Button {
+                                id: toggleLockScreenAuthBtn
+                                objectName: "toggleLockScreenAuthButton"
+                                text: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive)
+                                    ? i18n("Disable Lock Screen Login")
+                                    : i18n("Enable Lock Screen Login")
+                                icon.name: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive) ? "security-low" : "security-high"
+                                enabled: root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy
+                                activeFocusOnTab: true
+                                Accessible.name: text
+                                onClicked: {
+                                    if (root.enrollmentSession !== null) {
+                                        if (root.enrollmentSession.systemAuthActive) {
+                                            root.enrollmentSession.disableSystemAuth()
+                                        } else {
+                                            root.enrollmentSession.syncSystemVault()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Profile Management (Delete / Reset)
                     Kirigami.Separator {
                         Layout.fillWidth: true

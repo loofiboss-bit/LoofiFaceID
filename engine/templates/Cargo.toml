@@ -11,5 +11,9 @@ kfaceauth-crypto-openssl-sys = { path = "../crypto-openssl-sys" }
 kfaceauth-identity-types = { path = "../identity-types" }
 zeroize.workspace = true
 
+[[bin]]
+name = "kfaceauth-sync-vault"
+path = "src/bin/kfaceauth-sync-vault.rs"
+
 [lints]
 workspace = true

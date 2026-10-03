@@ -8,10 +8,14 @@
 #include "kwalletkeyprovider.h"
 
 #include <QCoreApplication>
+#include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
+#include <QProcess>
 
 #include <algorithm>
+#include <unistd.h>
 
 namespace
 {
@@ -66,6 +70,7 @@ EnrollmentSession::EnrollmentSession(CameraPreviewSession *preview, IdentityWork
                         m_sessionTimer.start();
                 }
             });
+    checkSystemAuthStatus();
 }
 
 EnrollmentSession::~EnrollmentSession()
@@ -195,6 +200,166 @@ QString EnrollmentSession::statusText() const
 QString EnrollmentSession::errorCode() const
 {
     return m_errorCode;
+}
+
+bool EnrollmentSession::systemAuthActive() const
+{
+    return m_systemAuthActive;
+}
+
+QString EnrollmentSession::systemAuthStatusText() const
+{
+    return m_systemAuthStatusText;
+}
+
+bool EnrollmentSession::systemAuthBusy() const
+{
+    return m_systemAuthBusy;
+}
+
+void EnrollmentSession::checkSystemAuthStatus()
+{
+    const uid_t uid = getuid();
+    const QString vaultPath = QStringLiteral("/var/lib/kfaceauth/%1/vault.bin").arg(uid);
+    const bool vaultExists = QFileInfo::exists(vaultPath);
+
+    bool pamConfigured = false;
+    QFile pamFile(QStringLiteral("/etc/pam.d/kde"));
+    if (pamFile.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        while (!pamFile.atEnd())
+        {
+            const QByteArray line = pamFile.readLine().trimmed();
+            if (!line.startsWith('#') && line.contains("pam_kfaceauth.so"))
+            {
+                pamConfigured = true;
+                break;
+            }
+        }
+    }
+
+    const bool active = vaultExists && pamConfigured;
+    m_systemAuthActive = active;
+
+    if (m_systemAuthActive)
+    {
+        m_systemAuthStatusText = translate("Windows Hello IR lock screen login is active.");
+    }
+    else if (vaultExists && !pamConfigured)
+    {
+        m_systemAuthStatusText = translate("System profile is synced, but PAM lock screen integration is disabled.");
+    }
+    else if (profileReady())
+    {
+        m_systemAuthStatusText =
+            translate("Face profile is ready. Enable Windows Hello lock screen login to activate.");
+    }
+    else
+    {
+        m_systemAuthStatusText = translate("Enroll a face profile first to enable lock screen login.");
+    }
+
+    Q_EMIT systemAuthChanged();
+}
+
+void EnrollmentSession::syncSystemVault()
+{
+    if (m_systemAuthBusy || !profileReady())
+        return;
+
+    m_systemAuthBusy = true;
+    m_systemAuthStatusText = translate("Requesting authorization to enable lock screen login…");
+    Q_EMIT systemAuthChanged();
+
+    m_keyProvider->requestKey(
+        [this](KWalletKeyProvider::Result result)
+        {
+            if (result.state != KWalletKeyProvider::State::Available || result.key.isEmpty())
+            {
+                m_systemAuthBusy = false;
+                m_systemAuthStatusText = translate("Failed to retrieve vault key from KWallet.");
+                Q_EMIT systemAuthChanged();
+                return;
+            }
+
+            const QString hexKey = QString::fromLatin1(result.key.toHex());
+            result.clear();
+
+            auto *process = new QProcess(this);
+            const uid_t uid = getuid();
+
+            QString syncBin = QStringLiteral("/usr/libexec/kfaceauth-sync-vault");
+            if (!QFileInfo::exists(syncBin))
+            {
+                syncBin = QStringLiteral("/usr/local/libexec/kfaceauth-sync-vault");
+            }
+
+            const QStringList args = {
+                syncBin, QStringLiteral("--uid"),       QString::number(uid), QStringLiteral("--hex-key"),
+                hexKey,  QStringLiteral("--enable-pam")};
+
+            connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                    [this, process](int exitCode, QProcess::ExitStatus exitStatus)
+                    {
+                        m_systemAuthBusy = false;
+                        if (exitStatus == QProcess::NormalExit && exitCode == 0)
+                        {
+                            m_systemAuthStatusText = translate("Windows Hello lock screen login enabled successfully.");
+                        }
+                        else
+                        {
+                            const QString err = QString::fromUtf8(process->readAllStandardError()).trimmed();
+                            m_systemAuthStatusText = err.isEmpty() ? translate("Failed to configure system face login.")
+                                                                   : translate("Configuration error: %1").arg(err);
+                        }
+                        process->deleteLater();
+                        checkSystemAuthStatus();
+                    });
+
+            process->start(QStringLiteral("pkexec"), args);
+        });
+}
+
+void EnrollmentSession::disableSystemAuth()
+{
+    if (m_systemAuthBusy)
+        return;
+
+    m_systemAuthBusy = true;
+    m_systemAuthStatusText = translate("Disabling lock screen face login…");
+    Q_EMIT systemAuthChanged();
+
+    auto *process = new QProcess(this);
+    const uid_t uid = getuid();
+
+    QString syncBin = QStringLiteral("/usr/libexec/kfaceauth-sync-vault");
+    if (!QFileInfo::exists(syncBin))
+    {
+        syncBin = QStringLiteral("/usr/local/libexec/kfaceauth-sync-vault");
+    }
+
+    const QStringList args = {syncBin, QStringLiteral("--uid"), QString::number(uid), QStringLiteral("--delete"),
+                              QStringLiteral("--disable-pam")};
+
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, process](int exitCode, QProcess::ExitStatus exitStatus)
+            {
+                m_systemAuthBusy = false;
+                if (exitStatus == QProcess::NormalExit && exitCode == 0)
+                {
+                    m_systemAuthStatusText = translate("Lock screen login disabled.");
+                }
+                else
+                {
+                    const QString err = QString::fromUtf8(process->readAllStandardError()).trimmed();
+                    m_systemAuthStatusText = err.isEmpty() ? translate("Failed to disable system face login.")
+                                                           : translate("Error: %1").arg(err);
+                }
+                process->deleteLater();
+                checkSystemAuthStatus();
+            });
+
+    process->start(QStringLiteral("pkexec"), args);
 }
 
 EnrollmentSession::GuidePhase EnrollmentSession::guidePhase() const
@@ -533,6 +698,7 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
                          : response.code == 3 ? ProfileState::ModelMismatch
                                               : ProfileState::Unavailable;
         Q_EMIT profileChanged();
+        checkSystemAuthStatus();
         break;
     case PendingOperation::Capture:
     {
@@ -568,6 +734,7 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
         clearSensitive();
         setState(State::Complete, translate("Your encrypted local face profile was saved."));
         Q_EMIT profileChanged();
+        checkSystemAuthStatus();
         break;
     case PendingOperation::Delete:
     case PendingOperation::Reset:
@@ -588,12 +755,14 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
                     fail(QStringLiteral("vault-key-delete-failed"),
                          translate("The encrypted profile was deleted, but its KWallet key could not be removed."));
                     Q_EMIT profileChanged();
+                    checkSystemAuthStatus();
                     return;
                 }
                 m_profileState = ProfileState::Absent;
                 m_storedSampleCount = 0;
                 setState(State::Complete, translate("The local face profile was deleted."));
                 Q_EMIT profileChanged();
+                checkSystemAuthStatus();
             });
         break;
     case PendingOperation::None:

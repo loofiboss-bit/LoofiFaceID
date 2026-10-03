@@ -36,6 +36,9 @@ class EnrollmentSession final : public QObject
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY stateChanged)
     Q_PROPERTY(GuidePhase guidePhase READ guidePhase NOTIFY guidePhaseChanged)
+    Q_PROPERTY(bool systemAuthActive READ systemAuthActive NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString systemAuthStatusText READ systemAuthStatusText NOTIFY systemAuthChanged)
+    Q_PROPERTY(bool systemAuthBusy READ systemAuthBusy NOTIFY systemAuthChanged)
 
   public:
     enum class State
@@ -105,8 +108,14 @@ class EnrollmentSession final : public QObject
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorCode() const;
     [[nodiscard]] GuidePhase guidePhase() const;
+    [[nodiscard]] bool systemAuthActive() const;
+    [[nodiscard]] QString systemAuthStatusText() const;
+    [[nodiscard]] bool systemAuthBusy() const;
 
     Q_INVOKABLE void refreshProfileStatus();
+    Q_INVOKABLE void checkSystemAuthStatus();
+    Q_INVOKABLE void syncSystemVault();
+    Q_INVOKABLE void disableSystemAuth();
     Q_INVOKABLE void startEnrollment();
     Q_INVOKABLE void captureSample(bool automatic = false);
     Q_INVOKABLE void discardLastSample();
@@ -122,6 +131,7 @@ class EnrollmentSession final : public QObject
     void samplesChanged();
     void guidePhaseChanged();
     void sampleCaptured(int sampleIndex, bool automatic);
+    void systemAuthChanged();
 
   private:
     void runStatus(const QByteArray &key);
@@ -163,5 +173,8 @@ class EnrollmentSession final : public QObject
     bool m_keyNeedsStore = false;
     bool m_keyStoredDuringEnrollment = false;
     bool m_captureAutomatic = false;
+    bool m_systemAuthActive = false;
+    QString m_systemAuthStatusText;
+    bool m_systemAuthBusy = false;
     QTimer m_sessionTimer;
 };

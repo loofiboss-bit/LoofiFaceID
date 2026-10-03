@@ -187,10 +187,18 @@ fn capture_camera_frame(
     let (width, height, format) =
         kfaceauth_crypto_openssl_sys::v4l2_capture(device_path, timeout_ms, &mut buffer)
             .map_err(|_| STATUS_DEVICE_BUSY)?;
-    let stride = width * 3;
-    let expected_len = (stride * height) as usize;
-    buffer.truncate(expected_len);
     let format_u8 = u8::try_from(format).map_err(|_| STATUS_DEVICE_BUSY)?;
+    let bpp = match format_u8 {
+        3 => 1, // PixelFormat::Gray8
+        2 => 4, // PixelFormat::Rgba8
+        _ => 3, // PixelFormat::Rgb8
+    };
+    let stride = width * bpp;
+    let expected_len = (stride * height) as usize;
+    if buffer.len() < expected_len {
+        return Err(STATUS_DEVICE_BUSY);
+    }
+    buffer.truncate(expected_len);
     Ok((width, height, stride, format_u8, buffer))
 }
 

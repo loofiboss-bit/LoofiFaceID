@@ -49,7 +49,8 @@ class CameraProvider final : public QObject
     [[nodiscard]] static int selectFormatIndex(const QVector<CameraFormatCandidate> &formats);
     [[nodiscard]] static QByteArray encodeFrame(const QImage &image);
     [[nodiscard]] static QString classifyProperties(QByteArrayView infraredProperty,
-                                                    QByteArrayView capabilitiesProperty);
+                                                    QByteArrayView capabilitiesProperty,
+                                                    QByteArrayView productProperty = {});
 
   Q_SIGNALS:
     void started();

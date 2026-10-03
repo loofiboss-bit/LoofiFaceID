@@ -11,12 +11,16 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <linux/usb/video.h>
+#include <linux/uvcvideo.h>
 #include <linux/videodev2.h>
+#include <poll.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -504,18 +508,81 @@ int kfaceauth_set_socket_permissions(const char *path, uint32_t mode, const char
     return KFACEAUTH_CRYPTO_OK;
 }
 
+struct BufferMapping
+{
+    void *start;
+    size_t length;
+};
+
+static void auto_detect_ir_camera(char *path_out, size_t max_len)
+{
+    if (path_out == NULL || max_len == 0)
+        return;
+    for (int i = 0; i < 16; ++i)
+    {
+        char candidate[64];
+        snprintf(candidate, sizeof(candidate), "/dev/video%d", i);
+        int fd = open(candidate, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+        if (fd < 0)
+            continue;
+        struct v4l2_capability cap;
+        memset(&cap, 0, sizeof(cap));
+        if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0)
+        {
+            uint32_t caps = cap.device_caps ? cap.device_caps : cap.capabilities;
+            if (caps & V4L2_CAP_VIDEO_CAPTURE)
+            {
+                if (strstr((const char *)cap.card, "IR") != NULL || strstr((const char *)cap.card, "Infrared") != NULL)
+                {
+                    strncpy(path_out, candidate, max_len - 1);
+                    path_out[max_len - 1] = '\0';
+                    close(fd);
+                    return;
+                }
+            }
+        }
+        close(fd);
+    }
+    strncpy(path_out, "/dev/video0", max_len - 1);
+    path_out[max_len - 1] = '\0';
+}
+
+static void try_trigger_ir_emitter(int fd, int enable)
+{
+#if defined(UVCIOC_CTRL_QUERY) && defined(UVC_SET_CUR)
+    uint8_t data[2] = {(uint8_t)(enable ? 1 : 0), 0};
+    struct uvc_xu_control_query xu;
+    memset(&xu, 0, sizeof(xu));
+    xu.unit = 0x03;
+    xu.selector = 0x01;
+    xu.query = UVC_SET_CUR;
+    xu.size = 1;
+    xu.data = data;
+    (void)ioctl(fd, UVCIOC_CTRL_QUERY, &xu);
+#else
+    (void)fd;
+    (void)enable;
+#endif
+}
+
 int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t *buffer, size_t buffer_size,
                            uint32_t *width_out, uint32_t *height_out, uint32_t *format_out)
 {
-    (void)timeout_ms;
-    (void)buffer;
-    (void)buffer_size;
-    (void)width_out;
-    (void)height_out;
-    (void)format_out;
+    if (buffer == NULL || buffer_size == 0 || width_out == NULL || height_out == NULL || format_out == NULL)
+        return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
 
-    const char *path = (device_path != NULL && device_path[0] != '\0') ? device_path : "/dev/video0";
-    int fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    char resolved_path[128];
+    if (device_path != NULL && device_path[0] != '\0')
+    {
+        strncpy(resolved_path, device_path, sizeof(resolved_path) - 1);
+        resolved_path[sizeof(resolved_path) - 1] = '\0';
+    }
+    else
+    {
+        auto_detect_ir_camera(resolved_path, sizeof(resolved_path));
+    }
+
+    int fd = open(resolved_path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
@@ -527,6 +594,170 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
 
+    uint32_t caps = cap.device_caps ? cap.device_caps : cap.capabilities;
+    if (!(caps & V4L2_CAP_VIDEO_CAPTURE) || !(caps & V4L2_CAP_STREAMING))
+    {
+        close(fd);
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    }
+
+    try_trigger_ir_emitter(fd, 1);
+
+    struct v4l2_format fmt;
+    memset(&fmt, 0, sizeof(fmt));
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_GREY;
+    fmt.fmt.pix.width = 640;
+    fmt.fmt.pix.height = 360;
+    fmt.fmt.pix.field = V4L2_FIELD_NONE;
+
+    int pixel_format_kind = 3; // PixelFormat::Gray8
+    if (ioctl(fd, VIDIOC_S_FMT, &fmt) != 0 || fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_GREY)
+    {
+        memset(&fmt, 0, sizeof(fmt));
+        fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+        fmt.fmt.pix.width = 640;
+        fmt.fmt.pix.height = 480;
+        fmt.fmt.pix.field = V4L2_FIELD_NONE;
+        if (ioctl(fd, VIDIOC_S_FMT, &fmt) != 0)
+        {
+            memset(&fmt, 0, sizeof(fmt));
+            fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            if (ioctl(fd, VIDIOC_G_FMT, &fmt) != 0)
+            {
+                try_trigger_ir_emitter(fd, 0);
+                close(fd);
+                return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+            }
+        }
+        if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
+            pixel_format_kind = 3;
+        else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
+            pixel_format_kind = 3;
+        else
+            pixel_format_kind = 1;
+    }
+
+    uint32_t width = fmt.fmt.pix.width;
+    uint32_t height = fmt.fmt.pix.height;
+    if (width == 0 || height == 0 || (size_t)width * (size_t)height > buffer_size)
+    {
+        try_trigger_ir_emitter(fd, 0);
+        close(fd);
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    }
+
+    struct v4l2_requestbuffers req;
+    memset(&req, 0, sizeof(req));
+    req.count = 4;
+    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    req.memory = V4L2_MEMORY_MMAP;
+    if (ioctl(fd, VIDIOC_REQBUFS, &req) != 0 || req.count < 1)
+    {
+        try_trigger_ir_emitter(fd, 0);
+        close(fd);
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    }
+
+    struct BufferMapping mappings[4];
+    memset(mappings, 0, sizeof(mappings));
+    uint32_t mapped_count = 0;
+    for (uint32_t i = 0; i < req.count && i < 4; ++i)
+    {
+        struct v4l2_buffer buf;
+        memset(&buf, 0, sizeof(buf));
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = i;
+        if (ioctl(fd, VIDIOC_QUERYBUF, &buf) != 0)
+            break;
+        mappings[i].length = (size_t)buf.length;
+        mappings[i].start = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, buf.m.offset);
+        if (mappings[i].start == MAP_FAILED)
+            break;
+        mapped_count++;
+        if (ioctl(fd, VIDIOC_QBUF, &buf) != 0)
+            break;
+    }
+
+    if (mapped_count == 0)
+    {
+        try_trigger_ir_emitter(fd, 0);
+        close(fd);
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    }
+
+    enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(fd, VIDIOC_STREAMON, &type) != 0)
+    {
+        for (uint32_t i = 0; i < mapped_count; ++i)
+            munmap(mappings[i].start, mappings[i].length);
+        try_trigger_ir_emitter(fd, 0);
+        close(fd);
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    }
+
+    int effective_timeout = (timeout_ms > 0 && timeout_ms <= 5000) ? (int)timeout_ms : 2000;
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+
+    int poll_res = poll(&pfd, 1, effective_timeout);
+    int capture_status = KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+
+    if (poll_res > 0 && (pfd.revents & POLLIN))
+    {
+        struct v4l2_buffer dqbuf;
+        memset(&dqbuf, 0, sizeof(dqbuf));
+        dqbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        dqbuf.memory = V4L2_MEMORY_MMAP;
+        if (ioctl(fd, VIDIOC_DQBUF, &dqbuf) == 0 && dqbuf.index < mapped_count)
+        {
+            const uint8_t *src = (const uint8_t *)mappings[dqbuf.index].start;
+            size_t bytes_used = (size_t)dqbuf.bytesused;
+            if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
+            {
+                size_t needed = (size_t)width * (size_t)height;
+                if (bytes_used >= needed && buffer_size >= needed)
+                {
+                    memcpy(buffer, src, needed);
+                    *width_out = width;
+                    *height_out = height;
+                    *format_out = 3; // Gray8
+                    capture_status = KFACEAUTH_CRYPTO_OK;
+                }
+            }
+            else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
+            {
+                size_t needed = (size_t)width * (size_t)height;
+                if (bytes_used >= needed * 2 && buffer_size >= needed)
+                {
+                    for (size_t p = 0; p < needed; ++p)
+                        buffer[p] = src[p * 2];
+                    *width_out = width;
+                    *height_out = height;
+                    *format_out = 3; // Gray8
+                    capture_status = KFACEAUTH_CRYPTO_OK;
+                }
+            }
+            else
+            {
+                size_t copy_len = bytes_used < buffer_size ? bytes_used : buffer_size;
+                memcpy(buffer, src, copy_len);
+                *width_out = width;
+                *height_out = height;
+                *format_out = (uint32_t)pixel_format_kind;
+                capture_status = KFACEAUTH_CRYPTO_OK;
+            }
+        }
+    }
+
+    ioctl(fd, VIDIOC_STREAMOFF, &type);
+    for (uint32_t i = 0; i < mapped_count; ++i)
+        munmap(mappings[i].start, mappings[i].length);
+
+    try_trigger_ir_emitter(fd, 0);
     close(fd);
-    return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    return capture_status;
 }

@@ -121,6 +121,39 @@ Kirigami.AbstractCard {
 
             Rectangle {
                 anchors {
+                    top: parent.top
+                    left: parent.left
+                    margins: Kirigami.Units.smallSpacing
+                }
+                visible: root.sessionReady && root.cameraPreviewSession.previewActive && root.cameraPreviewSession.spectrum === "ir"
+                height: irBadgeLayout.implicitHeight + Kirigami.Units.smallSpacing
+                width: irBadgeLayout.implicitWidth + Kirigami.Units.smallSpacing * 2
+                color: Qt.alpha(Kirigami.Theme.highlightColor, 0.88)
+                radius: Kirigami.Units.cornerRadius
+
+                RowLayout {
+                    id: irBadgeLayout
+                    anchors.centerIn: parent
+                    spacing: Kirigami.Units.smallSpacing / 2
+
+                    Kirigami.Icon {
+                        source: "security-high"
+                        implicitWidth: Kirigami.Units.iconSizes.small
+                        implicitHeight: Kirigami.Units.iconSizes.small
+                        color: Kirigami.Theme.highlightedTextColor
+                    }
+
+                    QQC2.Label {
+                        text: i18n("IR (Windows Hello)")
+                        color: Kirigami.Theme.highlightedTextColor
+                        font.weight: Font.DemiBold
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    }
+                }
+            }
+
+            Rectangle {
+                anchors {
                     left: parent.left
                     right: parent.right
                     top: parent.top

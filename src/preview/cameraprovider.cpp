@@ -59,6 +59,15 @@ QVector<CameraDescriptor> CameraProvider::discover()
         descriptor.deviceNode = node;
         m_devices.push_back(descriptor);
     }
+    std::stable_sort(m_devices.begin(), m_devices.end(),
+                     [](const CameraDescriptor &a, const CameraDescriptor &b)
+                     {
+                         const bool aIsIr = (a.spectrum == QStringLiteral("ir"));
+                         const bool bIsIr = (b.spectrum == QStringLiteral("ir"));
+                         if (aIsIr && !bIsIr)
+                             return true;
+                         return false;
+                     });
     return m_devices;
 }
 
@@ -225,17 +234,26 @@ QString CameraProvider::spectrumForNode(const QString &node)
     }
     const char *infrared = udev_device_get_property_value(device, "ID_INFRARED_CAMERA");
     const char *capabilities = udev_device_get_property_value(device, "ID_V4L_CAPABILITIES");
+    const char *product = udev_device_get_property_value(device, "ID_V4L_PRODUCT");
     const QString spectrum = classifyProperties(infrared ? QByteArrayView(infrared) : QByteArrayView{},
-                                                capabilities ? QByteArrayView(capabilities) : QByteArrayView{});
+                                                capabilities ? QByteArrayView(capabilities) : QByteArrayView{},
+                                                product ? QByteArrayView(product) : QByteArrayView{});
     udev_device_unref(device);
     udev_unref(context);
     return spectrum;
 }
 
-QString CameraProvider::classifyProperties(QByteArrayView infraredProperty, QByteArrayView capabilitiesProperty)
+QString CameraProvider::classifyProperties(QByteArrayView infraredProperty, QByteArrayView capabilitiesProperty,
+                                           QByteArrayView productProperty)
 {
     if (infraredProperty == "1")
         return QStringLiteral("ir");
+    if (!productProperty.isEmpty())
+    {
+        const QByteArray prod = productProperty.toByteArray().toLower();
+        if (prod.contains("ir camera") || prod.contains("infrared") || prod.contains("ir sensor"))
+            return QStringLiteral("ir");
+    }
     if (capabilitiesProperty.contains(":capture:"))
         return QStringLiteral("rgb");
     return QStringLiteral("unknown");

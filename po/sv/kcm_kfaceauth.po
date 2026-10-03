@@ -1502,3 +1502,55 @@ msgstr "Justera posen så att den matchar det markerade steget."
 
 msgid "The camera preview returned invalid data. Refresh camera discovery and try again."
 msgstr "Kamerans förhandsvisning returnerade ogiltiga data. Uppdatera kameror och försök igen."
+
+msgid "Windows Hello / Lock Screen Login"
+msgstr "Windows Hello / Låsskärmsinloggning"
+
+msgid "Disable Lock Screen Login"
+msgstr "Inaktivera låsskärmsinloggning"
+
+msgid "Enable Lock Screen Login"
+msgstr "Aktivera låsskärmsinloggning"
+
+msgid "IR (Windows Hello)"
+msgstr "IR (Windows Hello)"
+
+msgid "Windows Hello IR lock screen login is active."
+msgstr "Windows Hello IR-låsskärmsinloggning är aktiv."
+
+msgid "System profile is synced, but PAM lock screen integration is disabled."
+msgstr "Systemets ansiktsprofil är synkroniserad, men PAM-låsskärmsintegration är inaktiverad."
+
+msgid "Face profile is ready. Enable Windows Hello lock screen login to activate."
+msgstr "Ansiktsprofilen är redo. Aktivera Windows Hello-låsskärmsinloggning för att slå på funktionen."
+
+msgid "Enroll a face profile first to enable lock screen login."
+msgstr "Registrera en ansiktsprofil först för att kunna aktivera låsskärmsinloggning."
+
+msgid "Requesting authorization to enable lock screen login…"
+msgstr "Begär behörighet för att aktivera låsskärmsinloggning…"
+
+msgid "Failed to retrieve vault key from KWallet."
+msgstr "Kunde inte hämta valvnyckeln från KWallet."
+
+msgid "Windows Hello lock screen login enabled successfully."
+msgstr "Windows Hello-låsskärmsinloggning har aktiverats."
+
+msgid "Failed to configure system face login."
+msgstr "Kunde inte konfigurera systemets ansiktsinloggning."
+
+msgid "Configuration error: %1"
+msgstr "Konfigurationsfel: %1"
+
+msgid "Disabling lock screen face login…"
+msgstr "Inaktiverar ansiktsinloggning för låsskärm…"
+
+msgid "Lock screen login disabled."
+msgstr "Låsskärmsinloggning har inaktiverats."
+
+msgid "Failed to disable system face login."
+msgstr "Kunde inte inaktivera systemets ansiktsinloggning."
+
+msgid "Error: %1"
+msgstr "Fel: %1"
+

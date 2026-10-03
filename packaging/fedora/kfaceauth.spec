@@ -3,9 +3,9 @@
 %global clamp_mtime_to_source_date_epoch 1
 
 Name:           kfaceauth
-Version:        5.1.0
+Version:        5.2.0
 Release:        1%{?dist}
-Summary:        Experimental local face profile and comparison utility for KDE
+Summary:        Windows Hello IR face authentication utility and lock screen service for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
 URL:            https://github.com/loofiboss-bit/LoofiFaceID
@@ -122,6 +122,13 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_datadir}/applications/kcm_kfaceauth.desktop
 
 %changelog
+* Fri Oct 02 2026 Loofi <noreply@example.invalid> - 5.2.0-1
+- Native Windows Hello IR camera prioritization over RGB (HP IR Camera / GREY8 V4L2 MMAP)
+- Built-in UVC XU emitter trigger query support for hardware infrared illumination
+- Safe KScreenLocker (KDE Lock Screen) PAM integration with sufficient pam_kfaceauth.so
+- Secure system vault provisioning (kfaceauth-sync-vault) with Polkit and systemd socket activation
+- One-click lock screen authentication toggle in System Settings KCM
+
 * Wed Sep 23 2026 Loofi <noreply@example.invalid> - 5.1.0-1
 - Separate YuNet edge, invalid-output, and runtime errors with bounded guidance recovery
 - Keep system authentication components out of the base package while KDE and physical qualification gates remain open
