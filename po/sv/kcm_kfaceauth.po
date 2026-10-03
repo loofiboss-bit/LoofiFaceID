@@ -1547,6 +1547,9 @@ msgstr "Systemets ansiktsprofil är synkroniserad, men PAM-låsskärmsintegratio
 msgid "System profile is synced, but PAM login integration is disabled."
 msgstr "Systemets ansiktsprofil är synkroniserad, men PAM-inloggningsintegration är inaktiverad."
 
+msgid "System profile is provisioned and PAM is configured, but the authentication daemon or key is not ready."
+msgstr "Systemets profil är konfigurerad och PAM är inställt, men autentiseringstjänsten eller nyckeln är inte redo."
+
 msgid "Face profile is ready. Enable Windows Hello lock screen login to activate."
 msgstr "Ansiktsprofilen är redo. Aktivera Windows Hello-låsskärmsinloggning för att slå på funktionen."
 
