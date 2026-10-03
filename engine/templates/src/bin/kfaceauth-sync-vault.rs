@@ -133,7 +133,25 @@ fn main() -> ExitCode {
             let _ = fs::remove_file(&key_file);
         }
         if disable_pam {
-            let _ = run_pam_setup("--disable");
+            let mut other_profiles_exist = false;
+            if let Ok(entries) = fs::read_dir(&system_vault_base) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir()
+                        && (path.join("identity.vault").exists() || path.join("vault.bin").exists())
+                    {
+                        other_profiles_exist = true;
+                        break;
+                    }
+                }
+            }
+            if other_profiles_exist {
+                eprintln!(
+                    "Retaining PAM configuration: other provisioned profiles remain in system vault directory"
+                );
+            } else {
+                let _ = run_pam_setup("--disable");
+            }
         }
         println!("result=deleted uid={target_uid}");
         return ExitCode::SUCCESS;
@@ -188,23 +206,24 @@ fn main() -> ExitCode {
         }
     };
 
-    // Ensure /etc/kfaceauth/keys exists and seal master key
-    if let Err(e) = seal_master_key(target_uid, &key_bytes, Some(&keys_dir)) {
-        eprintln!("Failed to seal master key for UID {target_uid}: {e:?}");
-        key_bytes.zeroize();
-        return ExitCode::FAILURE;
-    }
-    key_bytes.zeroize();
-
     let system_vault = Vault::system_with_root(&system_vault_base, target_uid);
 
     let summary = match migrate_legacy_vault(&legacy_vault, &system_vault, &master_key) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to commit system profile: {e}");
+            key_bytes.zeroize();
             return ExitCode::FAILURE;
         }
     };
+
+    // Ensure /etc/kfaceauth/keys exists and seal master key only after migration succeeds
+    if let Err(e) = seal_master_key(target_uid, master_key.sensitive_bytes(), Some(&keys_dir)) {
+        eprintln!("Failed to seal master key for UID {target_uid}: {e:?}");
+        key_bytes.zeroize();
+        return ExitCode::FAILURE;
+    }
+    key_bytes.zeroize();
 
     // Ensure system permissions: group kfaceauth can read vault and key
     if let Some(parent) = keys_dir.parent() {

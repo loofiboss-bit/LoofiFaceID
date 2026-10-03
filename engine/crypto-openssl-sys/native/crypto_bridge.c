@@ -24,6 +24,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #if defined(KFACEAUTH_HAS_TPM2) && KFACEAUTH_HAS_TPM2
@@ -265,8 +266,7 @@ static int read_key_file(const char *path, uint8_t *key_out, size_t key_len)
         return -1;
 
     struct stat st;
-    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size != (off_t)key_len ||
-        st.st_nlink != 1)
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size != (off_t)key_len || st.st_nlink != 1)
     {
         close(fd);
         return -1;
@@ -620,8 +620,7 @@ static void auto_detect_ir_camera(char *path_out, size_t max_len)
         }
         close(fd);
     }
-    strncpy(path_out, "/dev/video0", max_len - 1);
-    path_out[max_len - 1] = '\0';
+    path_out[0] = '\0';
 }
 
 static void try_trigger_ir_emitter(int fd, int enable)
@@ -659,6 +658,9 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
         auto_detect_ir_camera(resolved_path, sizeof(resolved_path));
     }
 
+    if (resolved_path[0] == '\0')
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+
     int fd = open(resolved_path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
@@ -688,7 +690,6 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
     fmt.fmt.pix.height = 360;
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
-    int pixel_format_kind = 3; // PixelFormat::Gray8
     if (ioctl(fd, VIDIOC_S_FMT, &fmt) != 0 || fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_GREY)
     {
         memset(&fmt, 0, sizeof(fmt));
@@ -708,12 +709,13 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
                 return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
             }
         }
-        if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
-            pixel_format_kind = 3;
-        else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
-            pixel_format_kind = 3;
-        else
-            pixel_format_kind = 1;
+    }
+
+    if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_GREY && fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV)
+    {
+        try_trigger_ir_emitter(fd, 0);
+        close(fd);
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
 
     uint32_t width = fmt.fmt.pix.width;
@@ -775,7 +777,17 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
 
-    int effective_timeout = (timeout_ms > 0 && timeout_ms <= 5000) ? (int)timeout_ms : 2000;
+    int total_timeout_ms = (timeout_ms > 0 && timeout_ms <= 5000) ? (int)timeout_ms : 2000;
+    struct timespec deadline;
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    deadline.tv_sec += total_timeout_ms / 1000;
+    deadline.tv_nsec += (long)(total_timeout_ms % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L)
+    {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000L;
+    }
+
     struct pollfd pfd;
     pfd.fd = fd;
     pfd.events = POLLIN;
@@ -784,7 +796,15 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
 
     for (int frame_attempt = 0; frame_attempt < 6; ++frame_attempt)
     {
-        int poll_res = poll(&pfd, 1, effective_timeout);
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long sec_diff = deadline.tv_sec - now.tv_sec;
+        long nsec_diff = deadline.tv_nsec - now.tv_nsec;
+        int remaining_ms = (int)(sec_diff * 1000 + nsec_diff / 1000000);
+        if (remaining_ms <= 0)
+            break;
+
+        int poll_res = poll(&pfd, 1, remaining_ms);
         if (poll_res <= 0 || !(pfd.revents & POLLIN))
             break;
 
@@ -799,10 +819,16 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
         size_t bytes_used = (size_t)dqbuf.bytesused;
         if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
         {
-            size_t needed = (size_t)width * (size_t)height;
-            if (bytes_used >= needed && buffer_size >= needed)
+            uint32_t bytesperline = fmt.fmt.pix.bytesperline;
+            if (bytesperline < width)
+                bytesperline = width;
+            size_t min_needed = (size_t)bytesperline * (height - 1) + width;
+            if (bytes_used >= min_needed && buffer_size >= (size_t)width * height)
             {
-                memcpy(buffer, src, needed);
+                for (uint32_t y = 0; y < height; ++y)
+                {
+                    memcpy(buffer + (size_t)y * width, src + (size_t)y * bytesperline, width);
+                }
                 *width_out = width;
                 *height_out = height;
                 *format_out = 3; // Gray8
@@ -811,25 +837,26 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
         }
         else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
         {
-            size_t needed = (size_t)width * (size_t)height;
-            if (bytes_used >= needed * 2 && buffer_size >= needed)
+            uint32_t bytesperline = fmt.fmt.pix.bytesperline;
+            if (bytesperline < width * 2)
+                bytesperline = width * 2;
+            size_t min_needed = (size_t)bytesperline * (height - 1) + (size_t)width * 2;
+            if (bytes_used >= min_needed && buffer_size >= (size_t)width * height)
             {
-                for (size_t p = 0; p < needed; ++p)
-                    buffer[p] = src[p * 2];
+                for (uint32_t y = 0; y < height; ++y)
+                {
+                    const uint8_t *row_src = src + (size_t)y * bytesperline;
+                    uint8_t *row_dst = buffer + (size_t)y * width;
+                    for (uint32_t x = 0; x < width; ++x)
+                    {
+                        row_dst[x] = row_src[x * 2];
+                    }
+                }
                 *width_out = width;
                 *height_out = height;
                 *format_out = 3; // Gray8
                 capture_status = KFACEAUTH_CRYPTO_OK;
             }
-        }
-        else
-        {
-            size_t copy_len = bytes_used < buffer_size ? bytes_used : buffer_size;
-            memcpy(buffer, src, copy_len);
-            *width_out = width;
-            *height_out = height;
-            *format_out = (uint32_t)pixel_format_kind;
-            capture_status = KFACEAUTH_CRYPTO_OK;
         }
 
         // Check if this frame is a dark strobe frame (average luminance < 8.0)

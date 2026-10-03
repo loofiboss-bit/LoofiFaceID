@@ -16,6 +16,10 @@
 #include <QStandardPaths>
 
 #include <algorithm>
+#include <cstring>
+#include <endian.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 namespace
@@ -256,7 +260,65 @@ void EnrollmentSession::checkSystemAuthStatus()
     }
 
     const bool pamConfigured = kdeConfigured || sddmConfigured;
-    const bool active = vaultExists && pamConfigured;
+
+    // Verify daemon socket readiness and usable enrolled profile
+    bool daemonReady = false;
+    const QString socketPath = QStringLiteral("/run/kfaceauth/kfaceauthd.sock");
+    if (QFileInfo::exists(socketPath))
+    {
+        int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        if (fd >= 0)
+        {
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 250000; // 250 ms timeout
+            ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+            struct sockaddr_un addr;
+            std::memset(&addr, 0, sizeof(addr));
+            addr.sun_family = AF_UNIX;
+            std::strncpy(addr.sun_path, socketPath.toUtf8().constData(), sizeof(addr.sun_path) - 1);
+
+            if (::connect(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) == 0)
+            {
+                // Send OP_STATUS frame: 4 bytes payload len + 8 bytes payload
+                uint32_t payloadLen = 8;
+                uint32_t frameHdr = htobe32(payloadLen);
+                uint16_t versionBe = htobe16(1);
+                uint8_t opcode = 0x11; // OP_STATUS
+                uint8_t reserved = 0;
+                uint32_t uidBe = htobe32(static_cast<uint32_t>(uid));
+
+                uint8_t req[12];
+                std::memcpy(req, &frameHdr, 4);
+                std::memcpy(req + 4, &versionBe, 2);
+                req[6] = opcode;
+                req[7] = reserved;
+                std::memcpy(req + 8, &uidBe, 4);
+
+                if (::send(fd, req, sizeof(req), MSG_NOSIGNAL) == sizeof(req))
+                {
+                    uint8_t resp[16];
+                    ssize_t n = ::recv(fd, resp, sizeof(resp), 0);
+                    if (n >= 8)
+                    {
+                        uint8_t statusCode = resp[6];
+                        if (statusCode == 0) // STATUS_SUCCESS
+                        {
+                            if (n >= 10 && resp[8] > 0) // enrolled > 0
+                            {
+                                daemonReady = true;
+                            }
+                        }
+                    }
+                }
+            }
+            ::close(fd);
+        }
+    }
+
+    const bool active = vaultExists && pamConfigured && daemonReady;
     m_systemAuthActive = active;
 
     if (m_systemAuthActive)
@@ -273,6 +335,11 @@ void EnrollmentSession::checkSystemAuthStatus()
         {
             m_systemAuthStatusText = translate("Windows Hello IR lock screen login is active.");
         }
+    }
+    else if (vaultExists && pamConfigured && !daemonReady)
+    {
+        m_systemAuthStatusText = translate(
+            "System profile is provisioned and PAM is configured, but the authentication daemon or key is not ready.");
     }
     else if (vaultExists && !pamConfigured)
     {
@@ -325,14 +392,17 @@ void EnrollmentSession::syncSystemVault()
             const QString userVaultDir =
                 QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/kfaceauth");
 
-            const QStringList args = {syncBin,
-                                      QStringLiteral("--uid"),
-                                      QString::number(uid),
-                                      QStringLiteral("--legacy-root"),
-                                      userVaultDir,
-                                      QStringLiteral("--hex-key"),
-                                      hexKey,
-                                      QStringLiteral("--enable-pam")};
+            const QStringList args = {
+                syncBin,      QStringLiteral("--uid"),       QString::number(uid), QStringLiteral("--legacy-root"),
+                userVaultDir, QStringLiteral("--enable-pam")};
+
+            connect(process, &QProcess::started, this,
+                    [process, hexKey]()
+                    {
+                        process->write(hexKey.toUtf8());
+                        process->write("\n");
+                        process->closeWriteChannel();
+                    });
 
             connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
                     [this, process](int exitCode, QProcess::ExitStatus exitStatus)

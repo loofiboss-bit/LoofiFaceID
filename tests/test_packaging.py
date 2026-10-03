@@ -108,7 +108,7 @@ class PackagingContractTests(unittest.TestCase):
         )
         self.assertIn("kcm_kfaceauth.so", spec)
 
-    def test_base_package_omits_unqualified_authentication_artifacts(self) -> None:
+    def test_base_package_includes_system_authentication_artifacts(self) -> None:
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         engine_cmake = (ROOT / "engine/CMakeLists.txt").read_text(encoding="utf-8")
         spec = SPEC.read_text(encoding="utf-8")
@@ -123,7 +123,7 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn("-DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=OFF", spec)
         for artifact in (
             "kfaceauthd",
-            "kfaceauth-migrate-vault",
+            "kfaceauth-sync-vault",
             "pam_kfaceauth",
             "kfaceauth.service",
             "kfaceauth.socket",
@@ -131,7 +131,8 @@ class PackagingContractTests(unittest.TestCase):
             "/selinux/",
         ):
             with self.subTest(artifact=artifact):
-                self.assertNotIn(artifact, files)
+                self.assertIn(artifact, files)
+        self.assertNotIn("kfaceauth-migrate-vault", files)
         self.assertIn("KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS", engine_cmake)
 
     def test_daemon_protocol_has_no_key_export_or_broad_profile_operations(self) -> None:

@@ -684,13 +684,13 @@ Kirigami.ScrollablePage {
                     // Windows Hello / Lock Screen IR Authentication Section
                     Kirigami.Separator {
                         Layout.fillWidth: true
-                        visible: !root.isEnrolling && root.enrollmentSession !== null && root.enrollmentSession.profileReady
+                        visible: !root.isEnrolling && root.enrollmentSession !== null && (root.enrollmentSession.profileReady || root.enrollmentSession.systemAuthActive)
                     }
 
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Kirigami.Units.smallSpacing
-                        visible: !root.isEnrolling && root.enrollmentSession !== null && root.enrollmentSession.profileReady
+                        visible: !root.isEnrolling && root.enrollmentSession !== null && (root.enrollmentSession.profileReady || root.enrollmentSession.systemAuthActive)
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -732,7 +732,7 @@ Kirigami.ScrollablePage {
                                     ? i18n("Disable System Login")
                                     : i18n("Enable System Login")
                                 icon.name: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive) ? "security-low" : "security-high"
-                                enabled: root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy
+                                enabled: root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy && (root.enrollmentSession.systemAuthActive || root.enrollmentSession.profileReady)
                                 activeFocusOnTab: true
                                 Accessible.name: text
                                 onClicked: {

@@ -103,11 +103,23 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %license LICENSE
 %doc CHANGELOG.md README.md
 %doc docs/*.md
+%{_bindir}/kfaceauth-pam-setup
+%{_libdir}/security/pam_kfaceauth.so
 %{_qt6_plugindir}/plasma/kcms/systemsettings/kcm_kfaceauth.so
 %{_libexecdir}/kfaceauth-camera-preview-worker
 %{_libexecdir}/kfaceauth-vision-worker
 %{_libexecdir}/kfaceauth-identity-worker
+%{_libexecdir}/kfaceauthd
+%{_libexecdir}/kfaceauth-sync-vault
+%{_unitdir}/kfaceauth.service
+%{_unitdir}/kfaceauth.socket
+%{_sysusersdir}/kfaceauth.conf
+%{_datadir}/polkit-1/actions/org.kde.kfaceauth.policy
 %dir %{_datadir}/kfaceauth
+%dir %{_datadir}/kfaceauth/selinux
+%{_datadir}/kfaceauth/selinux/kfaceauth.fc
+%{_datadir}/kfaceauth/selinux/kfaceauth.if
+%{_datadir}/kfaceauth/selinux/kfaceauth.te
 %dir %{_datadir}/kfaceauth/models
 %dir %{_datadir}/kfaceauth/models/files
 %dir %{_datadir}/kfaceauth/models/licenses

@@ -67,12 +67,25 @@ configure_target() {
         fi
 
         # Prefer inserting before password-auth substack for clean fail-closed ordering
-        if grep -q "^auth.*substack.*password-auth" "$pam_file"; then
-            sed -i "/^auth.*substack.*password-auth/i $PAM_LINE" "$pam_file"
-        elif grep -q "^auth" "$pam_file"; then
-            sed -i "0,/^auth/s//$PAM_LINE\n&/" "$pam_file"
-        else
-            echo -e "$PAM_LINE\n$(cat "$pam_file")" > "$pam_file"
+        if grep -E -q '^[[:space:]]*auth.*substack.*password-auth' "$pam_file"; then
+            sed -i "/^[[:space:]]*auth.*substack.*password-auth/i $PAM_LINE" "$pam_file"
+        elif grep -E -q '^[[:space:]]*auth' "$pam_file"; then
+            sed -i "0,/^[[:space:]]*auth/s//$PAM_LINE\n&/" "$pam_file"
+        fi
+
+        # Verify whether the module line exists after sed; if not, prepend to file
+        if ! grep -q "$PAM_MODULE" "$pam_file"; then
+            local temp_file
+            temp_file="$(mktemp)"
+            echo "$PAM_LINE" > "$temp_file"
+            cat "$pam_file" >> "$temp_file"
+            cp "$temp_file" "$pam_file"
+            rm -f "$temp_file"
+        fi
+
+        if ! grep -q "$PAM_MODULE" "$pam_file"; then
+            echo "Error: Failed to insert $PAM_MODULE into $pam_file" >&2
+            return 1
         fi
         echo "Configured $pam_file with $PAM_LINE"
     fi
