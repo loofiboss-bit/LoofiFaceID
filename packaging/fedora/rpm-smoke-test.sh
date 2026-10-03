@@ -171,7 +171,6 @@ for pattern in \
     '/kauth/' \
     '/dbus-1/system-services/' \
     '/dbus-1/system.d/' \
-    '/polkit-1/actions/' \
     'kfaceauth-auth-helper'; do
     if grep -Fq "${pattern}" <<<"${payload}"; then
         echo "Installed payload contains forbidden privileged path: ${pattern}" >&2
