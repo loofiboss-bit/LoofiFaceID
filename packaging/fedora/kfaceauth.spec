@@ -120,6 +120,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_datadir}/kfaceauth/selinux/kfaceauth.fc
 %{_datadir}/kfaceauth/selinux/kfaceauth.if
 %{_datadir}/kfaceauth/selinux/kfaceauth.te
+%{_datadir}/kfaceauth/selinux/kfaceauth_sddm.fc
+%{_datadir}/kfaceauth/selinux/kfaceauth_sddm.te
 %dir %{_datadir}/kfaceauth/models
 %dir %{_datadir}/kfaceauth/models/files
 %dir %{_datadir}/kfaceauth/models/licenses

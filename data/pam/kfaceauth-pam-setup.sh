@@ -13,6 +13,85 @@ SDDM_BACKUP_FILE="/etc/pam.d/sddm.bak.kfaceauth"
 
 PAM_MODULE="pam_kfaceauth.so"
 PAM_LINE="auth        sufficient    pam_kfaceauth.so"
+SELINUX_POLICY_DIR="/usr/share/kfaceauth/selinux"
+
+install_selinux_policy() {
+    local mode
+    local build_dir
+
+    if ! command -v getenforce >/dev/null 2>&1; then
+        echo "Error: SELinux tools are unavailable; refusing to enable SDDM PAM." >&2
+        return 1
+    fi
+
+    mode="$(getenforce)"
+    if [[ "$mode" == "Disabled" ]]; then
+        echo "SELinux is disabled; no KFaceAuth SDDM policy is needed."
+        return 0
+    fi
+
+    local tool
+    for tool in checkmodule semodule_package semodule restorecon; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "Error: $tool is required to install the KFaceAuth SDDM SELinux policy." >&2
+            return 1
+        fi
+    done
+
+    local policy_source="${SELINUX_POLICY_DIR}/kfaceauth_sddm.te"
+    local file_contexts="${SELINUX_POLICY_DIR}/kfaceauth_sddm.fc"
+    if [[ ! -r "$policy_source" || ! -r "$file_contexts" ]]; then
+        echo "Error: KFaceAuth SDDM SELinux policy files are missing from ${SELINUX_POLICY_DIR}." >&2
+        return 1
+    fi
+
+    build_dir="$(mktemp -d "${TMPDIR:-/tmp}/kfaceauth-selinux.XXXXXXXX")"
+    if ! checkmodule -M -m -o "${build_dir}/kfaceauth_sddm.mod" "$policy_source"; then
+        rmdir -- "$build_dir"
+        echo "Error: Failed to compile the KFaceAuth SDDM SELinux policy." >&2
+        return 1
+    fi
+    if ! semodule_package -o "${build_dir}/kfaceauth_sddm.pp" \
+        -m "${build_dir}/kfaceauth_sddm.mod" -f "$file_contexts"; then
+        rm -f -- "${build_dir}/kfaceauth_sddm.mod"
+        rmdir -- "$build_dir"
+        echo "Error: Failed to package the KFaceAuth SDDM SELinux policy." >&2
+        return 1
+    fi
+    if ! semodule -i "${build_dir}/kfaceauth_sddm.pp"; then
+        rm -f -- "${build_dir}/kfaceauth_sddm.mod" "${build_dir}/kfaceauth_sddm.pp"
+        rmdir -- "$build_dir"
+        echo "Error: Failed to install the KFaceAuth SDDM SELinux policy." >&2
+        return 1
+    fi
+
+    if [[ -e /run/kfaceauth ]] && ! restorecon -R -v /run/kfaceauth; then
+        rm -f -- "${build_dir}/kfaceauth_sddm.mod" "${build_dir}/kfaceauth_sddm.pp"
+        rmdir -- "$build_dir"
+        echo "Error: Policy was installed, but /run/kfaceauth could not be relabeled." >&2
+        return 1
+    fi
+
+    rm -f -- "${build_dir}/kfaceauth_sddm.mod" "${build_dir}/kfaceauth_sddm.pp"
+    rmdir -- "$build_dir"
+    echo "Installed the path-scoped KFaceAuth SDDM SELinux policy."
+}
+
+remove_selinux_policy() {
+    if ! command -v getenforce >/dev/null 2>&1 || [[ "$(getenforce)" == "Disabled" ]]; then
+        return 0
+    fi
+    if ! command -v semodule >/dev/null 2>&1 || ! command -v restorecon >/dev/null 2>&1; then
+        echo "Warning: SELinux tools are unavailable; the KFaceAuth policy was left unchanged." >&2
+        return 0
+    fi
+    if semodule -l | awk '$1 == "kfaceauth_sddm" { found = 1 } END { exit !found }'; then
+        semodule -r kfaceauth_sddm
+        if [[ -e /run/kfaceauth ]]; then
+            restorecon -R -v /run/kfaceauth
+        fi
+    fi
+}
 
 status_check() {
     local target_uid="${1:-${UID:-$(id -u)}}"
@@ -107,6 +186,8 @@ enable_pam() {
         exit 1
     fi
 
+    install_selinux_policy
+
     configure_target "$KDE_PAM_FILE" "$KDE_BACKUP_FILE" "KScreenLocker"
     configure_target "$SDDM_PAM_FILE" "$SDDM_BACKUP_FILE" "SDDM"
 
@@ -127,6 +208,7 @@ disable_pam() {
 
     systemctl stop kfaceauth.socket kfaceauth.service 2>/dev/null || true
     systemctl disable kfaceauth.socket 2>/dev/null || true
+    remove_selinux_policy
     echo "kfaceauth service and socket disabled."
 }
 

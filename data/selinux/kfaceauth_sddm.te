@@ -1,0 +1,21 @@
+module kfaceauth_sddm 1.0.0;
+
+require {
+    type init_t;
+    type xdm_t;
+    attribute file_type;
+    class dir { add_name create getattr open read remove_name search write };
+    class sock_file { create getattr setattr unlink write };
+    class unix_stream_socket connectto;
+}
+
+type kfaceauth_sddm_sock_t, file_type;
+
+# systemd (init_t) owns the socket-activated listener and creates its runtime path.
+allow init_t kfaceauth_sddm_sock_t:dir { add_name create getattr open read remove_name search write };
+allow init_t kfaceauth_sddm_sock_t:sock_file { create getattr setattr unlink write };
+
+# Gate SDDM access on this dedicated path type; never grant access to var_run_t.
+allow xdm_t kfaceauth_sddm_sock_t:dir search;
+allow xdm_t kfaceauth_sddm_sock_t:sock_file write;
+allow xdm_t init_t:unix_stream_socket connectto;
