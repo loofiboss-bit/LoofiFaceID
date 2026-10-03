@@ -159,31 +159,32 @@ fn main() -> ExitCode {
 
     let master_key = MasterKey::from_bytes(key_bytes);
 
-    let legacy_vault = match custom_legacy_root {
-        Some(ref root) => Vault::user_session_with_root(root, target_uid),
-        None => {
-            let mut found_vault = None;
-            if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
-                for line in passwd.lines() {
-                    let parts: Vec<&str> = line.split(':').collect();
-                    if parts.len() >= 6 && parts[2].parse::<u32>().ok() == Some(target_uid) {
-                        let home_dir = PathBuf::from(parts[5]);
-                        let user_vault_dir = home_dir.join(".local/share").join(kfaceauth_templates::PRODUCT_DIRECTORY);
-                        if user_vault_dir.exists() {
-                            found_vault = Some(Vault::user_session_with_root(&user_vault_dir, target_uid));
-                            break;
-                        }
+    let legacy_vault = if let Some(ref root) = custom_legacy_root {
+        Vault::user_session_with_root(root, target_uid)
+    } else {
+        let mut found_vault = None;
+        if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
+            for line in passwd.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 6 && parts[2].parse::<u32>().ok() == Some(target_uid) {
+                    let home_dir = PathBuf::from(parts[5]);
+                    let user_vault_dir = home_dir
+                        .join(".local/share")
+                        .join(kfaceauth_templates::PRODUCT_DIRECTORY);
+                    if user_vault_dir.exists() {
+                        found_vault =
+                            Some(Vault::user_session_with_root(&user_vault_dir, target_uid));
+                        break;
                     }
                 }
             }
-            match found_vault.or_else(|| Vault::production().ok()) {
-                Some(v) => v,
-                None => {
-                    eprintln!("Failed to locate user session vault for UID {target_uid}");
-                    key_bytes.zeroize();
-                    return ExitCode::FAILURE;
-                }
-            }
+        }
+        if let Some(v) = found_vault.or_else(|| Vault::production().ok()) {
+            v
+        } else {
+            eprintln!("Failed to locate user session vault for UID {target_uid}");
+            key_bytes.zeroize();
+            return ExitCode::FAILURE;
         }
     };
 

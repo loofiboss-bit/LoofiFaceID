@@ -738,11 +738,8 @@ fn ensure_directory(path: &Path, uid: u32, kind: VaultKind) -> Result<(), VaultE
         builder.recursive(true).mode(mode);
         builder.create(path)?;
         if kind == VaultKind::System {
-            let _ = kfaceauth_crypto_openssl_sys::set_socket_permissions(
-                path,
-                mode,
-                Some("kfaceauth"),
-            );
+            let _ =
+                kfaceauth_crypto_openssl_sys::set_socket_permissions(path, mode, Some("kfaceauth"));
             if let Some(parent) = path.parent() {
                 let _ = kfaceauth_crypto_openssl_sys::set_socket_permissions(
                     parent,
