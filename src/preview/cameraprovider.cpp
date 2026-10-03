@@ -139,6 +139,7 @@ void CameraProvider::stop()
     m_camera.reset();
     m_spectrum.clear();
     m_frameThrottle.invalidate();
+    m_consecutiveDarkFrames = 0;
 }
 
 bool CameraProvider::active() const
@@ -290,15 +291,53 @@ QString CameraProvider::preflightNode(const QString &node)
     return QStringLiteral("camera-unavailable");
 }
 
+bool CameraProvider::isDarkIrFrame(const QImage &image)
+{
+    if (image.isNull() || image.width() <= 0 || image.height() <= 0)
+        return true;
+    const int w = image.width();
+    const int h = image.height();
+    const int stepX = std::max(1, w / 16);
+    const int stepY = std::max(1, h / 16);
+    quint64 sum = 0;
+    quint64 count = 0;
+    for (int y = stepY; y < h - stepY; y += stepY)
+    {
+        for (int x = stepX; x < w - stepX; x += stepX)
+        {
+            sum += qGray(image.pixel(x, y));
+            ++count;
+        }
+    }
+    if (count == 0)
+        return true;
+    return (static_cast<double>(sum) / count) < 5.0;
+}
+
 void CameraProvider::handleFrame(const QVideoFrame &frame)
 {
     if (!frame.isValid())
         return;
+    const QImage image = frame.toImage();
+    if (image.isNull())
+        return;
+
+    const bool isIr = (m_spectrum == QStringLiteral("ir"));
+    if (isIr && isDarkIrFrame(image))
+    {
+        if (++m_consecutiveDarkFrames < 15)
+            return;
+        m_consecutiveDarkFrames = 0;
+    }
+    else
+    {
+        m_consecutiveDarkFrames = 0;
+    }
+
     const qint64 minimumInterval = 1000 / PreviewProtocol::MaxFramesPerSecond;
     if (m_frameThrottle.isValid() && m_frameThrottle.elapsed() < minimumInterval)
         return;
     m_frameThrottle.restart();
-    const QImage image = frame.toImage();
     const QImage bounded =
         image.width() > PreviewProtocol::MaxWidth || image.height() > PreviewProtocol::MaxHeight
             ? image.scaled(PreviewProtocol::MaxWidth, PreviewProtocol::MaxHeight, Qt::KeepAspectRatio)

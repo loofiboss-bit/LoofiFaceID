@@ -703,54 +703,77 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
     pfd.fd = fd;
     pfd.events = POLLIN;
 
-    int poll_res = poll(&pfd, 1, effective_timeout);
     int capture_status = KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
-    if (poll_res > 0 && (pfd.revents & POLLIN))
+    for (int frame_attempt = 0; frame_attempt < 6; ++frame_attempt)
     {
+        int poll_res = poll(&pfd, 1, effective_timeout);
+        if (poll_res <= 0 || !(pfd.revents & POLLIN))
+            break;
+
         struct v4l2_buffer dqbuf;
         memset(&dqbuf, 0, sizeof(dqbuf));
         dqbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         dqbuf.memory = V4L2_MEMORY_MMAP;
-        if (ioctl(fd, VIDIOC_DQBUF, &dqbuf) == 0 && dqbuf.index < mapped_count)
+        if (ioctl(fd, VIDIOC_DQBUF, &dqbuf) != 0 || dqbuf.index >= mapped_count)
+            break;
+
+        const uint8_t *src = (const uint8_t *)mappings[dqbuf.index].start;
+        size_t bytes_used = (size_t)dqbuf.bytesused;
+        if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
         {
-            const uint8_t *src = (const uint8_t *)mappings[dqbuf.index].start;
-            size_t bytes_used = (size_t)dqbuf.bytesused;
-            if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
+            size_t needed = (size_t)width * (size_t)height;
+            if (bytes_used >= needed && buffer_size >= needed)
             {
-                size_t needed = (size_t)width * (size_t)height;
-                if (bytes_used >= needed && buffer_size >= needed)
-                {
-                    memcpy(buffer, src, needed);
-                    *width_out = width;
-                    *height_out = height;
-                    *format_out = 3; // Gray8
-                    capture_status = KFACEAUTH_CRYPTO_OK;
-                }
-            }
-            else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
-            {
-                size_t needed = (size_t)width * (size_t)height;
-                if (bytes_used >= needed * 2 && buffer_size >= needed)
-                {
-                    for (size_t p = 0; p < needed; ++p)
-                        buffer[p] = src[p * 2];
-                    *width_out = width;
-                    *height_out = height;
-                    *format_out = 3; // Gray8
-                    capture_status = KFACEAUTH_CRYPTO_OK;
-                }
-            }
-            else
-            {
-                size_t copy_len = bytes_used < buffer_size ? bytes_used : buffer_size;
-                memcpy(buffer, src, copy_len);
+                memcpy(buffer, src, needed);
                 *width_out = width;
                 *height_out = height;
-                *format_out = (uint32_t)pixel_format_kind;
+                *format_out = 3; // Gray8
                 capture_status = KFACEAUTH_CRYPTO_OK;
             }
         }
+        else if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_YUYV)
+        {
+            size_t needed = (size_t)width * (size_t)height;
+            if (bytes_used >= needed * 2 && buffer_size >= needed)
+            {
+                for (size_t p = 0; p < needed; ++p)
+                    buffer[p] = src[p * 2];
+                *width_out = width;
+                *height_out = height;
+                *format_out = 3; // Gray8
+                capture_status = KFACEAUTH_CRYPTO_OK;
+            }
+        }
+        else
+        {
+            size_t copy_len = bytes_used < buffer_size ? bytes_used : buffer_size;
+            memcpy(buffer, src, copy_len);
+            *width_out = width;
+            *height_out = height;
+            *format_out = (uint32_t)pixel_format_kind;
+            capture_status = KFACEAUTH_CRYPTO_OK;
+        }
+
+        // Check if this frame is a dark strobe frame (average luminance < 8.0)
+        if (capture_status == KFACEAUTH_CRYPTO_OK && *format_out == 3)
+        {
+            size_t needed = (size_t)(*width_out) * (size_t)(*height_out);
+            uint64_t sample_sum = 0;
+            size_t sample_count = 0;
+            for (size_t p = 0; p < needed; p += 16)
+            {
+                sample_sum += buffer[p];
+                sample_count++;
+            }
+            if (sample_count > 0 && (sample_sum / sample_count) < 8 && frame_attempt < 5)
+            {
+                // Re-queue buffer and wait for the illuminated strobe frame
+                ioctl(fd, VIDIOC_QBUF, &dqbuf);
+                continue;
+            }
+        }
+        break;
     }
 
     ioctl(fd, VIDIOC_STREAMOFF, &type);
