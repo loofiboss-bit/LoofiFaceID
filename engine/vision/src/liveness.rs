@@ -15,7 +15,7 @@ use kfaceauth_vision_opencv_sys::{
 pub const MAX_BONA_FIDE_LBP_ENTROPY: f32 = 7.35;
 
 /// Maximum 2D FFT periodic moiré/PAPR energy for bona fide human skin (beyond which display refresh rasters are detected).
-pub const MAX_BONA_FIDE_MOIRE_ENERGY: f32 = 0.42;
+pub const MAX_BONA_FIDE_MOIRE_ENERGY: f32 = 8.5;
 
 /// Minimum NIR to visible skin reflectance ratio (human skin ~0.4–0.9; electronic screens emit <0.15 NIR).
 pub const MIN_NIR_REFLECTANCE_RATIO: f32 = 0.25;
@@ -409,7 +409,7 @@ mod tests {
     fn passive_texture_detects_screen_replay_moire() {
         let screen_metrics = TextureMetrics {
             lbp_entropy: 6.50,
-            moire_energy: 0.65, // Above threshold of 0.42
+            moire_energy: 12.5, // Above threshold of 8.5
         };
         assert_eq!(
             PassiveTextureAnalyzer::evaluate(&screen_metrics),

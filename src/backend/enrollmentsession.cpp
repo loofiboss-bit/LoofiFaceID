@@ -13,6 +13,7 @@
 #include <QGuiApplication>
 #include <QImage>
 #include <QProcess>
+#include <QStandardPaths>
 
 #include <algorithm>
 #include <unistd.h>
@@ -220,8 +221,9 @@ bool EnrollmentSession::systemAuthBusy() const
 void EnrollmentSession::checkSystemAuthStatus()
 {
     const uid_t uid = getuid();
-    const QString vaultPath = QStringLiteral("/var/lib/kfaceauth/%1/vault.bin").arg(uid);
-    const bool vaultExists = QFileInfo::exists(vaultPath);
+    const QString vaultPath = QStringLiteral("/var/lib/kfaceauth/%1/identity.vault").arg(uid);
+    const QString legacyVaultPath = QStringLiteral("/var/lib/kfaceauth/%1/vault.bin").arg(uid);
+    const bool vaultExists = QFileInfo::exists(vaultPath) || QFileInfo::exists(legacyVaultPath);
 
     bool pamConfigured = false;
     QFile pamFile(QStringLiteral("/etc/pam.d/kde"));
@@ -294,9 +296,15 @@ void EnrollmentSession::syncSystemVault()
                 syncBin = QStringLiteral("/usr/local/libexec/kfaceauth-sync-vault");
             }
 
+            const QString userVaultDir =
+                QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/kfaceauth");
+
             const QStringList args = {
-                syncBin, QStringLiteral("--uid"),       QString::number(uid), QStringLiteral("--hex-key"),
-                hexKey,  QStringLiteral("--enable-pam")};
+                syncBin,
+                QStringLiteral("--uid"),         QString::number(uid),
+                QStringLiteral("--legacy-root"), userVaultDir,
+                QStringLiteral("--hex-key"),     hexKey,
+                QStringLiteral("--enable-pam")};
 
             connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
                     [this, process](int exitCode, QProcess::ExitStatus exitStatus)
@@ -669,9 +677,12 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
             : response.code == 10 ? translate("Move the face away from the frame edge and retry.")
             : response.code == 11
                 ? translate("This sample is too similar to an existing sample. Change appearance or pose.")
+            : response.code == 23
+                ? translate("A potential spoofing attempt or reflection was detected. Look directly at the sensor and retry.")
                 : translate("The local identity operation failed safely.");
         response.clearSensitive();
-        if (m_pendingOperation == PendingOperation::Capture && response.code >= 7 && response.code <= 11)
+        if (m_pendingOperation == PendingOperation::Capture &&
+            ((response.code >= 7 && response.code <= 11) || response.code == 23))
         {
             m_pendingOperation = PendingOperation::None;
             handleSampleError(code, guidance);

@@ -97,6 +97,11 @@ void IdentityProtocolTest::responsesRequireExactGenerationShapeAndCode()
     QVERIFY(!IdentityProtocol::parseResponse(response(static_cast<quint8>(IdentityProtocol::ResponseKind::Sample), 0, 9,
                                                       IdentityProtocol::EmbeddingBytes - 1),
                                              9, &parsed, &error));
+
+    const QByteArray spoofError = response(static_cast<quint8>(IdentityProtocol::ResponseKind::Error), 23, 9);
+    QVERIFY(IdentityProtocol::parseResponse(spoofError, 9, &parsed, &error));
+    QCOMPARE(parsed.kind, IdentityProtocol::ResponseKind::Error);
+    QCOMPARE(parsed.code, quint8(23));
 }
 
 void IdentityProtocolTest::responseDoesNotExposeScores()

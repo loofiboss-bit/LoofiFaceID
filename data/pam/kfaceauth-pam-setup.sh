@@ -25,7 +25,7 @@ status_check() {
         socket_active=1
     fi
 
-    if [[ -f "/var/lib/kfaceauth/${target_uid}/vault.bin" ]]; then
+    if [[ -f "/var/lib/kfaceauth/${target_uid}/identity.vault" || -f "/var/lib/kfaceauth/${target_uid}/vault.bin" ]]; then
         vault_synced=1
     fi
 
@@ -53,7 +53,7 @@ enable_pam() {
         fi
 
         # Insert as the first auth rule in /etc/pam.d/kde
-        sed -i "/^auth/i $PAM_LINE" "$PAM_FILE" 2>/dev/null || {
+        sed -i "0,/^auth/s//$PAM_LINE\n&/" "$PAM_FILE" 2>/dev/null || {
             # Fallback if no line starts with auth
             echo -e "$PAM_LINE\n$(cat "$PAM_FILE")" > "$PAM_FILE"
         }

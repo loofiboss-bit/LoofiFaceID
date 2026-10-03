@@ -265,8 +265,16 @@ static int read_key_file(const char *path, uint8_t *key_out, size_t key_len)
         return -1;
 
     struct stat st;
-    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || (st.st_mode & 0777) != 0600 || st.st_size != (off_t)key_len ||
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size != (off_t)key_len ||
         st.st_nlink != 1)
+    {
+        close(fd);
+        return -1;
+    }
+
+    mode_t mode = st.st_mode & 0777;
+    int mode_ok = (mode == 0600) || ((mode == 0640 || mode == 0600) && (mode & 007) == 0 && (mode & 020) == 0);
+    if (!mode_ok)
     {
         close(fd);
         return -1;
@@ -300,6 +308,10 @@ static int ensure_dir_exists(const char *dir)
     if (len >= sizeof(tmp))
         return -1;
     memcpy(tmp, dir, len + 1);
+
+    struct group *gr = getgrnam("kfaceauth");
+    gid_t gr_gid = (gr != NULL) ? gr->gr_gid : (gid_t)-1;
+
     for (char *p = tmp + 1; *p; p++)
     {
         if (*p == '/')
@@ -307,12 +319,24 @@ static int ensure_dir_exists(const char *dir)
             *p = '\0';
             if (stat(tmp, &st) != 0)
             {
-                mkdir(tmp, 0700);
+                if (mkdir(tmp, 0755) == 0 && gr_gid != (gid_t)-1)
+                {
+                    (void)chown(tmp, (uid_t)-1, gr_gid);
+                }
             }
             *p = '/';
         }
     }
-    return (mkdir(tmp, 0700) == 0 || errno == EEXIST) ? 0 : -1;
+    if (mkdir(tmp, 0750) == 0 || errno == EEXIST)
+    {
+        if (gr_gid != (gid_t)-1)
+        {
+            (void)chown(tmp, (uid_t)-1, gr_gid);
+            (void)chmod(tmp, 0750);
+        }
+        return 0;
+    }
+    return -1;
 }
 
 static int write_key_file(const char *dir, const char *final_path, const uint8_t *key, size_t key_len)
@@ -327,9 +351,15 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
     if (written_len < 0 || (size_t)written_len >= sizeof(tmp_path))
         return -1;
 
-    int fd = open(tmp_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    int fd = open(tmp_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0640);
     if (fd < 0)
         return -1;
+
+    struct group *gr = getgrnam("kfaceauth");
+    if (gr != NULL)
+    {
+        (void)fchown(fd, (uid_t)-1, gr->gr_gid);
+    }
 
     size_t total_written = 0;
     while (total_written < key_len)
@@ -344,7 +374,7 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
         total_written += (size_t)n;
     }
 
-    if (fchmod(fd, 0600) != 0 || fsync(fd) != 0)
+    if (fchmod(fd, 0640) != 0 || fsync(fd) != 0)
     {
         close(fd);
         unlink(tmp_path);
@@ -357,6 +387,12 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
         unlink(tmp_path);
         return -1;
     }
+
+    if (gr != NULL)
+    {
+        (void)chown(final_path, (uid_t)-1, gr->gr_gid);
+    }
+    (void)chmod(final_path, 0640);
 
     int dir_fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (dir_fd >= 0)
@@ -532,7 +568,30 @@ static void auto_detect_ir_camera(char *path_out, size_t max_len)
             uint32_t caps = cap.device_caps ? cap.device_caps : cap.capabilities;
             if (caps & V4L2_CAP_VIDEO_CAPTURE)
             {
+                int is_ir = 0;
                 if (strstr((const char *)cap.card, "IR") != NULL || strstr((const char *)cap.card, "Infrared") != NULL)
+                {
+                    is_ir = 1;
+                }
+                else
+                {
+                    struct v4l2_fmtdesc fmtdesc;
+                    memset(&fmtdesc, 0, sizeof(fmtdesc));
+                    fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                    while (ioctl(fd, VIDIOC_ENUM_FMT, &fmtdesc) == 0)
+                    {
+                        if (fmtdesc.pixelformat == V4L2_PIX_FMT_GREY ||
+                            fmtdesc.pixelformat == v4l2_fourcc('Y', '1', '0', ' ') ||
+                            fmtdesc.pixelformat == v4l2_fourcc('Y', '1', '6', ' ') ||
+                            fmtdesc.pixelformat == v4l2_fourcc('Z', '1', '6', ' '))
+                        {
+                            is_ir = 1;
+                            break;
+                        }
+                        fmtdesc.index++;
+                    }
+                }
+                if (is_ir)
                 {
                     strncpy(path_out, candidate, max_len - 1);
                     path_out[max_len - 1] = '\0';

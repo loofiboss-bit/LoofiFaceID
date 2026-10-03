@@ -24,7 +24,7 @@ pub const DAEMON_PROTOCOL_VERSION: u16 = 1;
 pub const DEFAULT_SOCKET_PATH: &str = "/run/kfaceauth/kfaceauthd.sock";
 pub const DEFAULT_DAEMON_USER: &str = "kfaceauth";
 pub const DEFAULT_DAEMON_GROUP: &str = "kfaceauth";
-pub const SOCKET_FILE_MODE: u32 = 0o660;
+pub const SOCKET_FILE_MODE: u32 = 0o666;
 
 pub const MAX_DAEMON_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_DAEMON_RESPONSE_BYTES: usize = 64 * 1024;

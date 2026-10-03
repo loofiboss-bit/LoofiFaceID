@@ -160,15 +160,31 @@ fn main() -> ExitCode {
     let master_key = MasterKey::from_bytes(key_bytes);
 
     let legacy_vault = match custom_legacy_root {
-        Some(ref root) => Vault::system_with_root(root, target_uid),
-        None => match Vault::production() {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("Failed to locate user session vault: {e}");
-                key_bytes.zeroize();
-                return ExitCode::FAILURE;
+        Some(ref root) => Vault::user_session_with_root(root, target_uid),
+        None => {
+            let mut found_vault = None;
+            if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
+                for line in passwd.lines() {
+                    let parts: Vec<&str> = line.split(':').collect();
+                    if parts.len() >= 6 && parts[2].parse::<u32>().ok() == Some(target_uid) {
+                        let home_dir = PathBuf::from(parts[5]);
+                        let user_vault_dir = home_dir.join(".local/share").join(kfaceauth_templates::PRODUCT_DIRECTORY);
+                        if user_vault_dir.exists() {
+                            found_vault = Some(Vault::user_session_with_root(&user_vault_dir, target_uid));
+                            break;
+                        }
+                    }
+                }
             }
-        },
+            match found_vault.or_else(|| Vault::production().ok()) {
+                Some(v) => v,
+                None => {
+                    eprintln!("Failed to locate user session vault for UID {target_uid}");
+                    key_bytes.zeroize();
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
     };
 
     // Ensure /etc/kfaceauth/keys exists and seal master key
@@ -190,12 +206,23 @@ fn main() -> ExitCode {
     };
 
     // Ensure system permissions: group kfaceauth can read vault and key
+    if let Some(parent) = keys_dir.parent() {
+        let _ = set_socket_permissions(parent, 0o755, Some("kfaceauth"));
+    }
+    let _ = set_socket_permissions(&keys_dir, 0o750, Some("kfaceauth"));
+    let _ = set_socket_permissions(&key_file, 0o640, Some("kfaceauth"));
+
     let _ = set_socket_permissions(&system_vault_base, 0o755, Some("kfaceauth"));
-    let _ = set_socket_permissions(&system_vault_dir, 0o755, Some("kfaceauth"));
-    let _ = set_socket_permissions(&key_file, 0o600, Some("kfaceauth"));
-    let vault_file = system_vault_dir.join("vault.bin");
+    let _ = std::os::unix::fs::chown(&system_vault_dir, Some(target_uid), None);
+    let _ = set_socket_permissions(&system_vault_dir, 0o750, Some("kfaceauth"));
+    let vault_file = system_vault_dir.join("identity.vault");
     if vault_file.exists() {
-        let _ = set_socket_permissions(&vault_file, 0o644, Some("kfaceauth"));
+        let _ = std::os::unix::fs::chown(&vault_file, Some(target_uid), None);
+        let _ = set_socket_permissions(&vault_file, 0o640, Some("kfaceauth"));
+        let bin_file = system_vault_dir.join("vault.bin");
+        let _ = fs::copy(&vault_file, &bin_file);
+        let _ = std::os::unix::fs::chown(&bin_file, Some(target_uid), None);
+        let _ = set_socket_permissions(&bin_file, 0o640, Some("kfaceauth"));
     }
 
     if enable_pam && !run_pam_setup("--enable") {

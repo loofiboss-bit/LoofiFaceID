@@ -632,6 +632,14 @@ msgstr ""
 msgid "The local identity operation failed safely."
 msgstr "Den lokala identitetsåtgärden misslyckades på ett säkert sätt."
 
+#: src/backend/enrollmentsession.cpp:673
+msgid ""
+"A potential spoofing attempt or reflection was detected. Look directly at the "
+"sensor and retry."
+msgstr ""
+"Ett potentiellt presentationsangrepp eller reflektion upptäcktes. Titta rakt "
+"mot sensorn och försök igen."
+
 #: src/backend/enrollmentsession.cpp:431
 msgid "Profile status was unavailable."
 msgstr "Profilstatus var inte tillgänglig."

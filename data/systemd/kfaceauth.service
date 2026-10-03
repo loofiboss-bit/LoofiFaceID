@@ -30,7 +30,8 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 ReadWritePaths=/var/lib/kfaceauth /run/kfaceauth
 ReadOnlyPaths=/usr/share/kfaceauth/models /etc/kfaceauth
-DeviceAllow=/dev/video* rw
+DevicePolicy=auto
+DeviceAllow=char-video4linux rw
 DeviceAllow=/dev/tpmrm0 rw
 
 [Install]
