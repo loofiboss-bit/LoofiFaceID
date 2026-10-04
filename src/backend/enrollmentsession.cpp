@@ -8,6 +8,7 @@
 #include "identityworkerclient.h"
 #include "kwalletkeyprovider.h"
 #include "pamconfiguration.h"
+#include "systemauthprotocol.h"
 
 #include <QCoreApplication>
 #include <QFile>
@@ -394,10 +395,6 @@ void EnrollmentSession::updateAuthTargetStatus(const QString &target, bool pamCo
 void EnrollmentSession::checkSystemAuthStatus()
 {
     const uid_t uid = getuid();
-    const QString uidText = QString::number(uid);
-    const QString systemVaultPath = QStringLiteral("/var/lib/kfaceauth/%1/identity.vault").arg(uidText);
-    const QString systemKeyPath = QStringLiteral("/etc/kfaceauth/keys/%1.key").arg(uidText);
-    const bool systemProfileReady = QFileInfo::exists(systemVaultPath) && QFileInfo::exists(systemKeyPath);
     const QString helperPath = QStringLiteral("/usr/libexec/kfaceauth-sync-vault");
     const QString pamModule64 = QStringLiteral("/usr/lib64/security/pam_kfaceauth.so");
     const QString pamModule = QStringLiteral("/usr/lib/security/pam_kfaceauth.so");
@@ -413,8 +410,9 @@ void EnrollmentSession::checkSystemAuthStatus()
     };
 
     bool daemonReady = false;
+    bool systemProfileReady = false;
     const QString socketPath = QStringLiteral("/run/kfaceauth/kfaceauthd.sock");
-    if (systemProfileReady && QFileInfo::exists(socketPath))
+    if (QFileInfo::exists(socketPath))
     {
         const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (fd >= 0)
@@ -432,27 +430,23 @@ void EnrollmentSession::checkSystemAuthStatus()
 
             if (::connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0)
             {
-                const uint32_t frameLength = htobe32(8);
-                const uint16_t version = htobe16(1);
-                const uint32_t uidBe = htobe32(static_cast<uint32_t>(uid));
-                uint8_t request[12]{};
-                std::memcpy(request, &frameLength, sizeof(frameLength));
-                std::memcpy(request + 4, &version, sizeof(version));
-                request[6] = 0x11;
-                std::memcpy(request + 8, &uidBe, sizeof(uidBe));
-
-                const bool sent = writeAll(fd, request, sizeof(request));
+                const QByteArray request = SystemAuthProtocol::statusRequest(static_cast<quint32>(uid));
+                const bool sent = writeAll(fd, reinterpret_cast<const uint8_t *>(request.constData()),
+                                           static_cast<size_t>(request.size()));
                 uint32_t responseLengthBe = 0;
                 const bool gotHeader =
                     sent && readAll(fd, reinterpret_cast<uint8_t *>(&responseLengthBe), sizeof(responseLengthBe));
                 const uint32_t responseLength = be32toh(responseLengthBe);
-                if (gotHeader && responseLength == 6)
+                if (gotHeader && (responseLength == 4 || responseLength == 6))
                 {
-                    uint8_t response[6]{};
-                    const bool gotResponse = readAll(fd, response, sizeof(response));
-                    const uint16_t responseVersion = static_cast<uint16_t>((response[0] << 8) | response[1]);
-                    daemonReady =
-                        gotResponse && responseVersion == 1 && response[2] == 0 && response[4] > 0 && response[5] > 0;
+                    QByteArray response(static_cast<qsizetype>(responseLength), Qt::Uninitialized);
+                    if (readAll(fd, reinterpret_cast<uint8_t *>(response.data()), static_cast<size_t>(response.size())))
+                    {
+                        const SystemAuthProtocol::Status status =
+                            SystemAuthProtocol::parseStatusResponse(QByteArrayView(response));
+                        daemonReady = status.daemonReady;
+                        systemProfileReady = status.systemProfileReady;
+                    }
                 }
             }
             ::close(fd);

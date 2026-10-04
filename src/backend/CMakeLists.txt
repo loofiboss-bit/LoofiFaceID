@@ -22,6 +22,8 @@ add_library(kfaceauth_core STATIC
     supportreport.h
     systemstate.cpp
     systemstate.h
+    systemauthprotocol.cpp
+    systemauthprotocol.h
     systemprobe.cpp
     systemprobe.h
     visionanalysissession.cpp

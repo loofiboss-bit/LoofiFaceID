@@ -113,6 +113,11 @@ persistence, local verification, and deletion capabilities. PAM, authselect,
 system authentication, liveness, security tiers, and privileged services
 remain explicitly unsupported.
 
+The opt-in authentication status is queried through the system daemon's
+bounded status protocol. The KCM does not inspect the protected system vault
+or key paths directly; only the daemon reports whether an enrolled system
+profile is available.
+
 Production refresh first verifies the installed worker and both model hashes,
 then executes the identity worker's bounded `status` operation. It reads a key
 only when KWallet is already open; a locked wallet is reported without

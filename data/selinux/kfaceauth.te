@@ -9,7 +9,7 @@ require {
     role system_r;
     class file { read write getattr open create lock unlink execute entrypoint ioctl map };
     class dir { read getattr search open write add_name remove_name mounton };
-    class chr_file { read write open getattr ioctl };
+    class chr_file { read write open getattr ioctl map };
     class unix_stream_socket { create bind listen accept read write getattr setopt getopt connectto };
     class sock_file { create getattr setattr unlink write };
     class process { transition };
@@ -51,4 +51,4 @@ allow kfaceauth_t kfaceauth_etc_t:file { read write getattr open create lock };
 allow kfaceauth_t kfaceauth_sock_t:unix_stream_socket { create bind listen accept read write getattr setopt getopt };
 
 # Camera video device node access (/dev/video*)
-allow kfaceauth_t v4l_device_t:chr_file { read write open getattr ioctl };
+allow kfaceauth_t v4l_device_t:chr_file { read write open getattr ioctl map };

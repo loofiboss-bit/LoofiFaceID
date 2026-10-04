@@ -52,7 +52,7 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertNotIn("sock_file_type", main_policy)
         self.assertIn("type kfaceauth_sock_t, file_type;", main_policy)
         self.assertIn("type v4l_device_t;", main_policy)
-        self.assertIn("allow kfaceauth_t v4l_device_t:chr_file", main_policy)
+        self.assertIn("allow kfaceauth_t v4l_device_t:chr_file { read write open getattr ioctl map };", main_policy)
         self.assertNotIn("video_device_t", main_policy)
 
     def test_socket_activated_daemon_does_not_mount_runtime_directory_writable(self) -> None:
