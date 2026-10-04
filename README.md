@@ -1,7 +1,7 @@
 # LoofiFace-ID (KFaceAuth)
 
 LoofiFace-ID is an experimental local profile and comparison utility for a
-logged-in Fedora 44/KDE Plasma session. It keeps camera frames and biometric
+logged-in Fedora 44/KDE Plasma 6 session. It keeps camera frames and biometric
 features in memory or in the encrypted user-session profile. The normal
 workflow never enables PAM, SDDM, sudo, Polkit, or another system
 authentication service.
@@ -18,15 +18,17 @@ authentication service.
 - An encrypted KWallet-backed profile and an explicit one-frame local test.
 - No telemetry, network model downloads, or saved camera images.
 
-This is not an authentication factor. It does not unlock the desktop, log in
-to a display manager, approve `sudo`/Polkit requests, or provide a PAD or
-performance qualification claim.
+The ordinary COPR package is not an authentication factor. It does not unlock
+the desktop, log in to a display manager, approve `sudo`/Polkit requests, or
+provide a PAD or performance qualification claim.
 
-The v5.1.0 work is an unreleased stabilization target. Its default build and
-base RPM omit the experimental daemon, PAM module, and system service files.
-KDE lock-screen unlock is not implemented or qualified. See the [v5.1.0
-qualification status](docs/RELEASE-QUALIFICATION-V5.1.md) before treating any
-security or physical test result as release evidence.
+Version 5.2.0 contains a separate, explicit opt-in experimental path for PAM
+authentication through SDDM and the KDE Plasma lock screen. The default CMake
+build and COPR RPM omit its PAM module, daemon, service files, and SELinux
+policy. The opt-in path is unqualified and unsupported; a positive face match
+is not evidence of liveness or spoof resistance. Password authentication is
+kept as the PAM fallback. See the [v5.2.0 qualification status](docs/RELEASE-QUALIFICATION-V5.2.md)
+before enabling or describing this experiment.
 
 The currently published [v5.0.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0)
 describes production PAM authentication and PAD results. The repository's

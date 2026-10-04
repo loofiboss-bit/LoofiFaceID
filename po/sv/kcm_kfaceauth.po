@@ -1511,94 +1511,51 @@ msgstr "Justera posen så att den matchar det markerade steget."
 msgid "The camera preview returned invalid data. Refresh camera discovery and try again."
 msgstr "Kamerans förhandsvisning returnerade ogiltiga data. Uppdatera kameror och försök igen."
 
-msgid "Windows Hello / Lock Screen Login"
-msgstr "Windows Hello / Låsskärmsinloggning"
+msgid "Infrared (IR) camera"
+msgstr "Infraröd kamera (IR)"
 
-msgid "Windows Hello / System Login"
-msgstr "Windows Hello / Systeminloggning"
+msgid "Experimental PAM login"
+msgstr "Experimentell PAM-inloggning"
 
-msgid "Disable Lock Screen Login"
-msgstr "Inaktivera låsskärmsinloggning"
+msgid "Optional and unqualified. Password login remains the PAM fallback. IR camera selection does not prove liveness or spoof resistance."
+msgstr "Valfritt och okvalificerat. Lösenordsinloggning finns kvar som reservväg i PAM. Val av IR-kamera bevisar inte liveness eller motstånd mot förfalskning."
 
-msgid "Enable Lock Screen Login"
+msgid "SDDM sign-in"
+msgstr "Inloggning med SDDM"
+
+msgid "Plasma lock-screen sign-in"
+msgstr "Inloggning från Plasmas låsskärm"
+
+msgid "Enable SDDM login"
+msgstr "Aktivera SDDM-inloggning"
+
+msgid "Disable SDDM login"
+msgstr "Inaktivera SDDM-inloggning"
+
+msgid "Enable lock-screen login"
 msgstr "Aktivera låsskärmsinloggning"
 
-msgid "Disable System Login"
-msgstr "Inaktivera systeminloggning"
+msgid "Disable lock-screen login"
+msgstr "Inaktivera låsskärmsinloggning"
 
-msgid "Enable System Login"
-msgstr "Aktivera systeminloggning"
+msgid "Disabled"
+msgstr "Inaktiverad"
 
-msgid "IR (Windows Hello)"
-msgstr "IR (Windows Hello)"
+msgid "Ready to enable as an experimental password-fallback option."
+msgstr "Redo att aktiveras som ett experimentellt alternativ med lösenordsreserv."
 
-msgid "Windows Hello IR lock screen login is active."
-msgstr "Windows Hello IR-låsskärmsinloggning är aktiv."
+msgid "Ready; the last change failed (%1)."
+msgstr "Redo; den senaste ändringen misslyckades (%1)."
 
-msgid "Windows Hello IR login is active for lock screen and SDDM."
-msgstr "Windows Hello IR-inloggning är aktiv för låsskärm och SDDM."
+msgid "Enabled experimentally. The PAM password fallback remains available."
+msgstr "Experimentellt aktiverad. PAM:s lösenordsreserv finns kvar."
 
-msgid "Windows Hello IR login is active for SDDM."
-msgstr "Windows Hello IR-inloggning är aktiv för SDDM."
+msgid "Enabled experimentally; the last change failed (%1). Password fallback remains available."
+msgstr "Experimentellt aktiverad; den senaste ändringen misslyckades (%1). Lösenordsreserv finns kvar."
 
-msgid "System profile is synced, but PAM lock screen integration is disabled."
-msgstr "Systemets ansiktsprofil är synkroniserad, men PAM-låsskärmsintegration är inaktiverad."
+msgid "Blocked: %1"
+msgstr "Blockerad: %1"
 
-msgid "System profile is synced, but PAM login integration is disabled."
-msgstr "Systemets ansiktsprofil är synkroniserad, men PAM-inloggningsintegration är inaktiverad."
-
-msgid "System profile is provisioned and PAM is configured, but the authentication daemon or key is not ready."
-msgstr "Systemets profil är konfigurerad och PAM är inställt, men autentiseringstjänsten eller nyckeln är inte redo."
-
-msgid "Face profile is ready. Enable Windows Hello lock screen login to activate."
-msgstr "Ansiktsprofilen är redo. Aktivera Windows Hello-låsskärmsinloggning för att slå på funktionen."
-
-msgid "Face profile is ready. Enable Windows Hello system login to activate."
-msgstr "Ansiktsprofilen är redo. Aktivera Windows Hello-systeminloggning för att slå på funktionen."
-
-msgid "Enroll a face profile first to enable lock screen login."
-msgstr "Registrera en ansiktsprofil först för att kunna aktivera låsskärmsinloggning."
-
-msgid "Enroll a face profile first to enable system login."
-msgstr "Registrera en ansiktsprofil först för att kunna aktivera systeminloggning."
-
-msgid "Requesting authorization to enable lock screen login…"
-msgstr "Begär behörighet för att aktivera låsskärmsinloggning…"
-
-msgid "Requesting authorization to enable Windows Hello login…"
-msgstr "Begär behörighet för att aktivera Windows Hello-inloggning…"
-
-msgid "Failed to retrieve vault key from KWallet."
-msgstr "Kunde inte hämta valvnyckeln från KWallet."
-
-msgid "Windows Hello lock screen login enabled successfully."
-msgstr "Windows Hello-låsskärmsinloggning har aktiverats."
-
-msgid "Windows Hello system login enabled successfully."
-msgstr "Windows Hello-systeminloggning har aktiverats."
-
-msgid "Failed to configure system face login."
-msgstr "Kunde inte konfigurera systemets ansiktsinloggning."
-
-msgid "Configuration error: %1"
-msgstr "Konfigurationsfel: %1"
-
-msgid "Disabling lock screen face login…"
-msgstr "Inaktiverar ansiktsinloggning för låsskärm…"
-
-msgid "Disabling Windows Hello face login…"
-msgstr "Inaktiverar Windows Hello-ansiktsinloggning…"
-
-msgid "Lock screen login disabled."
-msgstr "Låsskärmsinloggning har inaktiverats."
-
-msgid "Windows Hello face login disabled."
-msgstr "Windows Hello-ansiktsinloggning har inaktiverats."
-
-msgid "Failed to disable system face login."
-msgstr "Kunde inte inaktivera systemets ansiktsinloggning."
-
-msgid "Error: %1"
-msgstr "Fel: %1"
-
+msgid "Blocked: status-unavailable"
+msgstr "Blockerad: status-ej-tillgänglig"
 

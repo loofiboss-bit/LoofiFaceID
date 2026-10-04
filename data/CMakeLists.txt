@@ -11,12 +11,6 @@ install(
 )
 
 if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
-    set(KFACEAUTH_ENABLE_SYSTEM_DATA ON)
-elseif(KFACEAUTH_BUILD_SYSTEM_AUTH)
-    set(KFACEAUTH_ENABLE_SYSTEM_DATA ON)
-endif()
-
-if(KFACEAUTH_ENABLE_SYSTEM_DATA)
     # Systemd socket activation and service units
     install(
         FILES
@@ -44,9 +38,42 @@ if(KFACEAUTH_ENABLE_SYSTEM_DATA)
         FILES
             selinux/kfaceauth.te
             selinux/kfaceauth.fc
-            selinux/kfaceauth.if
             selinux/kfaceauth_sddm.te
-            selinux/kfaceauth_sddm.fc
+        DESTINATION "${KDE_INSTALL_DATADIR}/kfaceauth/selinux"
+    )
+
+    find_program(CHECKMODULE_EXECUTABLE checkmodule REQUIRED)
+    find_program(SEMODULE_PACKAGE_EXECUTABLE semodule_package REQUIRED)
+
+    set(KFACEAUTH_SELINUX_MODULES kfaceauth kfaceauth_sddm)
+    foreach(module IN LISTS KFACEAUTH_SELINUX_MODULES)
+        set(module_source "${CMAKE_CURRENT_SOURCE_DIR}/selinux/${module}.te")
+        set(module_binary "${CMAKE_CURRENT_BINARY_DIR}/${module}.mod")
+        set(module_package "${CMAKE_CURRENT_BINARY_DIR}/${module}.pp")
+        if(module STREQUAL "kfaceauth")
+            set(module_file_contexts "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth.fc")
+            add_custom_command(
+                OUTPUT "${module_package}"
+                COMMAND "${CHECKMODULE_EXECUTABLE}" -M -m -o "${module_binary}" "${module_source}"
+                COMMAND "${SEMODULE_PACKAGE_EXECUTABLE}" -o "${module_package}" -m "${module_binary}" -f "${module_file_contexts}"
+                DEPENDS "${module_source}" "${module_file_contexts}"
+                VERBATIM
+                COMMENT "Building SELinux module ${module}"
+            )
+        else()
+            add_custom_command(
+                OUTPUT "${module_package}"
+                COMMAND "${CHECKMODULE_EXECUTABLE}" -M -m -o "${module_binary}" "${module_source}"
+                COMMAND "${SEMODULE_PACKAGE_EXECUTABLE}" -o "${module_package}" -m "${module_binary}"
+                DEPENDS "${module_source}"
+                VERBATIM
+                COMMENT "Building SELinux module ${module}"
+            )
+        endif()
+        list(APPEND KFACEAUTH_SELINUX_PACKAGES "${module_package}")
+    endforeach()
+    add_custom_target(kfaceauth_selinux_policy ALL DEPENDS ${KFACEAUTH_SELINUX_PACKAGES})
+    install(FILES ${KFACEAUTH_SELINUX_PACKAGES}
         DESTINATION "${KDE_INSTALL_DATADIR}/kfaceauth/selinux"
     )
 
@@ -57,17 +84,4 @@ if(KFACEAUTH_ENABLE_SYSTEM_DATA)
         DESTINATION "${KDE_INSTALL_DATADIR}/polkit-1/actions"
     )
 
-    find_program(CHECKMODULE_EXECUTABLE checkmodule)
-    if(CHECKMODULE_EXECUTABLE)
-        add_custom_target(kfaceauth_validate_selinux ALL
-            COMMAND "${CHECKMODULE_EXECUTABLE}" -M -m -o "${CMAKE_CURRENT_BINARY_DIR}/kfaceauth.mod" "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth.te"
-            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth.te"
-            COMMENT "Validating SELinux policy module with checkmodule"
-        )
-        add_custom_target(kfaceauth_validate_sddm_selinux ALL
-            COMMAND "${CHECKMODULE_EXECUTABLE}" -M -m -o "${CMAKE_CURRENT_BINARY_DIR}/kfaceauth_sddm.mod" "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth_sddm.te"
-            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/selinux/kfaceauth_sddm.te"
-            COMMENT "Validating SDDM SELinux policy module with checkmodule"
-        )
-    endif()
 endif()

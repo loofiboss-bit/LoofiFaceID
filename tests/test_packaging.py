@@ -73,7 +73,8 @@ class PackagingContractTests(unittest.TestCase):
             spec,
             r"(?m)^Provides:\s+plasma-irlume = %\{version\}-%\{release\}$",
         )
-        self.assertNotRegex(spec, r"(?im)^Requires:.*(?:face|biometric|pam)")
+        main_metadata = spec.split("%package experimental-auth", 1)[0]
+        self.assertNotRegex(main_metadata, r"(?im)^Requires:.*(?:face|biometric|pam)")
         self.assertNotRegex(spec, r"(?m)^%(?:pre|post|preun|postun|trigger)(?:\s|$)")
         self.assertNotIn("kf6-kauth", spec)
         self.assertIn("%{_libexecdir}/kfaceauth-camera-preview-worker", spec)
@@ -108,12 +109,16 @@ class PackagingContractTests(unittest.TestCase):
         )
         self.assertIn("kcm_kfaceauth.so", spec)
 
-    def test_base_package_includes_system_authentication_artifacts(self) -> None:
+    def test_default_package_excludes_system_authentication_artifacts(self) -> None:
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         engine_cmake = (ROOT / "engine/CMakeLists.txt").read_text(encoding="utf-8")
+        data_cmake = (ROOT / "data/CMakeLists.txt").read_text(encoding="utf-8")
         spec = SPEC.read_text(encoding="utf-8")
         files = spec.split("%files -f kcm_kfaceauth.lang", 1)[1].split(
-            "%changelog", 1
+            "%if %{with experimental_auth}", 1
+        )[0]
+        experimental_files = spec.split("%files experimental-auth", 1)[1].split(
+            "%endif", 1
         )[0]
 
         self.assertRegex(
@@ -121,6 +126,8 @@ class PackagingContractTests(unittest.TestCase):
             r"(?ms)^option\(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS\n.*?^\s+OFF\n\)",
         )
         self.assertIn("-DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=OFF", spec)
+        self.assertIn("-DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=ON", spec)
+        self.assertIn("%bcond_with experimental_auth", spec)
         for artifact in (
             "kfaceauthd",
             "kfaceauth-sync-vault",
@@ -131,9 +138,12 @@ class PackagingContractTests(unittest.TestCase):
             "/selinux/",
         ):
             with self.subTest(artifact=artifact):
-                self.assertIn(artifact, files)
+                self.assertNotIn(artifact, files)
+                self.assertIn(artifact, experimental_files)
         self.assertNotIn("kfaceauth-migrate-vault", files)
         self.assertIn("KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS", engine_cmake)
+        self.assertIn("if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)", data_cmake)
+        self.assertNotIn("KFACEAUTH_BUILD_SYSTEM_AUTH", cmake + engine_cmake + data_cmake)
 
     def test_daemon_protocol_has_no_key_export_or_broad_profile_operations(self) -> None:
         daemon = (ROOT / "engine/daemon/src/lib.rs").read_text(encoding="utf-8")
