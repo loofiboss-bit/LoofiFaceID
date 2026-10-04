@@ -145,6 +145,29 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn("if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)", data_cmake)
         self.assertNotIn("KFACEAUTH_BUILD_SYSTEM_AUTH", cmake + engine_cmake + data_cmake)
 
+    def test_rpm_documentation_is_an_explicit_allowlist(self) -> None:
+        spec = SPEC.read_text(encoding="utf-8")
+        docs = {
+            path
+            for line in spec.splitlines()
+            if line.startswith("%doc ")
+            for path in line.split()[1:]
+        }
+        self.assertEqual(
+            docs,
+            {
+                "CHANGELOG.md",
+                "README.md",
+                "docs/ANVANDARGUIDE-SV.md",
+                "docs/ARCHITECTURE.md",
+                "docs/BUILDING.md",
+                "docs/THREAT-BOUNDARY.md",
+                "docs/TROUBLESHOOTING.md",
+                "docs/USER-GUIDE.md",
+            },
+        )
+        self.assertNotIn("%doc docs/*.md", spec)
+
     def test_daemon_protocol_has_no_key_export_or_broad_profile_operations(self) -> None:
         daemon = (ROOT / "engine/daemon/src/lib.rs").read_text(encoding="utf-8")
         crypto = (ROOT / "engine/crypto-openssl-sys/native/crypto_bridge.c").read_text(
@@ -212,6 +235,11 @@ class PackagingContractTests(unittest.TestCase):
                 any("/redhat-linux-build/" in f"/{name}/" for name in names)
             )
             self.assertFalse(any("/.agents/" in f"/{name}/" for name in names))
+            for excluded in (
+                "docs/IMPROVEMENT-PLAN.md",
+                "docs/RELEASE-ERRATA-V5.0.0-DRAFT.md",
+            ):
+                self.assertNotIn(f"kfaceauth-5.2.0/{excluded}", names)
             legacy_package = "plasma-" + "irlume"
             legacy_names = [name for name in names if legacy_package in name.lower()]
             self.assertEqual(
@@ -247,6 +275,13 @@ class PackagingContractTests(unittest.TestCase):
             "verify-release-artifacts.sh",
             "retention-days: 7",
             "actions/download-artifact@",
+            "KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=${{ matrix.experimental_auth }}",
+            "experimental_auth: OFF",
+            "experimental_auth: ON",
+            "configuration: experimental-auth",
+            "verify-staged-payload.sh",
+            "verify-rpm-payload.sh",
+            "--with experimental_auth",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, workflows)
@@ -254,6 +289,27 @@ class PackagingContractTests(unittest.TestCase):
         action_refs = re.findall(r"uses:\s+\S+@([0-9a-f]+)", workflows)
         self.assertTrue(action_refs)
         self.assertTrue(all(len(ref) == 40 for ref in action_refs))
+
+    def test_current_document_links_resolve(self) -> None:
+        documents = (
+            ROOT / "README.md",
+            ROOT / "docs/BUILDING.md",
+            ROOT / "docs/HARDWARE-QUALIFICATION.md",
+            ROOT / "docs/RELEASE-CHECKLIST.md",
+            ROOT / "docs/RELEASE-QUALIFICATION-V5.2.md",
+            ROOT / "docs/ROADMAP.md",
+            ROOT / "docs/TEST-MATRIX.md",
+        )
+        link_pattern = re.compile(r"\[[^\]]+\]\(([^)\s]+)(?:\s+[^)]*)?\)")
+        broken: list[tuple[str, str]] = []
+        for document in documents:
+            for target in link_pattern.findall(document.read_text(encoding="utf-8")):
+                if "://" in target or target.startswith(("mailto:", "#")):
+                    continue
+                path = target.split("#", maxsplit=1)[0]
+                if path and not (document.parent / path).exists():
+                    broken.append((document.relative_to(ROOT).as_posix(), target))
+        self.assertEqual(broken, [])
 
     def test_release_workflow_uses_least_privilege_and_complete_artifacts(
         self,
@@ -270,7 +326,7 @@ class PackagingContractTests(unittest.TestCase):
             r"(?ms)^  release-upload:\n"
             r"    if: github\.event_name == 'release' "
             r"&& github\.event\.action == 'published'\n"
-            r"    needs: rpm\n"
+            r"    needs: \[rpm, experimental-auth-rpm\]\n"
             r"    permissions:\n"
             r"      actions: read\n"
             r"      contents: write\n",
@@ -280,11 +336,17 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn("retention-days: 7", workflow)
         self.assertIn("gh release upload", workflow)
         self.assertNotIn("if [ -n \"$TAG_NAME\" ]", workflow)
+        experimental_job = workflow.split("  experimental-auth-rpm:\n", 1)[1]
+        self.assertNotIn("actions/upload-artifact@", experimental_job)
 
         collector = ROOT / "packaging/fedora/collect-release-artifacts.sh"
         verifier = ROOT / "packaging/fedora/verify-release-artifacts.sh"
+        payload_verifier = ROOT / "packaging/fedora/verify-rpm-payload.sh"
+        staged_verifier = ROOT / "packaging/fedora/verify-staged-payload.sh"
         self.assertTrue(collector.stat().st_mode & 0o111)
         self.assertTrue(verifier.stat().st_mode & 0o111)
+        self.assertTrue(payload_verifier.stat().st_mode & 0o111)
+        self.assertTrue(staged_verifier.stat().st_mode & 0o111)
         collector_text = collector.read_text(encoding="utf-8")
         verifier_text = verifier.read_text(encoding="utf-8")
         for required in (

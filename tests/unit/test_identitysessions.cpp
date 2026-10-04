@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
+#include "authcomponents.h"
 #include "camerapreviewsession.h"
 #include "enrollmentsession.h"
 #include "identityworkerclient.h"
@@ -119,8 +120,17 @@ class IdentitySessionsTest final : public QObject
     void failedReplacementPreservesPreviousProfile();
     void guidePhaseAndCaptureSignal();
     void syntheticLifecycleRunsOneHundredCycles();
+    void authComponentsAvailabilityTracksInstalledRuntimeFiles();
     void managedPamConfigurationRequiresPasswordFallback();
 };
+
+void IdentitySessionsTest::authComponentsAvailabilityTracksInstalledRuntimeFiles()
+{
+    QVERIFY(!KFaceAuth::authComponentsAvailable(false, true, true));
+    QVERIFY(!KFaceAuth::authComponentsAvailable(true, false, false));
+    QVERIFY(KFaceAuth::authComponentsAvailable(true, true, false));
+    QVERIFY(KFaceAuth::authComponentsAvailable(true, false, true));
+}
 
 void IdentitySessionsTest::managedPamConfigurationRequiresPasswordFallback()
 {

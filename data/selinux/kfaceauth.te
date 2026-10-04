@@ -6,12 +6,14 @@ require {
     attribute file_type;
     type init_t;
     type v4l_device_t;
-    class file { read write getattr open create lock unlink execute entrypoint };
-    class dir { read getattr search open write add_name remove_name };
-    class chr_file { read write open getattr ioctl };
+    role system_r;
+    class file { read write getattr open create lock unlink execute entrypoint ioctl map };
+    class dir { read getattr search open write add_name remove_name mounton };
+    class chr_file { read write open getattr ioctl map };
     class unix_stream_socket { create bind listen accept read write getattr setopt getopt connectto };
     class sock_file { create getattr setattr unlink write };
     class process { transition };
+    class process2 { nnp_transition };
 }
 
 # Type definitions
@@ -20,10 +22,17 @@ type kfaceauth_exec_t, exec_type, file_type;
 type kfaceauth_var_lib_t, file_type;
 type kfaceauth_etc_t, file_type;
 type kfaceauth_sock_t, file_type;
+role system_r types kfaceauth_t;
+# Permit systemd's ReadWritePaths bind mount on this type only.
+allow init_t kfaceauth_var_lib_t:dir mounton;
 # Domain transition from init
-allow init_t kfaceauth_exec_t:file { read getattr execute open entrypoint };
+allow init_t kfaceauth_exec_t:file { read getattr execute open };
+allow kfaceauth_t kfaceauth_exec_t:file { entrypoint ioctl lock map execute getattr open read };
 allow init_t kfaceauth_t:process { transition };
+allow init_t kfaceauth_t:process2 nnp_transition;
 type_transition init_t kfaceauth_exec_t:process kfaceauth_t;
+# systemd creates and binds the service-context socket before activation.
+allow init_t kfaceauth_t:unix_stream_socket { create bind listen getattr setopt getopt };
 allow init_t kfaceauth_sock_t:sock_file { create getattr setattr unlink write };
 
 # Self socket operations
@@ -42,4 +51,4 @@ allow kfaceauth_t kfaceauth_etc_t:file { read write getattr open create lock };
 allow kfaceauth_t kfaceauth_sock_t:unix_stream_socket { create bind listen accept read write getattr setopt getopt };
 
 # Camera video device node access (/dev/video*)
-allow kfaceauth_t v4l_device_t:chr_file { read write open getattr ioctl };
+allow kfaceauth_t v4l_device_t:chr_file { read write open getattr ioctl map };

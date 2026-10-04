@@ -1,63 +1,49 @@
 # Roadmap
 
-> [!NOTE]
-> For the comprehensive v5.0 technical specification, quantitative latency budgets, and execution roadmap, see **[ROADMAP-V5.md](ROADMAP-V5.md)**.
-> For the complete repository and subsystem architecture audit, see **[REVIEW-V4.md](REVIEW-V4.md)**.
+**Reviewed:** 2026-10-04
+**Current source version:** 5.2.0
 
-## Completed foundations
+## Current product
 
-- Milestone 1: standalone native-v4 identity, asynchronous status, closed Rust
-  status protocol, explicit unsupported authentication capabilities.
-- Milestone 2: bounded explicit one-frame vision worker and selected,
-  hash-pinned YuNet inventory.
-- Milestone 3: production YuNet through Fedora OpenCV 4.13 and a narrow
-  reviewed C ABI.
-- Milestone 4: complete local identity MVP: verified SFace FP32, bounded
-  alignment/embedding, KWallet-backed encrypted single-user vault, enrollment,
-  profile status/deletion/reset, and explicit local verification.
+The standard package is an experimental Fedora 44/KDE logged-in-session
+utility for guided enrollment and explicit local profile comparison. It does
+not authenticate, unlock a session, or authorize system actions.
 
-Milestone 4 remains an experimental user-session comparison. It does not
-authorize login, unlock, sudo, Polkit, or any system action.
+Version 5.2.0 also contains an opt-in PAM experiment for SDDM and the Plasma
+lock screen. It is unqualified and unsupported for login. The default build
+and COPR package omit its components, and installation does not enable it.
+See [v5.2 qualification](RELEASE-QUALIFICATION-V5.2.md) and the
+[threat boundary](THREAT-BOUNDARY.md).
 
-## v4.0.0 release-candidate boundary
+## Near-term work
 
-The v4 source, package transition, and automated gates are prepared for an
-experimental release candidate. Public publication may proceed only with
-explicit release authority and an honest qualification boundary. The
-[v4 qualification report](V4-QUALIFICATION-REPORT.md) still records physical
-RGB/IR camera coverage, keyboard and assistive-technology behavior,
-cancellation and teardown loops, KWallet failure behavior, corrupt-vault
-recovery, latency, memory, and remaining untested coverage as `NOT RUN` until
-directly observed.
+1. Keep current status, release instructions, and installable documentation
+   consistent with the v5.2 product boundary.
+2. Build and inspect both the standard and explicit experimental package paths
+   in CI while keeping the standard package authentication-free.
+3. Execute the PAM setup helper against isolated fixtures and verify rollback
+   after injected command failures.
+4. Record KCM hardware/accessibility qualification separately from PAM login
+   and presentation-attack qualification.
 
-Publication of this experimental candidate does not waive those manual gates.
-Authentication suitability remains blocked and `UNQUALIFIED`.
+## Qualification tracks
 
-Representative FAR/FRR, bias, liveness, and spoof-resistance evidence is not
-available. It must remain `UNQUALIFIED`; no current Match result is an
-authentication or publication claim.
+- **KCM local-session track:** manually qualify camera recovery, enrollment,
+  comparison, cancellation, session cycles, keyboard use, screen-reader labels,
+  and window scaling on the documented Fedora 44/KDE baseline.
+- **PAM experiment track:** require automated transaction tests, independent
+  security review, Enforcing-mode SELinux evidence, real SDDM and lock-screen
+  cycles, password fallback, device/session coverage, and consent-based
+  physical evaluation before any support claim.
 
-## Blockers before liveness work
+Unobserved results remain `unverified`. A local comparison or successful build
+does not qualify login or presentation-attack detection. See
+[hardware qualification](HARDWARE-QUALIFICATION.md) for the manual matrices.
 
-1. Select a liveness/presentation-attack threat model and representative attack
-   corpus with redistribution and participant permission.
-2. Qualify RGB and IR capture paths without treating spectrum, brightness, or
-   image quality as liveness evidence.
-3. Measure false accept/reject behavior, demographic/bias limitations, pose,
-   appearance, lighting, camera, latency, memory, and spoof behavior on the
-   supported hardware matrix.
-4. Add independently reviewed attack tests and privacy/data-retention rules.
+## Historical engineering documents
 
-## Blockers before PAM or system authentication
-
-1. Complete liveness/spoof qualification; Milestone 4 provides none.
-2. Replace user-session KWallet with a separately reviewed pre-login key
-   provider, migration, recovery, and disk-theft design.
-3. Define a privileged trust boundary, authorization policy, rate limiting,
-   lockout, audit, password fallback, recovery, and fail-safe behavior.
-4. Perform PAM/authselect/SDDM/lock-screen, SELinux, packaging, upgrade,
-   rollback, and threat reviews as a separate milestone.
-5. Obtain representative FAR/FRR evidence and independent security review.
-
-No current capability or local `Match` may be reused as evidence that these
-blockers are solved.
+- [ROADMAP-V5.md](ROADMAP-V5.md) is the archived v5.0 technical roadmap.
+- [REVIEW-V4.md](REVIEW-V4.md) and [V4-QUALIFICATION-REPORT.md](V4-QUALIFICATION-REPORT.md)
+  describe earlier source and qualification states.
+- Versioned v5.0 and v5.1 qualification files are historical records; the
+  v5.2 report is the current PAM experiment status.
