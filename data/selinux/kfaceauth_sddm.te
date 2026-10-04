@@ -2,7 +2,7 @@ module kfaceauth_sddm 1.0.0;
 
 require {
     type kfaceauth_sock_t;
-    type init_t;
+    type kfaceauth_t;
     type xdm_t;
     class sock_file write;
     class unix_stream_socket connectto;
@@ -11,4 +11,4 @@ require {
 # Grant SDDM access only to the explicitly labeled KFaceAuth socket. Keep
 # /run/kfaceauth itself at the platform default label for systemd sandboxing.
 allow xdm_t kfaceauth_sock_t:sock_file write;
-allow xdm_t init_t:unix_stream_socket connectto;
+allow xdm_t kfaceauth_t:unix_stream_socket connectto;
