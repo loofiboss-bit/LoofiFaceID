@@ -176,7 +176,11 @@ fn user_session_key() -> Option<MasterKey> {
     Some(key)
 }
 
-fn load_or_generate_system_key(target_uid: u32, keys_dir: &Path) -> Option<(MasterKey, bool)> {
+fn load_or_generate_system_key(
+    target_uid: u32,
+    keys_dir: &Path,
+    system_vault_base: &Path,
+) -> Option<(MasterKey, bool)> {
     let key_file = keys_dir.join(format!("{target_uid}.key"));
     match fs::symlink_metadata(&key_file) {
         Ok(_) => {
@@ -187,6 +191,22 @@ fn load_or_generate_system_key(target_uid: u32, keys_dir: &Path) -> Option<(Mast
             Some((MasterKey::from_bytes(key), false))
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let system_vault = system_vault_base
+                .join(target_uid.to_string())
+                .join("identity.vault");
+            match fs::symlink_metadata(&system_vault) {
+                Ok(_) => {
+                    eprintln!(
+                        "An existing system-login profile has no key; refusing to replace it"
+                    );
+                    return None;
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(_) => {
+                    eprintln!("Could not inspect the existing system-login profile");
+                    return None;
+                }
+            }
             let Ok(key) = MasterKey::generate() else {
                 eprintln!("Could not generate a system-login key");
                 return None;
@@ -265,7 +285,8 @@ fn enable_target(options: Options) -> ExitCode {
     let Some(user_key) = user_session_key() else {
         return ExitCode::FAILURE;
     };
-    let Some((system_key, new_system_key)) = load_or_generate_system_key(target_uid, &keys_dir)
+    let Some((system_key, new_system_key)) =
+        load_or_generate_system_key(target_uid, &keys_dir, &system_vault_base)
     else {
         return ExitCode::FAILURE;
     };
@@ -317,4 +338,46 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     enable_target(options)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_or_generate_system_key;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temporary_root() -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after UNIX epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "kfaceauth-sync-vault-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn missing_key_does_not_replace_an_existing_system_vault() {
+        let root = temporary_root();
+        let keys_dir = root.join("keys");
+        let system_vault_base = root.join("system");
+        let vault_dir = system_vault_base.join("1000");
+        fs::create_dir_all(&vault_dir).expect("create system vault directory");
+        fs::write(
+            vault_dir.join("identity.vault"),
+            b"preserve this existing profile",
+        )
+        .expect("create existing system vault");
+
+        assert!(load_or_generate_system_key(1000, &keys_dir, &system_vault_base).is_none());
+        assert!(!keys_dir.join("1000.key").exists());
+        assert_eq!(
+            fs::read(vault_dir.join("identity.vault")).expect("read existing system vault"),
+            b"preserve this existing profile"
+        );
+
+        fs::remove_dir_all(root).expect("remove temporary test data");
+    }
 }

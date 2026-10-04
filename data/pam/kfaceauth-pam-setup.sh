@@ -44,6 +44,11 @@ is_managed() {
     [[ -f "$file" ]] && grep -Fqx "$BEGIN_MARKER" "$file"
 }
 
+has_managed_marker() {
+    local file=$1
+    grep -Fqx "$BEGIN_MARKER" "$file" || grep -Fqx "$END_MARKER" "$file"
+}
+
 has_unmanaged_module_line() {
     local file=$1
     awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" -v module="$PAM_MODULE" '
@@ -67,15 +72,41 @@ managed_rule_is_valid() {
         $0 == end {
             if (!inside) invalid = 1
             inside = 0
-            closed = 1
+            closed++
+            end_line = NR
             next
         }
         inside {
             if ($0 != rule) invalid = 1
             else rules++
         }
-        END { exit !(seen && closed && !inside && !invalid && rules == 1) }
+        !inside && NR > end_line && $1 == "auth" && ($2 == "substack" || $2 == "include") && $3 == "password-auth" {
+            fallback = 1
+        }
+        END { exit !(seen && closed == 1 && !inside && !invalid && rules == 1 && fallback) }
+    ' "$file" && ! has_unmanaged_module_line "$file"
+}
+
+unmanaged_rule_is_adoptable() {
+    local file=$1
+    awk -v rule='auth        sufficient    pam_kfaceauth.so' -v module="$PAM_MODULE" '
+        BEGIN { exact_rule = 1 }
+        $1 == "auth" && index($0, module) {
+            module_rules++
+            if ($0 != rule) exact_rule = 0
+            module_line = NR
+        }
+        $1 == "auth" && ($2 == "substack" || $2 == "include") && $3 == "password-auth" && !fallback_line {
+            fallback_line = NR
+        }
+        END { exit !(module_rules == 1 && exact_rule && fallback_line > module_line) }
     ' "$file"
+}
+
+has_password_auth_fallback() {
+    local file=$1
+    awk '$1 == "auth" && ($2 == "substack" || $2 == "include") && $3 == "password-auth" { found = 1 }
+        END { exit !found }' "$file"
 }
 
 edit_pam_file() {
@@ -86,9 +117,9 @@ edit_pam_file() {
     cp -p -- "$file" "$temp"
 
     if [[ $action == enable ]]; then
-        if is_managed "$file"; then
+        if has_managed_marker "$file"; then
             rm -f -- "$temp"
-            if managed_rule_is_valid "$file"; then
+            if is_managed "$file" && managed_rule_is_valid "$file" && ! has_unmanaged_module_line "$file"; then
                 return 0
             fi
             printf 'kfaceauth-pam-setup: managed PAM markers are malformed in %s; PAM was left unchanged\n' \
@@ -96,24 +127,56 @@ edit_pam_file() {
             return 1
         fi
         if has_unmanaged_module_line "$file"; then
-            rm -f -- "$temp"
-            printf 'kfaceauth-pam-setup: an unmanaged PAM rule already references %s in %s\n' \
-                "$PAM_MODULE" "$file" >&2
-            return 1
+            if ! unmanaged_rule_is_adoptable "$file"; then
+                rm -f -- "$temp"
+                printf 'kfaceauth-pam-setup: unmanaged PAM rule is not the exact safe rule or has no later password fallback in %s; PAM was left unchanged\n' \
+                    "$file" >&2
+                return 1
+            fi
+            if ! awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" \
+                -v rule='auth        sufficient    pam_kfaceauth.so' '
+                $0 == rule && !adopted {
+                    print begin
+                    print $0
+                    print end
+                    adopted = 1
+                    next
+                }
+                { print }
+                END { if (!adopted) exit 3 }
+            ' "$file" >"$temp"; then
+                rm -f -- "$temp"
+                printf 'kfaceauth-pam-setup: could not adopt the exact PAM rule in %s; PAM was left unchanged\n' \
+                    "$file" >&2
+                return 1
+            fi
+        else
+            if ! has_password_auth_fallback "$file"; then
+                rm -f -- "$temp"
+                printf 'kfaceauth-pam-setup: no password-auth fallback was found in %s; PAM was left unchanged\n' \
+                    "$file" >&2
+                return 1
+            fi
+            if ! awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" '
+                BEGIN { inserted = 0 }
+                !inserted && $1 == "auth" && ($2 == "substack" || $2 == "include") && $3 == "password-auth" {
+                    print begin
+                    print "auth        sufficient    pam_kfaceauth.so"
+                    print end
+                    inserted = 1
+                }
+                { print }
+                END { if (!inserted) exit 3 }
+            ' "$file" >"$temp"; then
+                rm -f -- "$temp"
+                printf 'kfaceauth-pam-setup: could not locate the password-auth fallback in %s; PAM was left unchanged\n' \
+                    "$file" >&2
+                return 1
+            fi
         fi
-        if ! awk -v begin="$BEGIN_MARKER" -v end="$END_MARKER" '
-            BEGIN { inserted = 0 }
-            !inserted && $1 == "auth" {
-                print begin
-                print "auth        sufficient    pam_kfaceauth.so"
-                print end
-                inserted = 1
-            }
-            { print }
-            END { if (!inserted) exit 3 }
-        ' "$file" >"$temp"; then
+        if ! managed_rule_is_valid "$temp"; then
             rm -f -- "$temp"
-            printf 'kfaceauth-pam-setup: could not locate an auth rule in %s; PAM was left unchanged\n' \
+            printf 'kfaceauth-pam-setup: generated PAM block would not preserve a valid password fallback in %s; PAM was left unchanged\n' \
                 "$file" >&2
             return 1
         fi
@@ -407,15 +470,17 @@ disable_target() {
     printf 'target=%s state=disabled\n' "$target"
 }
 
-[[ $# -ge 2 ]] || fail 'usage: kfaceauth-pam-setup --enable-target sddm|plasma-lock --uid UID | --disable-target sddm|plasma-lock'
-case "$1" in
-    --enable-target)
-        [[ $# -eq 4 && $3 == --uid ]] || fail 'usage: --enable-target sddm|plasma-lock --uid UID'
-        enable_target "$2" "$4"
-        ;;
-    --disable-target)
-        [[ $# -eq 2 ]] || fail 'usage: --disable-target sddm|plasma-lock'
-        disable_target "$2"
-        ;;
-    *) fail 'usage: --enable-target sddm|plasma-lock --uid UID | --disable-target sddm|plasma-lock' ;;
-esac
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    [[ $# -ge 2 ]] || fail 'usage: kfaceauth-pam-setup --enable-target sddm|plasma-lock --uid UID | --disable-target sddm|plasma-lock'
+    case "$1" in
+        --enable-target)
+            [[ $# -eq 4 && $3 == --uid ]] || fail 'usage: --enable-target sddm|plasma-lock --uid UID'
+            enable_target "$2" "$4"
+            ;;
+        --disable-target)
+            [[ $# -eq 2 ]] || fail 'usage: --disable-target sddm|plasma-lock'
+            disable_target "$2"
+            ;;
+        *) fail 'usage: --enable-target sddm|plasma-lock --uid UID | --disable-target sddm|plasma-lock' ;;
+    esac
+fi

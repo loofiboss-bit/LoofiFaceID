@@ -6,6 +6,7 @@
 #include "identityprotocol.h"
 #include "identityworkerclient.h"
 #include "kwalletkeyprovider.h"
+#include "pamconfiguration.h"
 
 #include <QCoreApplication>
 #include <QFile>
@@ -414,13 +415,7 @@ void EnrollmentSession::checkSystemAuthStatus()
         QFile pamFile(path);
         if (!pamFile.open(QIODevice::ReadOnly | QIODevice::Text))
             return false;
-        while (!pamFile.atEnd())
-        {
-            const QByteArray line = pamFile.readLine().trimmed();
-            if (!line.startsWith('#') && line.startsWith("auth") && line.contains("pam_kfaceauth.so"))
-                return true;
-        }
-        return false;
+        return KFaceAuth::hasManagedPamAuthBlock(pamFile.readAll());
     };
 
     bool daemonReady = false;

@@ -5,6 +5,7 @@
 #include "identityworkerclient.h"
 #include "kwalletkeyprovider.h"
 #include "localverificationsession.h"
+#include "pamconfiguration.h"
 
 #include <QElapsedTimer>
 #include <QProcessEnvironment>
@@ -118,7 +119,28 @@ class IdentitySessionsTest final : public QObject
     void failedReplacementPreservesPreviousProfile();
     void guidePhaseAndCaptureSignal();
     void syntheticLifecycleRunsOneHundredCycles();
+    void managedPamConfigurationRequiresPasswordFallback();
 };
+
+void IdentitySessionsTest::managedPamConfigurationRequiresPasswordFallback()
+{
+    const QByteArray valid = "auth required pam_selinux_permit.so\n"
+                             "# BEGIN kfaceauth experimental authentication\n"
+                             "auth        sufficient    pam_kfaceauth.so\n"
+                             "# END kfaceauth experimental authentication\n"
+                             "auth substack password-auth\n";
+    QVERIFY(KFaceAuth::hasManagedPamAuthBlock(valid));
+
+    QVERIFY(!KFaceAuth::hasManagedPamAuthBlock("auth        sufficient    pam_kfaceauth.so\n"
+                                               "auth substack password-auth\n"));
+    QVERIFY(!KFaceAuth::hasManagedPamAuthBlock("# BEGIN kfaceauth experimental authentication\n"
+                                               "auth        sufficient    pam_kfaceauth.so\n"
+                                               "# END kfaceauth experimental authentication\n"));
+    QVERIFY(!KFaceAuth::hasManagedPamAuthBlock("# BEGIN kfaceauth experimental authentication\n"
+                                               "auth required pam_unix.so\n"
+                                               "# END kfaceauth experimental authentication\n"
+                                               "auth substack password-auth\n"));
+}
 
 void IdentitySessionsTest::unavailableWalletStatesFailClosed_data()
 {

@@ -52,7 +52,7 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn("Exec=systemsettings @KFACEAUTH_KCM_ID@", desktop)
         self.assertRegex(spec, r"(?m)^Name:\s+kfaceauth$")
         self.assertRegex(spec, r"(?m)^Version:\s+5\.2\.0$")
-        self.assertRegex(spec, r"(?m)^Release:\s+1")
+        self.assertRegex(spec, r"(?m)^Release:\s+[1-9][0-9]*")
         self.assertRegex(spec, r"(?m)^URL:\s+https://github\.com/loofiboss-bit/LoofiFaceID$")
         self.assertRegex(
             spec,

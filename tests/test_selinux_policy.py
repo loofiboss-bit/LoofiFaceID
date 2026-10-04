@@ -84,6 +84,105 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertIn("kfaceauth_sddm.pp", spec)
         self.assertNotIn("kfaceauth_sddm.fc", cmake + spec)
 
+    def run_pam_edit(self, pam_file: Path, action: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; edit_pam_file "$2" "$3"',
+                "kfaceauth-pam-test",
+                str(SETUP),
+                str(pam_file),
+                action,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_activation_adopts_exact_unmanaged_rule_and_disable_removes_only_the_block(self) -> None:
+        original = (
+            "auth required pam_selinux_permit.so\n"
+            "auth        sufficient    pam_kfaceauth.so\n"
+            "auth        substack      password-auth\n"
+            "account include password-auth\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="kfaceauth-pam-test-") as temp:
+            pam_file = Path(temp) / "sddm"
+            pam_file.write_text(original, encoding="utf-8")
+
+            enabled = self.run_pam_edit(pam_file, "enable")
+            self.assertEqual(enabled.returncode, 0, enabled.stderr)
+            managed = pam_file.read_text(encoding="utf-8")
+            self.assertIn(
+                "# BEGIN kfaceauth experimental authentication\n"
+                "auth        sufficient    pam_kfaceauth.so\n"
+                "# END kfaceauth experimental authentication\n",
+                managed,
+            )
+            self.assertIn("auth        substack      password-auth\n", managed)
+
+            disabled = self.run_pam_edit(pam_file, "disable")
+            self.assertEqual(disabled.returncode, 0, disabled.stderr)
+            self.assertEqual(
+                pam_file.read_text(encoding="utf-8"),
+                original.replace("auth        sufficient    pam_kfaceauth.so\n", ""),
+            )
+
+    def test_activation_inserts_rule_before_password_stack_when_not_present(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="kfaceauth-pam-test-") as temp:
+            pam_file = Path(temp) / "kde"
+            pam_file.write_text(
+                "auth required pam_selinux_permit.so\n"
+                "auth substack password-auth\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_pam_edit(pam_file, "enable")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = pam_file.read_text(encoding="utf-8")
+            self.assertLess(output.index("pam_selinux_permit.so"), output.index("# BEGIN"))
+            self.assertLess(output.index("# END"), output.index("password-auth"))
+
+    def test_activation_refuses_unsafe_or_ambiguous_unmanaged_rules_without_changes(self) -> None:
+        unsafe_stacks = (
+            "auth        sufficient    pam_kfaceauth.so\n",
+            "auth        sufficient    pam_kfaceauth.so\n"
+            "auth substack password-auth\n"
+            "auth sufficient pam_kfaceauth.so debug\n",
+            "auth sufficient pam_kfaceauth.so\n"
+            "auth substack password-auth\n",
+            "auth substack password-auth\n"
+            "auth        sufficient    pam_kfaceauth.so\n",
+        )
+        for stack in unsafe_stacks:
+            with self.subTest(stack=stack), tempfile.TemporaryDirectory(prefix="kfaceauth-pam-test-") as temp:
+                pam_file = Path(temp) / "sddm"
+                pam_file.write_text(stack, encoding="utf-8")
+
+                result = self.run_pam_edit(pam_file, "enable")
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(pam_file.read_text(encoding="utf-8"), stack)
+
+    def test_disable_refuses_managed_block_with_an_unmanaged_duplicate(self) -> None:
+        stack = (
+            "# BEGIN kfaceauth experimental authentication\n"
+            "auth        sufficient    pam_kfaceauth.so\n"
+            "# END kfaceauth experimental authentication\n"
+            "auth sufficient pam_kfaceauth.so debug\n"
+            "auth substack password-auth\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="kfaceauth-pam-test-") as temp:
+            pam_file = Path(temp) / "sddm"
+            pam_file.write_text(stack, encoding="utf-8")
+
+            result = self.run_pam_edit(pam_file, "disable")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(pam_file.read_text(encoding="utf-8"), stack)
+
     @unittest.skipUnless(
         shutil.which("checkmodule") and shutil.which("semodule_package"),
         "SELinux policy development tools are not installed",

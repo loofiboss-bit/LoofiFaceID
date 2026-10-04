@@ -2,6 +2,12 @@
 
 ## 5.2.0 (opt-in authentication experiment)
 
+- Repair activation when an older unmanaged PAM rule is already present: the KCM
+  now reports only a valid managed rule as enabled, and the explicit
+  administrator operation safely adopts the exact rule only when the later
+  `password-auth` fallback is intact.
+- Refuse to replace an existing pre-session profile when its separate key is
+  missing.
 - Make the existing SDDM and KDE Plasma lock-screen PAM path available only
   through the explicit `kfaceauth-experimental-auth` RPM subpackage and the
   `KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=ON` CMake option.

@@ -5,7 +5,7 @@
 
 Name:           kfaceauth
 Version:        5.2.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
@@ -168,6 +168,11 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %endif
 
 %changelog
+* Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-2
+- Recognize only valid managed PAM blocks as enabled in the KCM
+- Safely adopt the exact prior PAM rule while retaining password-auth fallback
+- Preserve an existing system profile when its separate key is missing
+
 * Sat Oct 03 2026 Loofi <noreply@example.invalid> - 5.2.0-1
 - Make experimental PAM authentication an explicit opt-in RPM subpackage and CMake build
 - Keep the standard package free of daemon, PAM, units, and SELinux policy
