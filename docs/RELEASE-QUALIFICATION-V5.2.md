@@ -38,27 +38,44 @@ attributes `{ mounton }` on
 inspection identified the denied process type as `init_t` and the target type
 as `kfaceauth_sddm_sock_t`. Read-only journal output shows systemd failing to
 mount `/run/kfaceauth` onto its service mount namespace and exiting at
-`NAMESPACE` with status 226. A fresh raw audit record, including the syscall,
-could not be read in this unprivileged session (`ausearch` was denied access to
-`/var/log/audit/audit.log`), so the latest event's complete source and target
-contexts remain unverified.
+`NAMESPACE` with status 226. The original raw event and syscall were not
+preserved in the available evidence, so its full AVC record remains
+unverified.
 
-Read-only inspection of the active host found `/run/kfaceauth` labeled
-`kfaceauth_sddm_sock_t`, with `matchpathcon` confirming that the installed
-policy still expects that label. The host has the 5.1.0 base RPM, no installed
-experimental-auth RPM, and unowned daemon, PAM module, and setup-helper files.
-Its installed SDDM file-context source still assigns the old broad label to
-the runtime directory. The current working-tree package and policy changes
-have not been installed on that host.
+## Latest host readback (2026-10-04)
+
+The locally built `kfaceauth` and `kfaceauth-experimental-auth` RPMs are both
+version `5.2.0-1.fc44`; RPM verification is clean. These are unsigned local
+build artifacts, not release packages. The host remains in SELinux Enforcing
+mode. The updated daemon and socket are active, the socket is enabled for
+socket activation, and a read-only `OP_STATUS` request returned `ready`.
+The service starts with the new unit, which no longer mounts `/run/kfaceauth`
+into its private writable namespace. A recent privileged `ausearch` query
+returned no AVC records, but no SDDM or lock-screen authentication attempt was
+made, so this does not qualify the SELinux integration or prove the original
+AVC cannot recur in the login path.
+
+The new SELinux policy files are present in the experimental package but were
+not loaded with `semodule`; the privileged KCM setup helper was not run. The
+active policy still contains `kfaceauth_sddm` at priority 400, and
+`/run/kfaceauth` and its socket still have the old
+`kfaceauth_sddm_sock_t` label. The source policy instead labels only the exact
+socket pathname and leaves the parent directory at the platform default.
+Policy activation and label restoration therefore remain unverified.
+
+Before this package installation, both `/etc/pam.d/sddm` and `/etc/pam.d/kde`
+already contained an `auth sufficient pam_kfaceauth.so` line followed by the
+`password-auth` substack. The `password-auth` stack contains `pam_unix.so`.
+Installation left both PAM files byte-for-byte unchanged; their hashes before
+and after installation match. These existing rules are not evidence that a
+face login or password fallback works.
 
 The service uses `ProtectSystem=strict`. Because `kfaceauth.socket` creates and
 owns the listener and passes its file descriptor to the daemon, the daemon
-does not need a writable bind mount for `/run/kfaceauth`. The source unit now
+does not need a writable bind mount for `/run/kfaceauth`. The installed unit
 keeps only `/var/lib/kfaceauth` in `ReadWritePaths`; this removes the
-unnecessary runtime-directory mount from the daemon namespace. The source
-SELinux file-context rule also labels only the exact socket path, leaving its
-parent directory at the platform default. These changes do not add a
-`mounton` permission or weaken SELinux.
+unnecessary runtime-directory mount from the daemon namespace. These changes do
+not add a `mounton` permission or weaken SELinux.
 
 The source policy gives the custom type only to the exact socket pathname and
 leaves `/run/kfaceauth` at the platform default label. The separate SDDM rule
@@ -68,21 +85,21 @@ runtime labels before editing PAM. No `mounton` permission, broad
 `audit2allow` output, or SELinux mode change is added; the setup helper does
 not compile policy on the target host.
 
-These are code and log findings only. The new policy has not been installed on
-the host, the updated systemd unit has not been installed there, and AVC
-absence after activation has not been demonstrated.
+The new systemd unit and packages are installed and the daemon is running, but
+the PAM setup helper and new SELinux policy have not been activated. No login
+path or post-activation AVC qualification has been demonstrated.
 
 ## Qualification gates
 
 | Gate | Requirement | Status |
 |---|---|---|
 | Automated behavior | Default and opt-in build/package contents; key separation; positive-only PAM success; password fallback; timeout; rate limiting; transactional target setup | **Code checks passed:** 48 Python tests, default CTest 16/16, opt-in CTest 17/17, Rust tests 79/79; staged install had 0 authentication artifacts by default and all 9 opt-in artifacts. After the final blocked-target recovery change, focused CTest passed 2/2 default and 3/3 opt-in. Helper rollback behavior has source-contract checks only; the privileged helper was not executed. |
-| AVC investigation | Reproduce under Enforcing and record process/object contexts, class, denied permission, and syscall | **Open:** previous inspection identified the process and target types; a new raw event and syscall were unavailable to the current unprivileged session, and no reproduction was performed |
-| SELinux integration | Fedora 44, Enforcing; verify expected labels, service startup, and no relevant AVCs | **Not run**; no host configuration was changed |
-| Real login paths | Repeated login and unlock through SDDM and Plasma lock screen; verify password fallback after every face failure | **Not run** |
+| AVC investigation | Reproduce under Enforcing and record process/object contexts, class, denied permission, and syscall | **Open:** screenshots and journal identify the `mounton` failure; the complete original AVC and syscall were not preserved, and no reproduction was performed |
+| SELinux integration | Fedora 44, Enforcing; verify expected labels, service startup, and no relevant AVCs | **Partial:** new daemon unit starts and a recent audit query returned no AVC records; old policy/labels remain active because the helper was not run, and the login socket path was not exercised |
+| Real login paths | Repeated login and unlock through SDDM and Plasma lock screen; verify password fallback after every face failure | **Not run:** PAM files already contain the experimental module and password substack, but no face decision or fallback was tested |
 | Device and session behavior | At least 20 cycles on at least two RGB cameras and three lighting conditions; missing/busy camera, suspend/resume, multiple users, password fallback | **Not run** |
 | Attack and error behavior | Documented consent-based spoof and wrong-person testing; evaluate RGB and IR separately; report aggregate results only | **Not run** |
-| Independent review | Review PAM ordering, UID binding, key separation/storage, setup rollback, SELinux policy, and failure behavior | **Open** |
+| Independent review | Review PAM ordering, UID binding, key separation/storage, setup rollback, SELinux policy, and failure behavior | **Open:** source diff scan found no reportable issue; this is not an independent external security or biometric qualification, and privileged setup/rollback remains untested |
 
 Before support status, physical attack testing must include at least 300
 consent-based photo presentations and 300 screen-replay presentations per
