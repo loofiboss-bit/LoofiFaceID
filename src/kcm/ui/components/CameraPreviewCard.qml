@@ -144,7 +144,7 @@ Kirigami.AbstractCard {
                     }
 
                     QQC2.Label {
-                        text: i18n("IR (Windows Hello)")
+                        text: i18n("Infrared (IR) camera")
                         color: Kirigami.Theme.highlightedTextColor
                         font.weight: Font.DemiBold
                         font.pointSize: Kirigami.Theme.smallFont.pointSize

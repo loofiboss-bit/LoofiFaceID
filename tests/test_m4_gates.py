@@ -7,12 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ExperimentalAuthBoundaryTests(unittest.TestCase):
-    def test_default_build_and_base_rpm_exclude_system_authentication(self) -> None:
+    def test_default_build_and_rpm_exclude_authentication_unless_opted_in(self) -> None:
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         data_cmake = (ROOT / "data/CMakeLists.txt").read_text(encoding="utf-8")
         engine_cmake = (ROOT / "engine/CMakeLists.txt").read_text(encoding="utf-8")
         spec = (ROOT / "packaging/fedora/kfaceauth.spec").read_text(encoding="utf-8")
-        release_status = (ROOT / "docs/RELEASE-QUALIFICATION-V5.1.md").read_text(
+        release_status = (ROOT / "docs/RELEASE-QUALIFICATION-V5.2.md").read_text(
             encoding="utf-8"
         )
 
@@ -28,13 +28,18 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
             data_cmake.index("kcm_kfaceauth.desktop.in"),
             data_cmake.index("if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)"),
         )
-        self.assertIn("systemd/kfaceauth.service", data_cmake)
         self.assertIn("-DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=OFF", spec)
+        self.assertIn("-DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=ON", spec)
         self.assertIn("if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)", engine_cmake)
-        self.assertIn("Face unlock is not shipped", release_status)
+        self.assertIn("systemd/kfaceauth.service", data_cmake)
+        self.assertIn("not supported or qualified for login", release_status)
+        self.assertNotIn("KFACEAUTH_BUILD_SYSTEM_AUTH", cmake + data_cmake + engine_cmake)
 
         files = spec.split("%files -f kcm_kfaceauth.lang", 1)[1].split(
-            "%changelog", 1
+            "%if %{with experimental_auth}", 1
+        )[0]
+        experimental_files = spec.split("%files experimental-auth", 1)[1].split(
+            "%endif", 1
         )[0]
         for artifact in (
             "kfaceauthd",
@@ -45,7 +50,8 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
             "kfaceauth-sync-vault",
         ):
             with self.subTest(artifact=artifact):
-                self.assertIn(artifact, files)
+                self.assertNotIn(artifact, files)
+                self.assertIn(artifact, experimental_files)
         self.assertNotIn("kfaceauth-migrate-vault", files)
 
     def test_daemon_requests_are_uid_bound_and_narrow(self) -> None:
@@ -96,6 +102,35 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertFalse(
             (ROOT / "engine/templates/src/bin/kfaceauth-migrate-vault.rs").exists()
         )
+
+    def test_system_profile_uses_a_separate_key_and_password_fallback(self) -> None:
+        helper = (ROOT / "engine/templates/src/bin/kfaceauth-sync-vault.rs").read_text(
+            encoding="utf-8"
+        )
+        vault = (ROOT / "engine/templates/src/lib.rs").read_text(encoding="utf-8")
+        pam_source = (ROOT / "pam/src/pam_kfaceauth.c").read_text(encoding="utf-8")
+        setup = (ROOT / "data/pam/kfaceauth-pam-setup.sh").read_text(encoding="utf-8")
+
+        self.assertIn("read_exact(&mut key)", helper)
+        self.assertIn("migrate_legacy_vault_with_separate_key", helper)
+        self.assertIn("MasterKey::generate()", helper)
+        self.assertNotIn("--hex-key", helper)
+        self.assertNotIn("KFACEAUTH_MASTER_KEY", helper)
+        self.assertIn("pre_session_migration_reencrypts_under_a_distinct_key", vault)
+        self.assertIn("resp_len != 4", pam_source)
+        self.assertIn("resp_code == STATUS_SUCCESS", pam_source)
+        self.assertIn("continuing with password stack", pam_source)
+        self.assertIn("auth        sufficient    pam_kfaceauth.so", setup)
+        self.assertIn("BEGIN kfaceauth experimental authentication", setup)
+
+    def test_blocked_configured_target_remains_disableable(self) -> None:
+        header = (ROOT / "src/backend/enrollmentsession.h").read_text(encoding="utf-8")
+        setup_page = (ROOT / "src/kcm/ui/SetupPage.qml").read_text(encoding="utf-8")
+
+        for target in ("sddm", "plasmaLock"):
+            with self.subTest(target=target):
+                self.assertIn(f"{target}AuthConfigured", header)
+                self.assertIn(f"{target}AuthConfigured ||", setup_page)
 
 
 if __name__ == "__main__":

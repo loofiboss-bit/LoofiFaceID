@@ -975,6 +975,24 @@ pub fn migrate_legacy_vault(
     system_storage.validate_integrity(key)
 }
 
+/// Copies a verified user-session profile into the pre-session vault while
+/// encrypting it under a distinct system-login key.
+///
+/// # Errors
+///
+/// Returns an error if the source profile cannot be authenticated or the
+/// destination cannot be committed and verified with `system_key`.
+pub fn migrate_legacy_vault_with_separate_key(
+    legacy_storage: &Vault,
+    system_storage: &Vault,
+    user_key: &MasterKey,
+    system_key: &MasterKey,
+) -> Result<ProfileSummary, VaultError> {
+    let profile = legacy_storage.open_profile(user_key)?;
+    system_storage.commit_profile(system_key, &profile)?;
+    system_storage.validate_integrity(system_key)
+}
+
 struct TemporaryFile {
     path: PathBuf,
     armed: bool,
@@ -1375,6 +1393,31 @@ mod tests {
         let system_file = system_root.join(VAULT_FILE);
         let meta = fs::symlink_metadata(&system_file).unwrap();
         assert_eq!(meta.mode() & 0o777, 0o640);
+
+        fs::remove_dir_all(legacy_root).unwrap();
+        fs::remove_dir_all(system_root).unwrap();
+    }
+
+    #[test]
+    fn pre_session_migration_reencrypts_under_a_distinct_key() {
+        let legacy_root = temporary_root("legacy-rekey-src");
+        let system_root = temporary_root("system-rekey-dst");
+        let legacy_vault = Vault::for_test(legacy_root.clone(), current_uid());
+        let system_vault = Vault::for_system_test(system_root.clone(), current_uid());
+        let user_key = MasterKey::generate().unwrap();
+        let system_key = MasterKey::generate().unwrap();
+        legacy_vault.commit_profile(&user_key, &profile()).unwrap();
+
+        let summary = migrate_legacy_vault_with_separate_key(
+            &legacy_vault,
+            &system_vault,
+            &user_key,
+            &system_key,
+        )
+        .unwrap();
+        assert_eq!(summary.sample_count, 3);
+        assert!(system_vault.validate_integrity(&system_key).is_ok());
+        assert!(system_vault.validate_integrity(&user_key).is_err());
 
         fs::remove_dir_all(legacy_root).unwrap();
         fs::remove_dir_all(system_root).unwrap();

@@ -1,17 +1,19 @@
 # KFaceAuth v5.0 Architecture Roadmap & Technical Specification
 
-> **Current product boundary (September 2026):** The shipped KCM is an
+> **Current product boundary (October 2026):** The ordinary KCM package is an
 > experimental local profile/comparison utility for a logged-in Fedora 44/KDE
-> session. The PAM, SDDM, sudo, Polkit, PAD, accelerator, latency, and physical
-> qualification material below is roadmap or historical review content, not a
-> current capability claim. The beginner flow does not activate any system
-> authentication service.
+> session. v5.2 adds an explicit opt-in PAM experiment for SDDM and the Plasma
+> lock screen; it remains unqualified, absent from the ordinary package, and
+> disabled until an administrator enables an individual target. The PAM,
+> SDDM, sudo, Polkit, PAD, accelerator, latency, and physical qualification
+> material below is roadmap or historical review content, not a current
+> capability claim. See the [v5.2.0 qualification status](RELEASE-QUALIFICATION-V5.2.md).
 >
 > **Qualification correction:** Checked tasks and gates in this archived draft
 > are historical status claims, not reproducible test evidence. The former
-> v5.0 PAD/authentication results are withdrawn. See
-> [the current v5.1.0 qualification status](RELEASE-QUALIFICATION-V5.1.md);
-> no face-unlock or physical qualification gate has passed.
+> v5.0 PAD/authentication results are withdrawn. See the current
+> [v5.2.0 qualification status](RELEASE-QUALIFICATION-V5.2.md); no face-login
+> or physical qualification gate has passed.
 
 **Target Release**: KFaceAuth v5.0.0  
 **Target Platform**: Fedora Linux 44+ / KDE Plasma 6.7+ / KF6 6.30+ / Linux Kernel 6.12+  

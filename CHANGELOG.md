@@ -1,14 +1,31 @@
 # Changelog
 
-## 5.2.0 (Windows Hello IR Lock Screen Release)
+## 5.2.0 (opt-in authentication experiment)
 
-- **IR-First Hardware Priority**: Automatic discovery and prioritization of infrared cameras (`ID_INFRARED_CAMERA=1`, "HP IR Camera") over standard RGB webcams in preview, enrollment, and daemon services.
-- **Hardware Infrared Illumination**: Native UVC Extension Unit (XU) control query triggers for Realtek/Chicony IR emitters directly in the V4L2 MMAP capture pipeline.
-- **Direct V4L2 MMAP Video Pipeline**: Native single-plane and multi-planar V4L2 memory-mapped camera capture supporting `V4L2_PIX_FMT_GREY` (640x360 @ 15fps) and `V4L2_PIX_FMT_YUYV` without GStreamer overhead.
-- **Safe KScreenLocker PAM Integration**: Targeted KDE Lock Screen integration via `/etc/pam.d/kde` with `auth sufficient pam_kfaceauth.so` and strict 2.0-second timeout, falling back seamlessly to password prompt with zero lockout risk.
-- **System Vault Provisioning**: Hardened `kfaceauth-sync-vault` utility with Polkit authorization (`org.kde.kfaceauth.manage-vault` & `org.kde.kfaceauth.manage-pam`), sealing master keys into `/etc/kfaceauth/keys/<uid>.key` (mode 0600) and syncing encrypted profile to `/var/lib/kfaceauth/<uid>/vault.bin`.
-- **Systemd Socket Activation**: Fast socket-activated daemon `kfaceauthd` listening on `/run/kfaceauth/kfaceauth.sock`, running under dedicated system user/group `kfaceauth` with video device access and strict sandboxing.
-- **KCM Lock Screen Control**: One-click toggle in KDE System Settings to enable or disable Windows Hello-style lock screen login.
+- Use Fedora 44's `v4l_device_t` camera label and keep the socket type compatible
+  with the policy by using the `file_type` attribute only.
+- Package SELinux file contexts as concrete contexts so Fedora can parse and
+  activate the opt-in modules without a macro expansion step.
+- Repair activation when an older unmanaged PAM rule is already present: the KCM
+  now reports only a valid managed rule as enabled, and the explicit
+  administrator operation safely adopts the exact rule only when the later
+  `password-auth` fallback is intact.
+- Refuse to replace an existing pre-session profile when its separate key is
+  missing.
+- Make the existing SDDM and KDE Plasma lock-screen PAM path available only
+  through the explicit `kfaceauth-experimental-auth` RPM subpackage and the
+  `KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=ON` CMake option.
+- Keep the default build and COPR package free of the PAM module, daemon,
+  authentication units, privileged setup helper, and SELinux policy.
+- Separate the pre-session system profile and randomly generated key from the
+  logged-in user's KWallet profile and key.
+- Configure either SDDM or Plasma lock-screen PAM independently and preserve
+  the system password stack as the fallback.
+- Scope the SELinux file-context rule to the socket, leaving
+  `/run/kfaceauth` at its platform default label for systemd sandbox setup.
+- Keep the feature experimental and unqualified. IR camera selection is not
+  liveness or presentation-attack evidence; physical testing and independent
+  security review remain open.
 
 ## 5.1.0 (local registration stabilization)
 
@@ -25,8 +42,8 @@
 The earlier 5.0.0 changelog overstated system authentication, active PAD,
 ISO/IEC qualification, acceleration, and physical test results. Those claims
 are not supported by the shipped user workflow or current qualification
-evidence. The supported product remains an experimental current-user profile
-and local comparison utility; see `docs/RELEASE-QUALIFICATION-V5.1.md`.
+evidence. The opt-in v5.2.0 authentication components remain experimental;
+see `docs/RELEASE-QUALIFICATION-V5.2.md`.
 
 ## 4.0.0 release candidate
 

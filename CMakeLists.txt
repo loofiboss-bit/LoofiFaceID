@@ -48,11 +48,6 @@ option(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS
     "Build experimental PAM, systemd daemon, and system authentication components"
     OFF
 )
-option(KFACEAUTH_BUILD_SYSTEM_AUTH
-    "Build and install PAM, systemd daemon, and Windows Hello lock-screen authentication components"
-    ON
-)
-
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/po")
     ki18n_install(po)
 endif()
@@ -61,8 +56,6 @@ add_subdirectory(engine)
 add_subdirectory(src)
 add_subdirectory(data)
 if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
-    add_subdirectory(pam)
-elseif(KFACEAUTH_BUILD_SYSTEM_AUTH)
     add_subdirectory(pam)
 endif()
 

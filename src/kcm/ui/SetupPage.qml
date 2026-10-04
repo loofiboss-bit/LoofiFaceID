@@ -681,67 +681,119 @@ Kirigami.ScrollablePage {
                         Accessible.name: text
                     }
 
-                    // Windows Hello / Lock Screen IR Authentication Section
                     Kirigami.Separator {
                         Layout.fillWidth: true
-                        visible: !root.isEnrolling && root.enrollmentSession !== null && (root.enrollmentSession.profileReady || root.enrollmentSession.systemAuthActive)
+                        visible: !root.isEnrolling && root.enrollmentSession !== null
                     }
 
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Kirigami.Units.smallSpacing
-                        visible: !root.isEnrolling && root.enrollmentSession !== null && (root.enrollmentSession.profileReady || root.enrollmentSession.systemAuthActive)
+                        visible: !root.isEnrolling && root.enrollmentSession !== null
+
+                        Kirigami.Heading {
+                            level: 4
+                            text: i18n("Experimental PAM login")
+                        }
+
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            text: i18n("Optional and unqualified. Password login remains the PAM fallback. IR camera selection does not prove liveness or spoof resistance.")
+                            wrapMode: Text.Wrap
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        }
 
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: Kirigami.Units.smallSpacing
-
-                            Kirigami.Icon {
-                                source: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive) ? "security-high" : "preferences-security-symbolic"
-                                implicitWidth: Kirigami.Units.iconSizes.smallMedium
-                                implicitHeight: Kirigami.Units.iconSizes.smallMedium
-                                color: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive)
-                                    ? Kirigami.Theme.positiveTextColor
-                                    : Kirigami.Theme.disabledTextColor
-                            }
 
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
 
                                 Kirigami.Heading {
-                                    level: 4
-                                    text: i18n("Windows Hello / System Login")
+                                    level: 5
+                                    text: i18n("SDDM sign-in")
                                 }
 
                                 QQC2.Label {
                                     Layout.fillWidth: true
-                                    text: root.enrollmentSession !== null ? root.enrollmentSession.systemAuthStatusText : ""
-                                    color: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive)
+                                    text: root.enrollmentSession !== null ? root.enrollmentSession.sddmAuthStatusText : ""
+                                    color: root.enrollmentSession !== null && root.enrollmentSession.sddmAuthEnabled
                                         ? Kirigami.Theme.positiveTextColor
-                                        : Kirigami.Theme.disabledTextColor
-                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                        : Kirigami.Theme.textColor
                                     wrapMode: Text.Wrap
+                                    Accessible.name: text
                                 }
                             }
 
                             QQC2.Button {
-                                id: toggleLockScreenAuthBtn
-                                objectName: "toggleLockScreenAuthButton"
-                                text: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive)
-                                    ? i18n("Disable System Login")
-                                    : i18n("Enable System Login")
-                                icon.name: (root.enrollmentSession !== null && root.enrollmentSession.systemAuthActive) ? "security-low" : "security-high"
-                                enabled: root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy && (root.enrollmentSession.systemAuthActive || root.enrollmentSession.profileReady)
+                                id: toggleSddmAuthButton
+                                objectName: "toggleSddmAuthButton"
+                                text: root.enrollmentSession !== null && root.enrollmentSession.sddmAuthConfigured
+                                    ? i18n("Disable SDDM login")
+                                    : i18n("Enable SDDM login")
+                                icon.name: root.enrollmentSession !== null && root.enrollmentSession.sddmAuthConfigured
+                                    ? "security-low"
+                                    : "security-high"
+                                enabled: root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy
+                                    && (root.enrollmentSession.sddmAuthConfigured || root.enrollmentSession.sddmAuthCanEnable)
                                 activeFocusOnTab: true
                                 Accessible.name: text
                                 onClicked: {
                                     if (root.enrollmentSession !== null) {
-                                        if (root.enrollmentSession.systemAuthActive) {
-                                            root.enrollmentSession.disableSystemAuth()
-                                        } else {
-                                            root.enrollmentSession.syncSystemVault()
-                                        }
+                                        if (root.enrollmentSession.sddmAuthConfigured)
+                                            root.enrollmentSession.disableSddmAuth()
+                                        else
+                                            root.enrollmentSession.enableSddmAuth()
+                                    }
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.smallSpacing
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Kirigami.Heading {
+                                    level: 5
+                                    text: i18n("Plasma lock-screen sign-in")
+                                }
+
+                                QQC2.Label {
+                                    Layout.fillWidth: true
+                                    text: root.enrollmentSession !== null ? root.enrollmentSession.plasmaLockAuthStatusText : ""
+                                    color: root.enrollmentSession !== null && root.enrollmentSession.plasmaLockAuthEnabled
+                                        ? Kirigami.Theme.positiveTextColor
+                                        : Kirigami.Theme.textColor
+                                    wrapMode: Text.Wrap
+                                    Accessible.name: text
+                                }
+                            }
+
+                            QQC2.Button {
+                                id: togglePlasmaLockAuthButton
+                                objectName: "togglePlasmaLockAuthButton"
+                                text: root.enrollmentSession !== null && root.enrollmentSession.plasmaLockAuthConfigured
+                                    ? i18n("Disable lock-screen login")
+                                    : i18n("Enable lock-screen login")
+                                icon.name: root.enrollmentSession !== null && root.enrollmentSession.plasmaLockAuthConfigured
+                                    ? "security-low"
+                                    : "security-high"
+                                enabled: root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy
+                                    && (root.enrollmentSession.plasmaLockAuthConfigured || root.enrollmentSession.plasmaLockAuthCanEnable)
+                                activeFocusOnTab: true
+                                Accessible.name: text
+                                onClicked: {
+                                    if (root.enrollmentSession !== null) {
+                                        if (root.enrollmentSession.plasmaLockAuthConfigured)
+                                            root.enrollmentSession.disablePlasmaLockAuth()
+                                        else
+                                            root.enrollmentSession.enablePlasmaLockAuth()
                                     }
                                 }
                             }

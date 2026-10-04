@@ -1,11 +1,12 @@
 %global source_date_epoch_from_changelog 1
 %global use_source_date_epoch_as_buildtime 1
 %global clamp_mtime_to_source_date_epoch 1
+%bcond_with experimental_auth
 
 Name:           kfaceauth
 Version:        5.2.0
-Release:        1%{?dist}
-Summary:        Windows Hello IR face authentication utility and lock screen service for KDE
+Release:        5%{?dist}
+Summary:        Experimental local face profile and comparison utility for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
 URL:            https://github.com/loofiboss-bit/LoofiFaceID
@@ -36,10 +37,14 @@ BuildRequires:  python3
 BuildRequires:  qt6-qtbase-devel >= 6.8.0
 BuildRequires:  qt6-qtdeclarative-devel >= 6.8.0
 BuildRequires:  qt6-qtmultimedia-devel >= 6.8.0
-BuildRequires:  pam-devel
 BuildRequires:  rust
 BuildRequires:  rustfmt
+%if %{with experimental_auth}
+BuildRequires:  checkpolicy
+BuildRequires:  pam-devel
+BuildRequires:  policycoreutils-devel
 BuildRequires:  systemd-devel
+%endif
 
 Requires:       kf6-kcmutils >= 6.10.0
 Requires:       kf6-kirigami >= 6.10.0
@@ -59,19 +64,43 @@ Requires:       qt6-qtmultimedia >= 6.8.0
 KFaceAuth is an experimental local face-profile and explicit comparison
 utility for a logged-in Fedora 44/KDE Plasma session. The KCM provides private
 camera guidance, a five-pose enrollment flow, encrypted KWallet-backed profile
-storage, and one-frame local comparison. Installation does not configure or
-activate PAM, SDDM, privilege escalation, Polkit, or another system
-authentication service. The package makes no PAD, performance, or
-authentication qualification claim.
+storage, and one-frame local comparison. The standard package contains no PAM
+module, authentication daemon, authentication units, or SELinux policy. It
+makes no PAD, performance, or authentication qualification claim.
+
+%if %{with experimental_auth}
+%package experimental-auth
+Summary:        Opt-in experimental PAM face authentication for SDDM and Plasma
+Requires:       %{name}%{?_isa} = %{version}-%{release}
+Requires:       pam
+Requires:       polkit
+Requires:       policycoreutils
+Requires:       systemd
+
+%description experimental-auth
+This opt-in experimental package adds an unqualified PAM face-authentication
+path for SDDM and the KDE Plasma lock screen. Password authentication remains
+available as the PAM fallback. This package is disabled in ordinary and COPR
+builds. Do not treat it as supported authentication: physical device,
+presentation-attack, usability, and independent security qualification remain
+open.
+%endif
 
 %prep
 %autosetup -p1
 
 %build
+%if %{with experimental_auth}
+%cmake \
+    %{?kfaceauth_cmake_extra} \
+    -DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=ON \
+    -DBUILD_TESTING=ON
+%else
 %cmake \
     %{?kfaceauth_cmake_extra} \
     -DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=OFF \
     -DBUILD_TESTING=ON
+%endif
 %cmake_build
 
 %install
@@ -103,25 +132,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %license LICENSE
 %doc CHANGELOG.md README.md
 %doc docs/*.md
-%{_bindir}/kfaceauth-pam-setup
-%{_libdir}/security/pam_kfaceauth.so
 %{_qt6_plugindir}/plasma/kcms/systemsettings/kcm_kfaceauth.so
 %{_libexecdir}/kfaceauth-camera-preview-worker
 %{_libexecdir}/kfaceauth-vision-worker
 %{_libexecdir}/kfaceauth-identity-worker
-%{_libexecdir}/kfaceauthd
-%{_libexecdir}/kfaceauth-sync-vault
-%{_unitdir}/kfaceauth.service
-%{_unitdir}/kfaceauth.socket
-%{_sysusersdir}/kfaceauth.conf
-%{_datadir}/polkit-1/actions/org.kde.kfaceauth.policy
-%dir %{_datadir}/kfaceauth
-%dir %{_datadir}/kfaceauth/selinux
-%{_datadir}/kfaceauth/selinux/kfaceauth.fc
-%{_datadir}/kfaceauth/selinux/kfaceauth.if
-%{_datadir}/kfaceauth/selinux/kfaceauth.te
-%{_datadir}/kfaceauth/selinux/kfaceauth_sddm.fc
-%{_datadir}/kfaceauth/selinux/kfaceauth_sddm.te
 %dir %{_datadir}/kfaceauth/models
 %dir %{_datadir}/kfaceauth/models/files
 %dir %{_datadir}/kfaceauth/models/licenses
@@ -135,13 +149,39 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_datadir}/kfaceauth/models/provenance/yunet-2023mar.txt
 %{_datadir}/applications/kcm_kfaceauth.desktop
 
+%if %{with experimental_auth}
+%files experimental-auth
+%{_bindir}/kfaceauth-pam-setup
+%{_libdir}/security/pam_kfaceauth.so
+%{_libexecdir}/kfaceauthd
+%{_libexecdir}/kfaceauth-sync-vault
+%{_unitdir}/kfaceauth.service
+%{_unitdir}/kfaceauth.socket
+%{_sysusersdir}/kfaceauth.conf
+%{_datadir}/polkit-1/actions/org.kde.kfaceauth.policy
+%dir %{_datadir}/kfaceauth/selinux
+%{_datadir}/kfaceauth/selinux/kfaceauth.fc
+%{_datadir}/kfaceauth/selinux/kfaceauth.te
+%{_datadir}/kfaceauth/selinux/kfaceauth_sddm.te
+%{_datadir}/kfaceauth/selinux/kfaceauth.pp
+%{_datadir}/kfaceauth/selinux/kfaceauth_sddm.pp
+%endif
+
 %changelog
-* Fri Oct 02 2026 Loofi <noreply@example.invalid> - 5.2.0-1
-- Native Windows Hello IR camera prioritization over RGB (HP IR Camera / GREY8 V4L2 MMAP)
-- Built-in UVC XU emitter trigger query support for hardware infrared illumination
-- Safe KScreenLocker (KDE Lock Screen) PAM integration with sufficient pam_kfaceauth.so
-- Secure system vault provisioning (kfaceauth-sync-vault) with Polkit and systemd socket activation
-- One-click lock screen authentication toggle in System Settings KCM
+* Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-3
+- Store fully qualified SELinux file contexts in the module package
+
+* Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-2
+- Recognize only valid managed PAM blocks as enabled in the KCM
+- Safely adopt the exact prior PAM rule while retaining password-auth fallback
+- Preserve an existing system profile when its separate key is missing
+
+* Sat Oct 03 2026 Loofi <noreply@example.invalid> - 5.2.0-1
+- Make experimental PAM authentication an explicit opt-in RPM subpackage and CMake build
+- Keep the standard package free of daemon, PAM, units, and SELinux policy
+- Scope SELinux labeling to the socket to preserve systemd runtime-directory sandboxing
+- Separate the pre-session system profile and key from the KWallet local-comparison profile
+- Keep SDDM and Plasma lock-screen authentication unqualified and disabled by default
 
 * Wed Sep 23 2026 Loofi <noreply@example.invalid> - 5.1.0-1
 - Separate YuNet edge, invalid-output, and runtime errors with bounded guidance recovery

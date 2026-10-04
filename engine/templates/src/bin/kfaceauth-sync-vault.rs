@@ -5,253 +5,379 @@
 use std::env;
 use std::fs;
 use std::io::{self, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use kfaceauth_crypto_openssl_sys::{
-    KEY_BYTES, current_uid, seal_master_key, set_socket_permissions,
+    KEY_BYTES, current_uid, load_master_key_for_uid, seal_master_key, set_socket_permissions,
 };
-use kfaceauth_templates::{MasterKey, Vault, migrate_legacy_vault};
+use kfaceauth_templates::{MasterKey, Vault, migrate_legacy_vault_with_separate_key};
 use zeroize::Zeroize;
 
-fn parse_hex_key(hex: &str) -> Option<[u8; KEY_BYTES]> {
-    let hex = hex.trim();
-    if hex.len() != KEY_BYTES * 2 {
-        return None;
+fn read_user_key_from_stdin() -> io::Result<[u8; KEY_BYTES]> {
+    let mut key = [0_u8; KEY_BYTES];
+    if let Err(error) = io::stdin().read_exact(&mut key) {
+        key.zeroize();
+        return Err(error);
     }
-    let mut bytes = [0_u8; KEY_BYTES];
-    for (i, byte) in bytes.iter_mut().enumerate() {
-        let chunk = &hex[i * 2..i * 2 + 2];
-        *byte = u8::from_str_radix(chunk, 16).ok()?;
+    let mut trailing = [0_u8; 1];
+    let trailing_bytes = match io::stdin().read(&mut trailing) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            key.zeroize();
+            trailing.zeroize();
+            return Err(error);
+        }
+    };
+    if trailing_bytes != 0 {
+        key.zeroize();
+        trailing.zeroize();
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "unexpected trailing key data",
+        ));
     }
-    Some(bytes)
+    trailing.zeroize();
+    Ok(key)
 }
 
-#[allow(clippy::too_many_lines)]
-fn main() -> ExitCode {
+fn usage() -> &'static str {
+    "Usage: kfaceauth-sync-vault --uid UID --legacy-root DIR --enable-target sddm|plasma-lock | --uid UID --disable-target sddm|plasma-lock"
+}
+
+struct Options {
+    target_uid: u32,
+    legacy_root: Option<PathBuf>,
+    system_root: Option<PathBuf>,
+    keys_dir: Option<PathBuf>,
+    target: String,
+    enable: bool,
+}
+
+fn parse_args() -> Result<Option<Options>, ()> {
     let mut target_uid = current_uid();
-    let mut custom_legacy_root: Option<PathBuf> = None;
-    let mut custom_system_root: Option<PathBuf> = None;
-    let mut custom_keys_dir: Option<PathBuf> = None;
-    let mut hex_key_arg: Option<String> = None;
-    let mut delete_mode = false;
-    let mut enable_pam = false;
-    let mut disable_pam = false;
+    let mut legacy_root = None;
+    let mut system_root = None;
+    let mut keys_dir = None;
+    let mut enable_target: Option<String> = None;
+    let mut disable_target: Option<String> = None;
 
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--uid" => {
-                let Some(val) = args.next() else {
+                let Some(value) = args.next() else {
                     eprintln!("Missing value for --uid");
-                    return ExitCode::FAILURE;
+                    return Err(());
                 };
-                let Ok(uid) = val.parse::<u32>() else {
-                    eprintln!("Invalid UID: {val}");
-                    return ExitCode::FAILURE;
+                let Ok(uid) = value.parse::<u32>() else {
+                    eprintln!("Invalid UID");
+                    return Err(());
                 };
                 target_uid = uid;
             }
             "--legacy-root" => {
-                let Some(val) = args.next() else {
+                let Some(value) = args.next() else {
                     eprintln!("Missing value for --legacy-root");
-                    return ExitCode::FAILURE;
+                    return Err(());
                 };
-                custom_legacy_root = Some(PathBuf::from(val));
+                legacy_root = Some(PathBuf::from(value));
             }
             "--system-root" => {
-                let Some(val) = args.next() else {
+                let Some(value) = args.next() else {
                     eprintln!("Missing value for --system-root");
-                    return ExitCode::FAILURE;
+                    return Err(());
                 };
-                custom_system_root = Some(PathBuf::from(val));
+                system_root = Some(PathBuf::from(value));
             }
             "--keys-dir" => {
-                let Some(val) = args.next() else {
+                let Some(value) = args.next() else {
                     eprintln!("Missing value for --keys-dir");
-                    return ExitCode::FAILURE;
+                    return Err(());
                 };
-                custom_keys_dir = Some(PathBuf::from(val));
+                keys_dir = Some(PathBuf::from(value));
             }
-            "--hex-key" => {
-                let Some(val) = args.next() else {
-                    eprintln!("Missing value for --hex-key");
-                    return ExitCode::FAILURE;
+            "--enable-target" => {
+                let Some(value) = args.next() else {
+                    eprintln!("Missing value for --enable-target");
+                    return Err(());
                 };
-                hex_key_arg = Some(val);
+                enable_target = Some(value);
             }
-            "--delete" => {
-                delete_mode = true;
-            }
-            "--enable-pam" => {
-                enable_pam = true;
-            }
-            "--disable-pam" => {
-                disable_pam = true;
+            "--disable-target" => {
+                let Some(value) = args.next() else {
+                    eprintln!("Missing value for --disable-target");
+                    return Err(());
+                };
+                disable_target = Some(value);
             }
             "--help" | "-h" => {
-                println!(
-                    "Usage: kfaceauth-sync-vault [--uid <UID>] [--legacy-root <DIR>] [--system-root <DIR>] [--keys-dir <DIR>] [--hex-key <KEY>] [--delete] [--enable-pam] [--disable-pam]"
-                );
-                return ExitCode::SUCCESS;
+                println!("{}", usage());
+                return Ok(None);
             }
-            unknown => {
-                eprintln!("Unknown argument: {unknown}");
-                return ExitCode::FAILURE;
+            _ => {
+                eprintln!("Unknown argument. {}", usage());
+                return Err(());
             }
         }
     }
 
-    let system_vault_base =
-        custom_system_root.unwrap_or_else(|| PathBuf::from("/var/lib/kfaceauth"));
-    let system_vault_dir = system_vault_base.join(target_uid.to_string());
-    let keys_dir = custom_keys_dir.unwrap_or_else(|| PathBuf::from("/etc/kfaceauth/keys"));
-    let key_file = keys_dir.join(format!("{target_uid}.key"));
-
-    let run_pam_setup = |arg: &str| -> bool {
-        let candidates = [
-            "kfaceauth-pam-setup",
-            "/usr/bin/kfaceauth-pam-setup",
-            "/usr/local/bin/kfaceauth-pam-setup",
-        ];
-        for bin in candidates {
-            if let Ok(mut child) = std::process::Command::new(bin).arg(arg).spawn() {
-                if let Ok(status) = child.wait() {
-                    return status.success();
-                }
-            }
-        }
-        eprintln!("Warning: kfaceauth-pam-setup executable not found in PATH or /usr/bin");
-        false
-    };
-
-    if delete_mode {
-        if system_vault_dir.exists() {
-            let _ = fs::remove_dir_all(&system_vault_dir);
-        }
-        if key_file.exists() {
-            let _ = fs::remove_file(&key_file);
-        }
-        if disable_pam {
-            let mut other_profiles_exist = false;
-            if let Ok(entries) = fs::read_dir(&system_vault_base) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir()
-                        && (path.join("identity.vault").exists() || path.join("vault.bin").exists())
-                    {
-                        other_profiles_exist = true;
-                        break;
-                    }
-                }
-            }
-            if other_profiles_exist {
-                eprintln!(
-                    "Retaining PAM configuration: other provisioned profiles remain in system vault directory"
-                );
-            } else {
-                let _ = run_pam_setup("--disable");
-            }
-        }
-        println!("result=deleted uid={target_uid}");
-        return ExitCode::SUCCESS;
+    if enable_target.is_some() == disable_target.is_some() {
+        eprintln!("Choose exactly one target operation. {}", usage());
+        return Err(());
+    }
+    let enable = enable_target.is_some();
+    let target = enable_target.or(disable_target).unwrap_or_default();
+    if !matches!(target.as_str(), "sddm" | "plasma-lock") {
+        eprintln!("Target must be sddm or plasma-lock");
+        return Err(());
     }
 
-    let mut key_input = hex_key_arg.or_else(|| env::var("KFACEAUTH_MASTER_KEY").ok());
+    Ok(Some(Options {
+        target_uid,
+        legacy_root,
+        system_root,
+        keys_dir,
+        target,
+        enable,
+    }))
+}
 
-    if key_input.is_none() {
-        let mut stdin_buf = String::new();
-        if let Ok(n) = io::stdin().read_to_string(&mut stdin_buf) {
-            if n > 0 {
-                key_input = Some(stdin_buf.trim().to_string());
-            }
-        }
-    }
-
-    let Some(mut key_bytes) = key_input.and_then(|val| parse_hex_key(&val)) else {
-        eprintln!(
-            "Error: Master key must be supplied via --hex-key, KFACEAUTH_MASTER_KEY, or stdin"
-        );
-        return ExitCode::FAILURE;
-    };
-
-    let master_key = MasterKey::from_bytes(key_bytes);
-
-    let legacy_vault = if let Some(ref root) = custom_legacy_root {
-        Vault::user_session_with_root(root, target_uid)
-    } else {
-        let mut found_vault = None;
-        if let Ok(passwd) = fs::read_to_string("/etc/passwd") {
-            for line in passwd.lines() {
-                let parts: Vec<&str> = line.split(':').collect();
-                if parts.len() >= 6 && parts[2].parse::<u32>().ok() == Some(target_uid) {
-                    let home_dir = PathBuf::from(parts[5]);
-                    let user_vault_dir = home_dir
-                        .join(".local/share")
-                        .join(kfaceauth_templates::PRODUCT_DIRECTORY);
-                    if user_vault_dir.exists() {
-                        found_vault =
-                            Some(Vault::user_session_with_root(&user_vault_dir, target_uid));
-                        break;
-                    }
-                }
-            }
-        }
-        if let Some(v) = found_vault.or_else(|| Vault::production().ok()) {
-            v
+fn run_setup(target: &str, target_uid: u32, enable: bool) -> bool {
+    let candidates = [
+        "/usr/bin/kfaceauth-pam-setup",
+        "/usr/local/bin/kfaceauth-pam-setup",
+    ];
+    for executable in candidates {
+        let mut command = std::process::Command::new(executable);
+        if enable {
+            command
+                .arg("--enable-target")
+                .arg(target)
+                .arg("--uid")
+                .arg(target_uid.to_string());
         } else {
-            eprintln!("Failed to locate user session vault for UID {target_uid}");
-            key_bytes.zeroize();
-            return ExitCode::FAILURE;
+            command.arg("--disable-target").arg(target);
         }
-    };
-
-    let system_vault = Vault::system_with_root(&system_vault_base, target_uid);
-
-    let summary = match migrate_legacy_vault(&legacy_vault, &system_vault, &master_key) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Failed to commit system profile: {e}");
-            key_bytes.zeroize();
-            return ExitCode::FAILURE;
+        if let Ok(status) = command.status() {
+            return status.success();
         }
-    };
+    }
+    false
+}
 
-    // Ensure /etc/kfaceauth/keys exists and seal master key only after migration succeeds
-    if let Err(e) = seal_master_key(target_uid, master_key.sensitive_bytes(), Some(&keys_dir)) {
-        eprintln!("Failed to seal master key for UID {target_uid}: {e:?}");
-        key_bytes.zeroize();
+fn user_session_key() -> Option<MasterKey> {
+    let Ok(mut key_bytes) = read_user_key_from_stdin() else {
+        eprintln!("A 32-byte user-session key is required on standard input");
+        return None;
+    };
+    let key = MasterKey::from_bytes(key_bytes);
+    key_bytes.zeroize();
+    Some(key)
+}
+
+fn load_or_generate_system_key(
+    target_uid: u32,
+    keys_dir: &Path,
+    system_vault_base: &Path,
+) -> Option<(MasterKey, bool)> {
+    let key_file = keys_dir.join(format!("{target_uid}.key"));
+    match fs::symlink_metadata(&key_file) {
+        Ok(_) => {
+            let Ok(key) = load_master_key_for_uid(target_uid, Some(keys_dir)) else {
+                eprintln!("The existing system-login key is unreadable; refusing to replace it");
+                return None;
+            };
+            Some((MasterKey::from_bytes(key), false))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let system_vault = system_vault_base
+                .join(target_uid.to_string())
+                .join("identity.vault");
+            match fs::symlink_metadata(&system_vault) {
+                Ok(_) => {
+                    eprintln!(
+                        "An existing system-login profile has no key; refusing to replace it"
+                    );
+                    return None;
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(_) => {
+                    eprintln!("Could not inspect the existing system-login profile");
+                    return None;
+                }
+            }
+            let Ok(key) = MasterKey::generate() else {
+                eprintln!("Could not generate a system-login key");
+                return None;
+            };
+            Some((key, true))
+        }
+        Err(_) => {
+            eprintln!("Could not inspect the system-login key");
+            None
+        }
+    }
+}
+
+fn locate_legacy_vault(target_uid: u32, custom_root: Option<&Path>) -> Option<Vault> {
+    if let Some(root) = custom_root {
+        return Some(Vault::user_session_with_root(root, target_uid));
+    }
+
+    let Ok(passwd) = fs::read_to_string("/etc/passwd") else {
+        eprintln!("Could not locate the user's local profile");
+        return None;
+    };
+    for line in passwd.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() >= 6 && fields[2].parse::<u32>().ok() == Some(target_uid) {
+            let root = PathBuf::from(fields[5])
+                .join(".local/share")
+                .join(kfaceauth_templates::PRODUCT_DIRECTORY);
+            if root.exists() {
+                return Some(Vault::user_session_with_root(&root, target_uid));
+            }
+        }
+    }
+    eprintln!("Could not locate the user's local profile");
+    None
+}
+
+fn apply_system_profile_permissions(
+    target_uid: u32,
+    system_vault_base: &Path,
+    keys_dir: &Path,
+) -> bool {
+    let key_file = keys_dir.join(format!("{target_uid}.key"));
+    let vault_dir = system_vault_base.join(target_uid.to_string());
+    let vault_file = vault_dir.join("identity.vault");
+    let permissions_ok = (|| {
+        if let Some(parent) = keys_dir.parent() {
+            set_socket_permissions(parent, 0o755, Some("kfaceauth"))?;
+        }
+        set_socket_permissions(keys_dir, 0o750, Some("kfaceauth"))?;
+        set_socket_permissions(&key_file, 0o640, Some("kfaceauth"))?;
+        set_socket_permissions(system_vault_base, 0o755, Some("kfaceauth"))?;
+        std::os::unix::fs::chown(&vault_dir, Some(target_uid), None)?;
+        set_socket_permissions(&vault_dir, 0o750, Some("kfaceauth"))?;
+        std::os::unix::fs::chown(&vault_file, Some(target_uid), None)?;
+        set_socket_permissions(&vault_file, 0o640, Some("kfaceauth"))?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })();
+    if permissions_ok.is_err() {
+        eprintln!("Could not apply system-login profile permissions");
+        return false;
+    }
+    true
+}
+
+fn enable_target(options: Options) -> ExitCode {
+    let target_uid = options.target_uid;
+    let target = options.target;
+    let system_vault_base = options
+        .system_root
+        .unwrap_or_else(|| PathBuf::from("/var/lib/kfaceauth"));
+    let keys_dir = options
+        .keys_dir
+        .unwrap_or_else(|| PathBuf::from("/etc/kfaceauth/keys"));
+
+    let Some(user_key) = user_session_key() else {
+        return ExitCode::FAILURE;
+    };
+    let Some((system_key, new_system_key)) =
+        load_or_generate_system_key(target_uid, &keys_dir, &system_vault_base)
+    else {
+        return ExitCode::FAILURE;
+    };
+    if new_system_key
+        && seal_master_key(target_uid, system_key.sensitive_bytes(), Some(&keys_dir)).is_err()
+    {
+        eprintln!("Could not store the system-login key");
         return ExitCode::FAILURE;
     }
-    key_bytes.zeroize();
 
-    // Ensure system permissions: group kfaceauth can read vault and key
-    if let Some(parent) = keys_dir.parent() {
-        let _ = set_socket_permissions(parent, 0o755, Some("kfaceauth"));
+    let Some(legacy_vault) = locate_legacy_vault(target_uid, options.legacy_root.as_deref()) else {
+        return ExitCode::FAILURE;
+    };
+    let system_vault = Vault::system_with_root(&system_vault_base, target_uid);
+    let Ok(summary) = migrate_legacy_vault_with_separate_key(
+        &legacy_vault,
+        &system_vault,
+        &user_key,
+        &system_key,
+    ) else {
+        eprintln!("Could not validate and provision the system-login profile");
+        return ExitCode::FAILURE;
+    };
+
+    if !apply_system_profile_permissions(target_uid, &system_vault_base, &keys_dir) {
+        return ExitCode::FAILURE;
     }
-    let _ = set_socket_permissions(&keys_dir, 0o750, Some("kfaceauth"));
-    let _ = set_socket_permissions(&key_file, 0o640, Some("kfaceauth"));
-
-    let _ = set_socket_permissions(&system_vault_base, 0o755, Some("kfaceauth"));
-    let _ = std::os::unix::fs::chown(&system_vault_dir, Some(target_uid), None);
-    let _ = set_socket_permissions(&system_vault_dir, 0o750, Some("kfaceauth"));
-    let vault_file = system_vault_dir.join("identity.vault");
-    if vault_file.exists() {
-        let _ = std::os::unix::fs::chown(&vault_file, Some(target_uid), None);
-        let _ = set_socket_permissions(&vault_file, 0o640, Some("kfaceauth"));
-        let bin_file = system_vault_dir.join("vault.bin");
-        let _ = fs::copy(&vault_file, &bin_file);
-        let _ = std::os::unix::fs::chown(&bin_file, Some(target_uid), None);
-        let _ = set_socket_permissions(&bin_file, 0o640, Some("kfaceauth"));
-    }
-
-    if enable_pam && !run_pam_setup("--enable") {
-        eprintln!("Warning: Failed to configure PAM or systemd socket via kfaceauth-pam-setup");
+    if !run_setup(&target, target_uid, true) {
+        eprintln!("The profile is provisioned, but target activation failed");
+        return ExitCode::FAILURE;
     }
 
-    println!(
-        "result=ok uid={target_uid} samples={}",
-        summary.sample_count
-    );
+    println!("result=ok target={target} samples={}", summary.sample_count);
     ExitCode::SUCCESS
+}
+
+fn main() -> ExitCode {
+    let options = match parse_args() {
+        Ok(Some(options)) => options,
+        Ok(None) => return ExitCode::SUCCESS,
+        Err(()) => return ExitCode::FAILURE,
+    };
+    if !options.enable {
+        if run_setup(&options.target, options.target_uid, false) {
+            println!("target={} state=disabled", options.target);
+            return ExitCode::SUCCESS;
+        }
+        eprintln!("Could not disable the selected authentication target");
+        return ExitCode::FAILURE;
+    }
+    enable_target(options)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_or_generate_system_key;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temporary_root() -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is after UNIX epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "kfaceauth-sync-vault-{}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn missing_key_does_not_replace_an_existing_system_vault() {
+        let root = temporary_root();
+        let keys_dir = root.join("keys");
+        let system_vault_base = root.join("system");
+        let vault_dir = system_vault_base.join("1000");
+        fs::create_dir_all(&vault_dir).expect("create system vault directory");
+        fs::write(
+            vault_dir.join("identity.vault"),
+            b"preserve this existing profile",
+        )
+        .expect("create existing system vault");
+
+        assert!(load_or_generate_system_key(1000, &keys_dir, &system_vault_base).is_none());
+        assert!(!keys_dir.join("1000.key").exists());
+        assert_eq!(
+            fs::read(vault_dir.join("identity.vault")).expect("read existing system vault"),
+            b"preserve this existing profile"
+        );
+
+        fs::remove_dir_all(root).expect("remove temporary test data");
+    }
 }

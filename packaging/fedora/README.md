@@ -1,6 +1,6 @@
 # Fedora packaging
 
-The Fedora 44 RPM builds the KCM and local workers. It installs the exact
+The ordinary Fedora 44 RPM builds the KCM and local workers. It installs the exact
 verified YuNet FP32 and SFace FP32 artifacts with manifest, licenses, and
 immutable provenance. Fedora supplies OpenCV 4.13 (the package contract
 accepts OpenCV >= 4.8), OpenSSL 3, and KF6 KWallet; none is bundled.
@@ -13,10 +13,11 @@ sudo dnf install kfaceauth
 ```
 
 The first-run KCM is an experimental local profile/comparison flow for the
-logged-in Fedora 44/KDE session. Installing the package does not configure or
-activate PAM, SDDM, sudo, Polkit, or another system authentication path.
-Those binaries remain separate engineering artifacts and are not part of the
-beginner workflow.
+logged-in Fedora 44/KDE Plasma 6 session. Installing the ordinary package does
+not configure or activate PAM, SDDM, sudo, Polkit, or another system
+authentication path. The `kfaceauth-experimental-auth` subpackage is built
+only with `rpmbuild --with experimental_auth`; it is disabled in normal and
+COPR builds, and remains unqualified.
 
 ## Package transition
 
@@ -29,9 +30,9 @@ Provides:  plasma-irlume = %{version}-%{release}
 
 The replacement removes the old `kcm_irlume` plugin, desktop entry, and
 `plasma-irlume-camera-preview-worker` through normal RPM ownership. The package
-installs the KCM and ordinary-user workers; separate daemon/PAM files, where
-present for engineering follow-up, are inert until a separately authorized
-authentication milestone configures them. It has no migration scriptlet and
+installs the KCM and ordinary-user workers. The opt-in authentication
+subpackage installs the daemon, PAM module, SELinux modules, units, and
+administrator-authorized setup helper. The packages have no migration scriptlet and
 never reads, creates, changes, or removes user configuration, KWallet entries,
 biometric profiles, PAM, or authselect state.
 
@@ -40,6 +41,8 @@ biometric profiles, PAM, or authselect state.
 ```bash
 SOURCE_DATE_EPOCH=0 packaging/fedora/create-source-archive.sh
 rpmbuild -ba packaging/fedora/kfaceauth.spec --define "_sourcedir $PWD"
+# Explicit engineering build only; not used by COPR:
+rpmbuild -ba packaging/fedora/kfaceauth.spec --with experimental_auth --define "_sourcedir $PWD"
 ```
 
 Repeat the source archive twice and compare SHA-256. Repeat SRPM/RPM builds at
@@ -61,11 +64,11 @@ packaging/fedora/rpm-smoke-test.sh "$rpm_path"
 ```
 
 Inspect worker modes/ownership, ELF `NEEDED` entries, file capabilities,
-scriptlets, model hashes, and license/provenance payload. The beginner install
-must not enable or configure PAM, a service unit, authselect, a privileged
-helper, setuid/capabilities, an evaluator, a fake provider, or an
-authentication scriptlet. Any shipped daemon/PAM artifacts remain inert
-engineering payload until a separately authorized milestone.
+scriptlets, model hashes, and license/provenance payload. The ordinary install
+must not include or configure PAM, an authentication unit, authselect, a
+privileged helper, setuid/capabilities, an evaluator, a fake provider, or an
+authentication scriptlet. Inspect the opt-in RPM as a separate unqualified
+experiment. Neither package may silently enable a login path.
 
 Release qualification additionally uses ordinary dependency-resolved
 `dnf install`, upgrade, and remove in a clean Fedora 44 environment. `--nodeps`

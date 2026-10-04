@@ -5,12 +5,14 @@
 
 #![forbid(unsafe_code)]
 
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::{self, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use kfaceauth_crypto_openssl_sys::{PeerCredentials, peer_credentials};
 use kfaceauth_protocol::{read_frame, write_frame};
@@ -29,6 +31,8 @@ pub const SOCKET_FILE_MODE: u32 = 0o666;
 pub const MAX_DAEMON_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_DAEMON_RESPONSE_BYTES: usize = 64 * 1024;
 pub const DEFAULT_PAM_TIMEOUT_MS: u32 = 2000;
+pub const PAM_ATTEMPT_WINDOW: Duration = Duration::from_secs(30);
+pub const PAM_ATTEMPTS_PER_WINDOW: usize = 3;
 
 pub const OP_PAM_AUTH: u8 = 0x10;
 pub const OP_STATUS: u8 = 0x11;
@@ -41,6 +45,40 @@ pub const STATUS_TIMEOUT: u8 = 0x04;
 pub const STATUS_DEVICE_BUSY: u8 = 0x05;
 pub const STATUS_INTERNAL_ERROR: u8 = 0x06;
 pub const STATUS_SPOOF_DETECTED: u8 = 0x07;
+pub const STATUS_RATE_LIMITED: u8 = 0x08;
+
+#[derive(Debug, Default)]
+pub struct AuthRateLimiter {
+    attempts: Mutex<HashMap<u32, VecDeque<Instant>>>,
+}
+
+impl AuthRateLimiter {
+    fn allow_at(&self, uid: u32, now: Instant) -> bool {
+        let Ok(mut attempts) = self.attempts.lock() else {
+            return false;
+        };
+        attempts.retain(|_, times| {
+            times.retain(|at| now.saturating_duration_since(*at) < PAM_ATTEMPT_WINDOW);
+            !times.is_empty()
+        });
+        let times = attempts.entry(uid).or_default();
+        if times.len() >= PAM_ATTEMPTS_PER_WINDOW {
+            return false;
+        }
+        times.push_back(now);
+        true
+    }
+
+    fn allow(&self, uid: u32) -> bool {
+        self.allow_at(uid, Instant::now())
+    }
+
+    fn clear(&self, uid: u32) {
+        if let Ok(mut attempts) = self.attempts.lock() {
+            attempts.remove(&uid);
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct DaemonConfig {
@@ -50,6 +88,7 @@ pub struct DaemonConfig {
     pub camera_device: Option<String>,
     pub test_frame_path: Option<PathBuf>,
     pub max_timeout_ms: u32,
+    rate_limiter: Arc<AuthRateLimiter>,
 }
 
 impl Default for DaemonConfig {
@@ -76,6 +115,7 @@ impl DaemonConfig {
             camera_device,
             test_frame_path,
             max_timeout_ms: DEFAULT_PAM_TIMEOUT_MS,
+            rate_limiter: Arc::new(AuthRateLimiter::default()),
         }
     }
 }
@@ -314,7 +354,17 @@ pub fn dispatch_request(
             target_uid,
             timeout_ms,
             ..
-        } => handle_pam_request(*target_uid, *timeout_ms, config),
+        } => {
+            if config.rate_limiter.allow(*target_uid) {
+                let result = handle_pam_request(*target_uid, *timeout_ms, config);
+                if result.0 == STATUS_SUCCESS {
+                    config.rate_limiter.clear(*target_uid);
+                }
+                result
+            } else {
+                (STATUS_RATE_LIMITED, Vec::new())
+            }
+        }
         DaemonRequest::Status { target_uid } => {
             let keys_dir = config.keys_dir.as_deref();
             match kfaceauth_crypto_openssl_sys::load_master_key_for_uid(*target_uid, keys_dir) {
@@ -405,6 +455,30 @@ pub fn run_daemon_loop(listener: &UnixListener, config: &DaemonConfig) -> io::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pam_rate_limit_is_per_uid_and_expires_after_the_window() {
+        let limiter = AuthRateLimiter::default();
+        let start = Instant::now();
+        for _ in 0..PAM_ATTEMPTS_PER_WINDOW {
+            assert!(limiter.allow_at(1000, start));
+        }
+        assert!(!limiter.allow_at(1000, start));
+        assert!(limiter.allow_at(1001, start));
+        assert!(limiter.allow_at(1000, start + PAM_ATTEMPT_WINDOW));
+    }
+
+    #[test]
+    fn a_positive_authentication_clears_the_uid_rate_limit() {
+        let limiter = AuthRateLimiter::default();
+        let start = Instant::now();
+        for _ in 0..PAM_ATTEMPTS_PER_WINDOW {
+            assert!(limiter.allow_at(1000, start));
+        }
+        assert!(!limiter.allow_at(1000, start));
+        limiter.clear(1000);
+        assert!(limiter.allow_at(1000, start));
+    }
 
     #[test]
     fn peer_authorization_allows_owner_or_root() {

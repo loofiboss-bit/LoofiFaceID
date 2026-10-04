@@ -34,7 +34,7 @@ class TestPam : public QObject
     Q_OBJECT
 
   private Q_SLOTS:
-    void testUnknownUserFailsClosed();
+    void testUnknownUserFallsBackToPassword();
     void testMissingSocketFailsClosedImmediately();
     void testHungServerAbortsWithinTwoSeconds();
     void testMockServerSuccess();
@@ -42,11 +42,11 @@ class TestPam : public QObject
     void testSetCredAndAcctMgmt();
 };
 
-void TestPam::testUnknownUserFailsClosed()
+void TestPam::testUnknownUserFallsBackToPassword()
 {
     const char *nonexistent = "kfaceauth_fake_user_404";
     int res = pam_sm_authenticate(reinterpret_cast<pam_handle_t *>(const_cast<char *>(nonexistent)), 0, 0, nullptr);
-    QCOMPARE(res, PAM_USER_UNKNOWN);
+    QCOMPARE(res, PAM_AUTH_ERR);
 }
 
 void TestPam::testMissingSocketFailsClosedImmediately()

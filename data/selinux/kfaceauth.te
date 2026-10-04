@@ -1,29 +1,30 @@
 module kfaceauth 1.0.0;
 
 require {
-    type unconfined_t;
+    attribute domain;
+    attribute exec_type;
+    attribute file_type;
     type init_t;
-    type devpts_t;
-    type tmp_t;
-    type video_device_t;
+    type v4l_device_t;
     class file { read write getattr open create lock unlink execute entrypoint };
     class dir { read getattr search open write add_name remove_name };
     class chr_file { read write open getattr ioctl };
     class unix_stream_socket { create bind listen accept read write getattr setopt getopt connectto };
+    class sock_file { create getattr setattr unlink write };
     class process { transition };
 }
 
 # Type definitions
-type kfaceauth_t;
-type kfaceauth_exec_t;
-type kfaceauth_var_lib_t;
-type kfaceauth_etc_t;
-type kfaceauth_sock_t;
-type kfaceauth_unit_file_t;
-
+type kfaceauth_t, domain;
+type kfaceauth_exec_t, exec_type, file_type;
+type kfaceauth_var_lib_t, file_type;
+type kfaceauth_etc_t, file_type;
+type kfaceauth_sock_t, file_type;
 # Domain transition from init
 allow init_t kfaceauth_exec_t:file { read getattr execute open entrypoint };
 allow init_t kfaceauth_t:process { transition };
+type_transition init_t kfaceauth_exec_t:process kfaceauth_t;
+allow init_t kfaceauth_sock_t:sock_file { create getattr setattr unlink write };
 
 # Self socket operations
 allow kfaceauth_t self:unix_stream_socket { create bind listen accept read write getattr setopt getopt };
@@ -36,9 +37,9 @@ allow kfaceauth_t kfaceauth_var_lib_t:file { read write getattr open create lock
 allow kfaceauth_t kfaceauth_etc_t:dir { read getattr search open write add_name remove_name };
 allow kfaceauth_t kfaceauth_etc_t:file { read write getattr open create lock };
 
-# IPC Unix socket in /run/kfaceauth
-allow kfaceauth_t kfaceauth_sock_t:dir { read getattr search open write add_name remove_name };
+# IPC Unix socket at /run/kfaceauth/kfaceauthd.sock. The parent directory
+# keeps its system default label so systemd can construct its sandbox mounts.
 allow kfaceauth_t kfaceauth_sock_t:unix_stream_socket { create bind listen accept read write getattr setopt getopt };
 
 # Camera video device node access (/dev/video*)
-allow kfaceauth_t video_device_t:chr_file { read write open getattr ioctl };
+allow kfaceauth_t v4l_device_t:chr_file { read write open getattr ioctl };

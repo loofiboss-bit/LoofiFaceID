@@ -28,7 +28,9 @@ LockPersonality=true
 MemoryDenyWriteExecute=true
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadWritePaths=/var/lib/kfaceauth /run/kfaceauth
+# The socket unit owns /run/kfaceauth and passes its listener to this service.
+# Keep that runtime directory out of this service's writable mount namespace.
+ReadWritePaths=/var/lib/kfaceauth
 ReadOnlyPaths=/usr/share/kfaceauth/models /etc/kfaceauth
 DevicePolicy=auto
 DeviceAllow=char-video4linux rw
