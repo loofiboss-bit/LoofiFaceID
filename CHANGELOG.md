@@ -2,6 +2,8 @@
 
 ## 5.2.0 (opt-in authentication experiment)
 
+- Package SELinux file contexts as concrete contexts so Fedora can parse and
+  activate the opt-in modules without a macro expansion step.
 - Repair activation when an older unmanaged PAM rule is already present: the KCM
   now reports only a valid managed rule as enabled, and the explicit
   administrator operation safely adopts the exact rule only when the later

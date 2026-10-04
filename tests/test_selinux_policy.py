@@ -26,9 +26,10 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         file_contexts = FILE_CONTEXTS.read_text(encoding="utf-8")
 
         self.assertIn(
-            r"/run/kfaceauth/kfaceauthd\.sock             gen_context(system_u:object_r:kfaceauth_sock_t,s0)",
+            r"/run/kfaceauth/kfaceauthd\.sock             system_u:object_r:kfaceauth_sock_t:s0",
             file_contexts,
         )
+        self.assertNotIn("gen_context", file_contexts)
         self.assertNotIn("/run/kfaceauth(/.*)?", file_contexts)
         self.assertIn("allow xdm_t kfaceauth_sock_t:sock_file write;", sddm_policy)
         self.assertIn("allow xdm_t init_t:unix_stream_socket connectto;", sddm_policy)
