@@ -2,6 +2,8 @@
 
 ## 5.2.0 (opt-in authentication experiment)
 
+- Use Fedora 44's `v4l_device_t` camera label and keep the socket type compatible
+  with the policy by using the `file_type` attribute only.
 - Package SELinux file contexts as concrete contexts so Fedora can parse and
   activate the opt-in modules without a macro expansion step.
 - Repair activation when an older unmanaged PAM rule is already present: the KCM

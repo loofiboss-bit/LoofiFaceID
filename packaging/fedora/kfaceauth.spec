@@ -5,7 +5,7 @@
 
 Name:           kfaceauth
 Version:        5.2.0
-Release:        3%{?dist}
+Release:        5%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
