@@ -2,6 +2,7 @@
 
 #include "enrollmentsession.h"
 
+#include "authcomponents.h"
 #include "camerapreviewsession.h"
 #include "identityprotocol.h"
 #include "identityworkerclient.h"
@@ -400,15 +401,8 @@ void EnrollmentSession::checkSystemAuthStatus()
     const QString helperPath = QStringLiteral("/usr/libexec/kfaceauth-sync-vault");
     const QString pamModule64 = QStringLiteral("/usr/lib64/security/pam_kfaceauth.so");
     const QString pamModule = QStringLiteral("/usr/lib/security/pam_kfaceauth.so");
-    bool componentsInstalled = false;
-#ifdef KFACEAUTH_EXPERIMENTAL_AUTH_BUILD
-    componentsInstalled =
-        QFileInfo::exists(helperPath) && (QFileInfo::exists(pamModule64) || QFileInfo::exists(pamModule));
-#else
-    Q_UNUSED(helperPath);
-    Q_UNUSED(pamModule64);
-    Q_UNUSED(pamModule);
-#endif
+    const bool componentsInstalled = KFaceAuth::authComponentsAvailable(
+        QFileInfo::exists(helperPath), QFileInfo::exists(pamModule64), QFileInfo::exists(pamModule));
 
     auto pamConfigured = [](const QString &path)
     {

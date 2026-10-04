@@ -5,7 +5,7 @@
 
 Name:           kfaceauth
 Version:        5.2.0
-Release:        6%{?dist}
+Release:        7%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
@@ -173,6 +173,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %endif
 
 %changelog
+* Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-7
+- Detect explicitly installed experimental authentication components at runtime
+
 * Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-6
 - Qualify standard and opt-in package payloads separately
 - Limit packaged documentation to user and developer guides
