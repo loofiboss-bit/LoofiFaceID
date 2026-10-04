@@ -5,7 +5,7 @@
 
 Name:           kfaceauth
 Version:        5.2.0
-Release:        7%{?dist}
+Release:        10%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
@@ -173,6 +173,17 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %endif
 
 %changelog
+* Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-10
+- Allow systemd to bind the dedicated KFaceAuth socket during activation
+
+* Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-9
+- Permit only the KFaceAuth systemd service's SELinux NoNewPrivileges transition
+- Define the daemon SELinux role and executable entrypoint permissions
+
+* Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-8
+- Restore SELinux labels for system profiles and keys transactionally
+- Permit systemd to mount the writable namespace only on KFaceAuth profile data
+
 * Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-7
 - Detect explicitly installed experimental authentication components at runtime
 

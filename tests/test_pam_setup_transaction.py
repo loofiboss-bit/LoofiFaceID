@@ -116,7 +116,15 @@ elif name == "semodule":
     else:
         result = 2
 elif name == "restorecon":
-    labels = read_json(labels_path, {"runtime": "var_run_t", "socket": "var_run_t"})
+    labels = read_json(
+        labels_path,
+        {
+            "runtime": "var_run_t",
+            "socket": "var_run_t",
+            "system_vault": "var_lib_t",
+            "system_key": "etc_t",
+        },
+    )
     modules = read_json(modules_path, [])
     socket_type = "kfaceauth_sock_t" if "kfaceauth" in modules else "var_run_t"
     for arg in args:
@@ -125,6 +133,12 @@ elif name == "restorecon":
             labels["socket"] = socket_type
         elif arg.endswith("/run/kfaceauth/kfaceauthd.sock"):
             labels["socket"] = socket_type
+        elif arg.endswith("/var/lib/kfaceauth"):
+            labels["system_vault"] = (
+                "kfaceauth_var_lib_t" if "kfaceauth" in modules else "var_lib_t"
+            )
+        elif arg.endswith("/etc/kfaceauth/keys"):
+            labels["system_key"] = "kfaceauth_etc_t" if "kfaceauth" in modules else "etc_t"
     write_json(labels_path, labels)
 elif name == "mv":
     paths = [arg for arg in args if arg != "-f" and arg != "--"]
@@ -190,7 +204,14 @@ class PamSetupSandbox:
             {"socket_enabled": False, "socket_active": False, "service_active": False}
         )
         self.set_modules([])
-        self.set_labels({"runtime": "var_run_t", "socket": "var_run_t"})
+        self.set_labels(
+            {
+                "runtime": "var_run_t",
+                "socket": "var_run_t",
+                "system_vault": "var_lib_t",
+                "system_key": "etc_t",
+            }
+        )
 
     @property
     def env(self) -> dict[str, str]:
@@ -267,6 +288,8 @@ class PamSetupTransactionTests(unittest.TestCase):
             self.assertTrue(sandbox.system_state()["socket_enabled"])
             self.assertTrue(sandbox.system_state()["socket_active"])
             self.assertEqual(sandbox.labels()["socket"], "kfaceauth_sock_t")
+            self.assertEqual(sandbox.labels()["system_vault"], "kfaceauth_var_lib_t")
+            self.assertEqual(sandbox.labels()["system_key"], "kfaceauth_etc_t")
 
     def test_enable_adopts_the_exact_existing_rule(self) -> None:
         temporary, sandbox = self.make_sandbox()
@@ -297,12 +320,16 @@ class PamSetupTransactionTests(unittest.TestCase):
             self.assertTrue(sandbox.system_state()["socket_enabled"])
             self.assertTrue(sandbox.system_state()["socket_active"])
             self.assertEqual(sandbox.modules(), ["kfaceauth"])
+            self.assertEqual(sandbox.labels()["system_vault"], "kfaceauth_var_lib_t")
+            self.assertEqual(sandbox.labels()["system_key"], "kfaceauth_etc_t")
 
             disabled_plasma = sandbox.run("disable", "plasma-lock")
             self.assertEqual(disabled_plasma.returncode, 0, disabled_plasma.stderr)
             self.assertFalse(sandbox.system_state()["socket_enabled"])
             self.assertFalse(sandbox.system_state()["socket_active"])
             self.assertEqual(sandbox.modules(), [])
+            self.assertEqual(sandbox.labels()["system_vault"], "var_lib_t")
+            self.assertEqual(sandbox.labels()["system_key"], "etc_t")
 
     def test_missing_password_fallback_leaves_all_state_unchanged(self) -> None:
         temporary, sandbox = self.make_sandbox()
@@ -315,7 +342,15 @@ class PamSetupTransactionTests(unittest.TestCase):
             self.assertEqual(sandbox.sddm.read_text(encoding="utf-8"), original)
             self.assertEqual(sandbox.system_state(), before_state)
             self.assertEqual(sandbox.modules(), [])
-            self.assertEqual(sandbox.labels(), {"runtime": "var_run_t", "socket": "var_run_t"})
+            self.assertEqual(
+                sandbox.labels(),
+                {
+                    "runtime": "var_run_t",
+                    "socket": "var_run_t",
+                    "system_vault": "var_lib_t",
+                    "system_key": "etc_t",
+                },
+            )
 
     def test_malformed_markers_leave_all_state_unchanged(self) -> None:
         temporary, sandbox = self.make_sandbox()
@@ -327,13 +362,23 @@ class PamSetupTransactionTests(unittest.TestCase):
             self.assertEqual(sandbox.sddm.read_text(encoding="utf-8"), original)
             self.assertEqual(sandbox.modules(), [])
             self.assertFalse(sandbox.system_state()["socket_enabled"])
-            self.assertEqual(sandbox.labels(), {"runtime": "var_run_t", "socket": "var_run_t"})
+            self.assertEqual(
+                sandbox.labels(),
+                {
+                    "runtime": "var_run_t",
+                    "socket": "var_run_t",
+                    "system_vault": "var_lib_t",
+                    "system_key": "etc_t",
+                },
+            )
 
     def test_enable_failures_after_mutations_restore_prior_state(self) -> None:
         cases = (
             "semodule -i kfaceauth.pp",
             "semodule -i kfaceauth_sddm.pp",
             "restorecon -R -v $ROOT/run/kfaceauth",
+            "restorecon -R -v $ROOT/var/lib/kfaceauth",
+            "restorecon -R -v $ROOT/etc/kfaceauth/keys",
             "mv",
             "systemctl daemon-reload",
             "systemctl enable --now kfaceauth.socket",
@@ -367,6 +412,8 @@ class PamSetupTransactionTests(unittest.TestCase):
             "semodule -r kfaceauth_sddm",
             "semodule -r kfaceauth",
             "restorecon -R -v $ROOT/run/kfaceauth",
+            "restorecon -R -v $ROOT/var/lib/kfaceauth",
+            "restorecon -R -v $ROOT/etc/kfaceauth/keys",
         )
         for failure in cases:
             with self.subTest(failure=failure):

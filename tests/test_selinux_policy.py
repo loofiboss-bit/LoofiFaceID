@@ -34,7 +34,20 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertIn("allow xdm_t kfaceauth_sock_t:sock_file write;", sddm_policy)
         self.assertIn("allow xdm_t init_t:unix_stream_socket connectto;", sddm_policy)
         self.assertNotIn("allow xdm_t var_run_t:", sddm_policy)
-        self.assertNotIn("mounton", main_policy + sddm_policy)
+        self.assertIn("allow init_t kfaceauth_var_lib_t:dir mounton;", main_policy)
+        self.assertNotIn("allow init_t var_lib_t:dir mounton;", main_policy)
+        self.assertNotIn("mounton", sddm_policy)
+        self.assertIn("role system_r types kfaceauth_t;", main_policy)
+        self.assertIn(
+            "allow kfaceauth_t kfaceauth_exec_t:file { entrypoint ioctl lock map execute getattr open read };",
+            main_policy,
+        )
+        self.assertIn("allow init_t kfaceauth_t:process2 nnp_transition;", main_policy)
+        self.assertIn(
+            "allow init_t kfaceauth_t:unix_stream_socket { create bind listen getattr setopt getopt };",
+            main_policy,
+        )
+        self.assertNotIn("allow init_t domain:process2", main_policy)
         self.assertNotIn("kfaceauth_sddm_sock_t", main_policy + sddm_policy + file_contexts)
         self.assertNotIn("sock_file_type", main_policy)
         self.assertIn("type kfaceauth_sock_t, file_type;", main_policy)
@@ -85,6 +98,8 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertIn("semodule -i", setup)
         self.assertIn("semodule -r", setup)
         self.assertIn('restorecon -R -v "$KFACEAUTH_RUNTIME_DIRECTORY"', setup)
+        self.assertIn('restorecon -R -v "$KFACEAUTH_SYSTEM_VAULT_ROOT"', setup)
+        self.assertIn('restorecon -R -v "$KFACEAUTH_SYSTEM_KEY_ROOT"', setup)
         self.assertNotIn("setenforce", setup)
         self.assertIn("set(KFACEAUTH_SELINUX_MODULES kfaceauth kfaceauth_sddm)", cmake)
         self.assertIn("kfaceauth_sddm.pp", spec)

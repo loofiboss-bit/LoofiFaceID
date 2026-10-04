@@ -23,6 +23,7 @@ service_was_active=0
 socket_state_touched=0
 runtime_labels_touched=0
 socket_label_touched=0
+system_labels_touched=0
 
 fail() {
     printf 'kfaceauth-pam-setup: %s\n' "$1" >&2
@@ -249,6 +250,17 @@ restore_runtime_labels() {
     return "$failed"
 }
 
+restore_system_profile_labels() {
+    local failed=0
+    if [[ $system_labels_touched -eq 1 && -e $KFACEAUTH_SYSTEM_VAULT_ROOT ]]; then
+        restorecon -R -v "$KFACEAUTH_SYSTEM_VAULT_ROOT" || failed=1
+    fi
+    if [[ $system_labels_touched -eq 1 && -e $KFACEAUTH_SYSTEM_KEY_ROOT ]]; then
+        restorecon -R -v "$KFACEAUTH_SYSTEM_KEY_ROOT" || failed=1
+    fi
+    return "$failed"
+}
+
 install_policy_modules() {
     local target=$1
     local mode module package
@@ -285,6 +297,20 @@ install_policy_modules() {
             return 1
         fi
     fi
+    if [[ -e $KFACEAUTH_SYSTEM_VAULT_ROOT ]]; then
+        system_labels_touched=1
+        if ! restorecon -R -v "$KFACEAUTH_SYSTEM_VAULT_ROOT"; then
+            printf 'kfaceauth-pam-setup: could not restore system-profile labels\n' >&2
+            return 1
+        fi
+    fi
+    if [[ -e $KFACEAUTH_SYSTEM_KEY_ROOT ]]; then
+        system_labels_touched=1
+        if ! restorecon -R -v "$KFACEAUTH_SYSTEM_KEY_ROOT"; then
+            printf 'kfaceauth-pam-setup: could not restore system-key labels\n' >&2
+            return 1
+        fi
+    fi
 }
 
 restore_installed_modules() {
@@ -296,6 +322,7 @@ restore_installed_modules() {
         fi
     done
     restore_runtime_labels || failed=1
+    restore_system_profile_labels || failed=1
     return "$failed"
 }
 
@@ -314,6 +341,7 @@ restore_removed_modules() {
         semodule -i "${KFACEAUTH_SELINUX_POLICY_DIR}/${module}.pp" || failed=1
     done
     restore_runtime_labels || failed=1
+    restore_system_profile_labels || failed=1
     return "$failed"
 }
 
@@ -387,6 +415,7 @@ enable_target() {
     socket_state_touched=0
     runtime_labels_touched=0
     socket_label_touched=0
+    system_labels_touched=0
     file=$(target_file "$target")
     has_admin_rights || fail 'enabling PAM requires administrator authorization'
     [[ $uid =~ ^[0-9]+$ ]] || fail 'a numeric target UID is required'
@@ -443,6 +472,7 @@ disable_target() {
     socket_state_touched=0
     runtime_labels_touched=0
     socket_label_touched=0
+    system_labels_touched=0
     [[ -f $file ]] || fail "PAM service file is missing: ${file}"
 
     if ! is_managed "$file"; then
@@ -477,6 +507,7 @@ disable_target() {
         if command -v semodule >/dev/null 2>&1 && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce)" != Disabled ]]; then
             removed_modules=()
+            system_labels_touched=1
             if ! remove_policy_module kfaceauth_sddm || ! remove_policy_module kfaceauth; then
                 local rollback_failed=0
                 restore_removed_modules || rollback_failed=1
@@ -498,6 +529,15 @@ disable_target() {
                 rm -f -- "$backup"
                 [[ $rollback_failed -eq 0 ]] || fail 'runtime relabeling failed and rollback was incomplete; inspect system state'
                 fail 'runtime relabeling failed; prior PAM and service states were restored'
+            fi
+            if ! restore_system_profile_labels; then
+                local rollback_failed=0
+                restore_removed_modules || rollback_failed=1
+                restore_pam_backup "$file" "$backup" || rollback_failed=1
+                restore_socket_state || rollback_failed=1
+                rm -f -- "$backup"
+                [[ $rollback_failed -eq 0 ]] || fail 'system-profile relabeling failed and rollback was incomplete; inspect system state'
+                fail 'system-profile relabeling failed; prior PAM and service states were restored'
             fi
         fi
     elif [[ $target == sddm ]] \
