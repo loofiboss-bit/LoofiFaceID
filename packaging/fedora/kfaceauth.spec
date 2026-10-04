@@ -5,7 +5,7 @@
 
 Name:           kfaceauth
 Version:        5.2.0
-Release:        5%{?dist}
+Release:        6%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
@@ -131,7 +131,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %files -f kcm_kfaceauth.lang
 %license LICENSE
 %doc CHANGELOG.md README.md
-%doc docs/*.md
+%doc docs/ANVANDARGUIDE-SV.md
+%doc docs/ARCHITECTURE.md
+%doc docs/BUILDING.md
+%doc docs/THREAT-BOUNDARY.md
+%doc docs/TROUBLESHOOTING.md
+%doc docs/USER-GUIDE.md
 %{_qt6_plugindir}/plasma/kcms/systemsettings/kcm_kfaceauth.so
 %{_libexecdir}/kfaceauth-camera-preview-worker
 %{_libexecdir}/kfaceauth-vision-worker
@@ -168,6 +173,11 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %endif
 
 %changelog
+* Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-6
+- Qualify standard and opt-in package payloads separately
+- Limit packaged documentation to user and developer guides
+- Make PAM setup rollback transactional across host mutations
+
 * Sun Oct 04 2026 Loofi <noreply@example.invalid> - 5.2.0-3
 - Store fully qualified SELinux file contexts in the module package
 

@@ -1,40 +1,49 @@
-# KFaceAuth v5.1.0 release checklist
+# Release checklist
 
-This list is for the current unreleased stabilization target. Passing local
-code checks does not qualify a camera, authentication flow, or release. See
-[the qualification status](RELEASE-QUALIFICATION-V5.1.md) for the current
-boundary and required physical/security evidence.
+Use this checklist for every KFaceAuth source and package candidate. A passing
+build does not qualify camera behavior, accessibility, PAM login, or
+presentation-attack resistance.
 
-## Local package closure
+## Standard package
 
-- [ ] Confirm version metadata, generated CMake metadata, source archive, RPM,
-      and SRPM all use `5.1.0`.
-- [ ] Run CMake build/CTest, Python tests, Rust format/Clippy/tests, QML lint,
-      translation validation, C++ formatting, and model verification.
-- [ ] Inspect the staged RPM payload and confirm it contains no daemon, PAM
-      module, systemd unit, sysusers entry, SELinux policy, migration tool, key,
-      profile, or user data.
-- [ ] Build and inspect the Fedora 44 RPM and SRPM; run the RPM smoke test.
-- [ ] Confirm the default build option
-      `KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=OFF`.
-- [ ] Verify source-archive reproducibility and release-artifact checksums.
-- [ ] Read back CI results for the exact candidate commit.
+- [ ] Confirm CMake, project metadata, source archive, RPM, and SRPM versions
+      agree.
+- [ ] Build with `KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=OFF`.
+- [ ] Run CTest, Python tests, Rust format/Clippy/tests, QML lint, translation
+      validation, C++ formatting, and model verification.
+- [ ] Inspect the staged install and RPM payload. Confirm it has no PAM module,
+      daemon, authentication units, sysusers entry, Polkit action, SELinux
+      policy, setup helper, profile, key, or host readback.
+- [ ] Confirm RPM documentation is the explicit user/developer allowlist and
+      contains no planning or qualification records.
+- [ ] Build the Fedora 44 RPM/SRPM, run `rpmlint`, and run the isolated RPM
+      lifecycle smoke test.
+- [ ] Verify source archive reproducibility, checksums, and release workflow
+      artifact closure.
+- [ ] Read back CI results and release metadata for the exact candidate.
+- [ ] Complete the KCM local-session hardware and accessibility record, or keep
+      missing cases clearly `unverified` and make no unsupported claims.
 
-## Face-unlock release gates
+## Experimental authentication package
 
-- [ ] Integrate a button-driven face action into KDE's ordinary lock-screen
-      authentication flow and provide a dedicated lock-screen PAM service.
-- [ ] Complete an independent security review and implement a separate fresh
-      unlock profile, password-confirmed activation/deactivation, server-held
-      keys, bounded attempts, and fail-closed multi-frame randomized challenges.
-- [ ] Verify password unlock is unchanged when face unlock is enabled, disabled,
-      unavailable, timed out, or after wake from sleep.
-- [ ] Complete the physical camera/user matrix and attack thresholds in
-      `RELEASE-QUALIFICATION-V5.1.md`; publish aggregate conditions/results only.
-- [ ] Keep the feature disabled and omit it from release claims while any gate
-      remains open.
+- [ ] Build with `rpmbuild --with experimental_auth` in a separate CI job.
+- [ ] Inspect the experimental subpackage for the intended PAM, daemon,
+      systemd, sysusers, Polkit, SELinux, and setup artifacts.
+- [ ] Confirm neither package has scriptlets that configure PAM or start/enable
+      authentication services.
+- [ ] Run sandboxed setup/rollback tests and obtain an independent security
+      review before any real login-path qualification.
+- [ ] Complete Enforcing-mode SELinux, SDDM, Plasma lock-screen, password
+      fallback, device/session, and consent-based physical qualification in
+      [RELEASE-QUALIFICATION-V5.2.md](RELEASE-QUALIFICATION-V5.2.md).
+- [ ] Keep the feature experimental, opt-in, and absent from support claims
+      while any gate remains open.
 
-## Publication authority
+## Existing v5.0.0 release claims
 
-- [ ] Obtain explicit authorization before committing, tagging, publishing a
-      GitHub release, or uploading COPR artifacts.
+- [ ] Read back the published v5.0.0 release and its assets.
+- [ ] Review the locally retained `RELEASE-ERRATA-V5.0.0-DRAFT.md` against the
+      candidate source and qualification evidence. The draft is intentionally
+      excluded from source and binary package artifacts.
+- [ ] Obtain explicit release authority before editing the GitHub release,
+      publishing a new release, or uploading COPR artifacts.

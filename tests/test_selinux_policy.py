@@ -84,7 +84,7 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertIn("systemctl disable --now kfaceauth.socket", setup)
         self.assertIn("semodule -i", setup)
         self.assertIn("semodule -r", setup)
-        self.assertIn("restorecon -R -v /run/kfaceauth", setup)
+        self.assertIn('restorecon -R -v "$KFACEAUTH_RUNTIME_DIRECTORY"', setup)
         self.assertNotIn("setenforce", setup)
         self.assertIn("set(KFACEAUTH_SELINUX_MODULES kfaceauth kfaceauth_sddm)", cmake)
         self.assertIn("kfaceauth_sddm.pp", spec)

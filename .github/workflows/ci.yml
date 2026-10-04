@@ -15,6 +15,15 @@ permissions:
 
 jobs:
   build-and-test:
+    name: Fedora 44 (${{ matrix.configuration }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: standard
+            experimental_auth: OFF
+          - configuration: experimental-auth
+            experimental_auth: ON
     runs-on: ubuntu-latest
     container: fedora:44
     defaults:
@@ -47,6 +56,7 @@ jobs:
             opencv-devel \
             openssl-devel \
             pam-devel \
+            policycoreutils-devel \
             python3 \
             rust \
             rustfmt \
@@ -63,10 +73,18 @@ jobs:
 
       - name: Configure and build
         run: |
-          cmake --fresh -S . -B build -G Ninja \
+          cmake --fresh -S . -B "build-${{ matrix.configuration }}" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DKFACEAUTH_ENABLE_NATIVE_SANITIZERS=ON
-          cmake --build build --parallel 2
+            -DKFACEAUTH_ENABLE_NATIVE_SANITIZERS=ON \
+            -DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=${{ matrix.experimental_auth }}
+          cmake --build "build-${{ matrix.configuration }}" --parallel 2
+
+      - name: Verify staged install boundary
+        run: |
+          stage_root="$PWD/stage-${{ matrix.configuration }}"
+          DESTDIR="$stage_root" cmake --install "build-${{ matrix.configuration }}" --prefix /usr
+          packaging/fedora/verify-staged-payload.sh "$stage_root" \
+            "${{ matrix.configuration }}"
 
       - name: Check native engine skeleton
         run: |
@@ -80,7 +98,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          ASAN_OPTIONS=detect_leaks=1 ctest --test-dir build --output-on-failure
+          ASAN_OPTIONS=detect_leaks=1 ctest --test-dir "build-${{ matrix.configuration }}" --output-on-failure
           python3 -m unittest discover -s tests -p 'test_*.py'
 
       - name: Lint QML

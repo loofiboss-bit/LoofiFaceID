@@ -7,7 +7,6 @@ sudo dnf install \
   cargo clang-tools-extra cmake extra-cmake-modules gcc-c++ ninja-build rust \
   kf6-kcmutils-devel kf6-kcoreaddons-devel kf6-ki18n-devel \
   kf6-kirigami-devel kf6-kwallet-devel \
-  pam-devel \
   qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel \
   opencv-devel openssl-devel systemd-devel
 ```
@@ -25,7 +24,25 @@ units, sysusers entry, or SELinux files.
 builds unqualified engineering components only; it does not qualify them,
 install a PAM stack, or make them suitable for a login or lock-screen flow.
 Fedora release packaging must keep it off. See
-[v5.1.0 qualification status](RELEASE-QUALIFICATION-V5.1.md).
+[v5.2.0 qualification status](RELEASE-QUALIFICATION-V5.2.md).
+
+For the opt-in engineering build, install its additional build dependencies:
+
+```bash
+sudo dnf install checkpolicy pam-devel policycoreutils-devel
+```
+
+Configure it in a separate build directory. This builds the components and
+policy modules; it does not install the package, edit PAM, activate SELinux
+policy, or start a service.
+
+```bash
+cmake --fresh -S . -B build-experimental-auth -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DKFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=ON
+cmake --build build-experimental-auth --parallel
+QT_QPA_PLATFORM=offscreen ctest --test-dir build-experimental-auth --output-on-failure
+```
 
 ## Full local gates
 
