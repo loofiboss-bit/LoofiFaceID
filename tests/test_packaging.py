@@ -332,8 +332,11 @@ class PackagingContractTests(unittest.TestCase):
         self.assertRegex(
             workflow,
             r"(?ms)^  release-upload:\n"
-            r"    if: github\.event_name == 'release' "
-            r"&& github\.event\.action == 'published'\n"
+            r"    if: >-\n"
+            r"      \(github\.event_name == 'release' "
+            r"&& github\.event\.action == 'published'\) \|\|\n"
+            r"      \(github\.event_name == 'workflow_dispatch' "
+            r"&& inputs\.release_tag != ''\)\n"
             r"    needs: \[rpm, experimental-auth-rpm\]\n"
             r"    permissions:\n"
             r"      actions: read\n"
@@ -344,7 +347,10 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn("retention-days: 7", workflow)
         self.assertIn("python3 tools/upload_release_artifacts.py artifacts", workflow)
         self.assertNotIn("--clobber", workflow)
-        self.assertIn("TAG_NAME: ${{ github.event.release.tag_name }}", workflow)
+        self.assertIn(
+            "TAG_NAME: ${{ inputs.release_tag || github.event.release.tag_name }}",
+            workflow,
+        )
         self.assertNotIn("if [ -n \"$TAG_NAME\" ]", workflow)
         experimental_job = workflow.split("  experimental-auth-rpm:\n", 1)[1]
         self.assertNotIn("actions/upload-artifact@", experimental_job)

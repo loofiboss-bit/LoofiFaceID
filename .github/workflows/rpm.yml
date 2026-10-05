@@ -9,6 +9,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to rebuild and publish; leave empty for checks only.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,8 +29,13 @@ jobs:
         shell: bash
 
     steps:
+      - name: Install Git before checkout
+        run: dnf install -y git-core
+
       - name: Check out source
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Install RPM build dependencies
         run: |
@@ -105,7 +115,9 @@ jobs:
           retention-days: 7
 
   release-upload:
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: >-
+      (github.event_name == 'release' && github.event.action == 'published') ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs: [rpm, experimental-auth-rpm]
     permissions:
       actions: read
@@ -117,11 +129,13 @@ jobs:
         shell: bash
 
     steps:
+      - name: Install release upload dependencies
+        run: dnf install -y gh git-core rpm python3
+
       - name: Check out source
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
-
-      - name: Install release upload dependencies
-        run: dnf install -y gh rpm git python3
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Download verified workflow artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -132,7 +146,7 @@ jobs:
       - name: Verify and attach the complete release artifact set
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.release.tag_name }}
+          TAG_NAME: ${{ inputs.release_tag || github.event.release.tag_name }}
         run: |
           git fetch --no-tags origin "refs/tags/$TAG_NAME:refs/tags/$TAG_NAME"
           python3 tools/upload_release_artifacts.py artifacts
@@ -147,8 +161,13 @@ jobs:
         shell: bash
 
     steps:
+      - name: Install Git before checkout
+        run: dnf install -y git-core
+
       - name: Check out source
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Install experimental RPM build dependencies
         run: |
