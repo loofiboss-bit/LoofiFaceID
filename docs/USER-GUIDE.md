@@ -4,6 +4,11 @@ LoofiFace-ID (KFaceAuth) is an experimental local profile and explicit
 comparison utility for a logged-in Fedora 44/KDE Plasma session. It does not
 enable PAM, SDDM, sudo, Polkit, desktop unlock, or login authentication.
 
+Version 5.2.0 is the current stable package release for this local workflow.
+This release status does not qualify face comparison as an authentication
+factor. See the [release notes](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.0)
+and [qualification record](RELEASE-QUALIFICATION-V5.2.md).
+
 ## Install and launch
 
 The supported Fedora 44 installation path is COPR:

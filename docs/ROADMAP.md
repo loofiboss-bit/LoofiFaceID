@@ -1,7 +1,8 @@
 # Roadmap
 
-**Reviewed:** 2026-10-04
+**Reviewed:** 2026-10-05
 **Current source version:** 5.2.0
+**Release status:** Stable package release; PAM experiment remains unsupported.
 
 ## Current product
 
@@ -15,16 +16,21 @@ and COPR package omit its components, and installation does not enable it.
 See [v5.2 qualification](RELEASE-QUALIFICATION-V5.2.md) and the
 [threat boundary](THREAT-BOUNDARY.md).
 
-## Near-term work
+## Current release and remaining work
 
-1. Keep current status, release instructions, and installable documentation
-   consistent with the v5.2 product boundary.
-2. Build and inspect both the standard and explicit experimental package paths
-   in CI while keeping the standard package authentication-free.
-3. Execute the PAM setup helper against isolated fixtures and verify rollback
-   after injected command failures.
-4. Record KCM hardware/accessibility qualification separately from PAM login
-   and presentation-attack qualification.
+The 5.2.0 source and Fedora package are released for the explicit logged-in
+local-profile workflow. The default package contains no PAM or authentication
+service artifacts. Stable release status does not extend to the opt-in PAM
+experiment, which remains unqualified and unsupported for login.
+
+- Keep the README, release notes, qualification record, package metadata, and
+  wiki consistent with the published release.
+- Preserve the automated standard and opt-in build/package checks and record
+  their exact release-run evidence in the qualification record.
+- Preserve the passing root-only vault ownership and rollback regressions in
+  CI; the Fedora test job must assert that its container runs as root.
+- Complete KCM hardware/accessibility, PAM login, SELinux, device/session, and
+  consent-based physical qualification only on the documented test system.
 
 ## Qualification tracks
 

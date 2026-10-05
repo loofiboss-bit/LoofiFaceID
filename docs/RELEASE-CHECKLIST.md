@@ -41,9 +41,10 @@ presentation-attack resistance.
 
 ## Existing v5.0.0 release claims
 
-- [ ] Read back the published v5.0.0 release and its assets.
-- [ ] Review the locally retained `RELEASE-ERRATA-V5.0.0-DRAFT.md` against the
-      candidate source and qualification evidence. The draft is intentionally
-      excluded from source and binary package artifacts.
-- [ ] Obtain explicit release authority before editing the GitHub release,
-      publishing a new release, or uploading COPR artifacts.
+- [x] Read back and correct the published v5.0.0 release text. Its original
+      tag and assets remain unchanged for provenance.
+- [x] Publish the factual correction record at
+      `RELEASE-ERRATA-V5.0.0.md`; include it in the source archive and keep it
+      out of the standard binary package documentation.
+- [ ] Keep future public release edits within the release authority granted
+      for that specific change.

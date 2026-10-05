@@ -1,6 +1,24 @@
 # Changelog
 
-## 5.2.0 (opt-in authentication experiment)
+## 5.2.0 — Stable local-session release; PAM remains experimental
+
+- Publish the Fedora 44/KDE local-profile workflow as the current stable
+  package release. Stable release status does not qualify face comparison as
+  an authentication or presentation-attack defense.
+- Restrict the privileged vault helper to fixed production paths and the
+  verified `PKEXEC_UID`; protect the system vault from user-owned replay.
+- Enforce an absolute request deadline and bounded daemon ingress while keeping
+  camera capture and inference serialized.
+- Keep helper success output static and free of user identifiers or profile
+  metadata.
+- Run the standard and explicit experimental-auth CI and RPM paths separately;
+  the standard package remains free of authentication components.
+- Keep PAM login, SELinux runtime, physical attack, and hardware qualification
+  outside the stable package claim until their documented gates pass.
+
+The 5.2.0 package changelog entries below record the implementation history of
+the separately opt-in authentication experiment. That path remains disabled,
+unsupported, and unqualified for login.
 
 - Use Fedora 44's `v4l_device_t` camera label and keep the socket type compatible
   with the policy by using the `file_type` attribute only.

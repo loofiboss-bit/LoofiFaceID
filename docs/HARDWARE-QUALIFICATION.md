@@ -15,8 +15,12 @@ material, report aggregate results, and mark unobserved cases `NOT RUN` or
   implementation candidate.
 - PAM login-path, Enforcing-mode SELinux, and physical presentation-attack
   qualification: `NOT RUN`.
-- Local source/build regression checks pass, but the root-owned vault metadata
-  and rollback cases require root and were `NOT RUN` on this UID 1000 desktop.
+- Local targeted source checks pass. Root-owned vault metadata and rollback
+  cases require root and are `NOT RUN` on this UID 1000 desktop; the candidate
+  Fedora CI now fails early unless its test process is root.
+- Root-owned vault metadata, replay, and rollback regressions passed in the
+  Fedora 44 candidate CI run. That does not qualify SELinux, PAM login, cameras,
+  accessibility, or physical attack behavior.
 - Independent post-patch source review: `PASS`; root-only ownership/rollback
   execution, SELinux Enforcing, real PAM login, and hardware qualification
   remain `NOT RUN`.

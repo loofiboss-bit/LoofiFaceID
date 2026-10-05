@@ -1,6 +1,10 @@
-# v5.2.0 authentication experiment qualification
+# v5.2.0 release and authentication experiment qualification
 
-**Status: opt-in experiment; not supported or qualified for login.** The
+**Release status: stable package release for the logged-in local-profile
+workflow.** Stable describes the release channel and package delivery; it is
+not biometric, authentication, or presentation-attack qualification.
+
+**PAM status: opt-in experiment; not supported or qualified for login.** The
 ordinary CMake build and COPR RPM omit all authentication components. The
 experimental RPM subpackage is created only by an explicit build request.
 
@@ -29,22 +33,21 @@ tracks.
 
 | Gate | Requirement | Status |
 |---|---|---|
-| Build and package boundary | Standard and opt-in CMake builds; standard RPM excludes auth artifacts; experimental RPM contains only the opt-in components | Local standard and experimental-auth CMake builds, staged payload checks, and both RPM payload checks pass. The final-tree RPM builds used `rpmbuild --nodeps`; dependency resolution and candidate GitHub CI are `NOT RUN`. The latest remote Fedora 44 RPM run passed for main at [`a097159`](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37250173983); it does not include this uncommitted candidate. |
-| Helper, vault, and deadline regressions | Fixed helper roots and caller UID, protected vault metadata, rollback/replay resistance, two-second deadline, bounded ingress, and password fallback | Rust workspace tests, CTest, Python gates, and both staged payload checks pass locally. Root-only vault ownership and rollback tests: `NOT RUN` here because the test process is UID 1000 and those test cases return early; run them in candidate Fedora CI or a root test environment. |
+| Build and package boundary | Standard and opt-in CMake builds; standard RPM excludes auth artifacts; experimental RPM contains only the opt-in components | PR #13 implementation commit `5fa0e1e` passed [Fedora 44 CI](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37260509918) and [Fedora 44 RPM checks](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37260509976), including standard package install/removal lifecycle and both payload boundaries. Release-tag workflows remain a separate publication gate. |
+| Helper, vault, and deadline regressions | Fixed helper roots and caller UID, protected vault metadata, rollback/replay resistance, two-second deadline, bounded ingress, and password fallback | Rust workspace tests and root-only vault ownership/rollback cases passed in the Fedora CI container. The workflow fails unless the test process is root. This desktop runs as UID 1000, so root-only ownership and rollback cases return early locally. |
 | Setup transaction | Target isolation, idempotency, PAM preservation, command failure injection, rollback of PAM/service/policy state | Local isolated execution tests pass; they do not touch host PAM or SELinux |
 | SELinux integration | Fedora 44 Enforcing; expected labels, service startup, and relevant audit events | `NOT RUN` for the login path |
 | Real login paths | Repeated SDDM and Plasma lock-screen decisions with password fallback after every failure | `NOT RUN` |
 | Device/session behavior | At least 20 cycles on at least two RGB cameras and three lighting conditions; missing/busy camera, suspend/resume, and multiple users | `NOT RUN` |
 | Physical attack behavior | Consent-based RGB and IR evaluation with aggregate-only reporting and the thresholds below | `NOT RUN` |
-| Independent review | PAM ordering, UID/key separation, attempt limits, service confinement, SELinux policy, rollback, and failure behavior | Post-patch source review: `PASS`; root-only tests and system/runtime qualification remain `NOT RUN`. |
+| Independent review | PAM ordering, UID/key separation, attempt limits, service confinement, SELinux policy, rollback, and failure behavior | Post-patch source review: `PASS`; all [CodeQL analyzers](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37260508417) passed. System/runtime and physical qualification remain `NOT RUN`. |
 
-The final-tree standard and experimental RPM `%check` stages passed locally,
-and the payload boundaries passed. `rpmlint` reported zero errors; its remaining
-warnings were `desktopfile-without-binary` for the KCM and missing manual page
-and documentation for the experimental setup command. These builds used
-`rpmbuild --nodeps`, so RPM dependency resolution and installation lifecycle
-were not exercised. The green remote run above is historical readback for main,
-not qualification evidence for this working tree.
+For PR #13, `rpmlint` reported zero errors. It reported three warnings for the
+standard build and five for the opt-in build: the Fedora container's missing
+`en_US.UTF-8` locale, the desktop file's external `systemsettings` launcher,
+and missing manual/documentation metadata for the opt-in setup helper. The RPM
+workflow completed successfully. The exact release-tag builds, final asset
+manifest, and publication upload must still pass and be read back separately.
 
 Before any support status, physical testing must include at least 300
 consent-based photo presentations and 300 screen-replay presentations per

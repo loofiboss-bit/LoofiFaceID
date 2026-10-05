@@ -235,11 +235,11 @@ class PackagingContractTests(unittest.TestCase):
                 any("/redhat-linux-build/" in f"/{name}/" for name in names)
             )
             self.assertFalse(any("/.agents/" in f"/{name}/" for name in names))
-            for excluded in (
-                "docs/IMPROVEMENT-PLAN.md",
-                "docs/RELEASE-ERRATA-V5.0.0-DRAFT.md",
-            ):
+            for excluded in ("docs/IMPROVEMENT-PLAN.md",):
                 self.assertNotIn(f"kfaceauth-5.2.0/{excluded}", names)
+            self.assertIn(
+                "kfaceauth-5.2.0/docs/RELEASE-ERRATA-V5.0.0.md", names
+            )
             legacy_package = "plasma-" + "irlume"
             legacy_names = [name for name in names if legacy_package in name.lower()]
             self.assertEqual(

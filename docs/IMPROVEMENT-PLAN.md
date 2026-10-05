@@ -1,10 +1,12 @@
 # LoofiFaceID Improvement Plan
 
-- **Review date:** 2026-10-04
-- **Review baseline:** `ed23cb0` on `codex/fix-sddm-selinux-avc`
-- **Implementation status:** Local documentation, packaging, CI, and helper
-  test changes are implemented and verified. Manual hardware qualification,
-  independent security review, and real PAM login qualification remain open.
+- **Review date:** 2026-10-05
+- **Review baseline:** `88ff73d` (`origin/main`, after PR #12)
+- **Implementation status:** Security fixes and release-documentation updates
+  are prepared on `codex/release-v5.2.0`. PR #13's Fedora standard/auth builds,
+  RPM checks, and CodeQL passed for commit `5fa0e1e`. Merge, release, COPR
+  publication, and wiki readback are pending. Manual hardware qualification
+  and real PAM login qualification remain open.
 - **Scope:** Reliability, test coverage, documentation, packaging, and
   qualification.
 
@@ -23,23 +25,29 @@ acceleration, or authentication features.
 ## Implementation record
 
 - The current v5.2 status, version-neutral release checklist, KCM/PAM
-  qualification split, and v5.0.0 correction draft are in place. The dated
-  host readback was moved outside the source tree and package inputs.
+  qualification split, and published v5.0.0 correction record are in place.
+  The dated host readback was moved outside the source tree and package inputs.
 - CI now builds and tests standard and opt-in configurations separately,
   checks both staged installs, and builds the experimental RPM subpackage in
   its own job. The ordinary RPM and COPR build remain authentication-free.
 - The setup helper is exercised against a temporary filesystem and stubbed
   commands. Tests cover both PAM targets, idempotency, exact-rule adoption,
   password fallback, malformed markers, and failure rollback.
-- Local verification passed: standard and opt-in builds, staged installs,
-  standard and experimental RPM payload checks, 16/16 and 17/17 CTest cases,
-  and 62/62 Python tests. These checks do not establish physical or login
-  qualification. GitHub CI has not run for this working tree.
-- The v5.0.0 release text was read back and a factual correction draft was
-  prepared. No GitHub or COPR publication was made.
+- The privileged helper emits fixed success status instead of caller/profile
+  metadata. CI now fails before CTest and Python fixture tests unless the
+  Fedora container runs as root, so root-only vault tests cannot silently
+  return early in the canonical workflow.
+- Targeted local Rust format, test, and Clippy checks pass for the helper. The
+  desktop runs as UID 1000, so this does not execute the root-only ownership
+  and rollback branches; candidate Fedora CI must provide that evidence.
+- The v5.0.0 release text was corrected publicly on 2026-10-05; the original
+  tag and four assets were preserved. The final correction record is in
+  `docs/RELEASE-ERRATA-V5.0.0.md`.
+- Stable v5.2.0 publication, COPR build, and wiki update remain pending until
+  the exact published source and artifacts are read back.
 - KCM manual hardware/accessibility qualification is `NOT RUN`; PAM login,
-  Enforcing-mode SELinux, physical presentation-attack qualification, and
-  independent security review remain `NOT RUN` or `OPEN`.
+  Enforcing-mode SELinux, and physical presentation-attack qualification
+  remain `NOT RUN`. The independent post-patch source review is `PASS`.
 
 ## Findings
 

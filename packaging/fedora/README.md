@@ -1,5 +1,10 @@
 # Fedora packaging
 
+The current stable package release is [KFaceAuth 5.2.0](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.0),
+for the explicit local-profile workflow on Fedora 44/KDE Plasma 6. It does not
+provide an authentication factor. The opt-in PAM subpackage remains
+unsupported and unqualified for login.
+
 The ordinary Fedora 44 RPM builds the KCM and local workers. It installs the exact
 verified YuNet FP32 and SFace FP32 artifacts with manifest, licenses, and
 immutable provenance. Fedora supplies OpenCV 4.13 (the package contract
@@ -21,10 +26,10 @@ COPR builds, and remains unqualified.
 
 ## Package transition
 
-`kfaceauth` 4.0.0 replaces `plasma-irlume` 3.x:
+The current spec replaces legacy `plasma-irlume` packages below 5.1.0:
 
 ```spec
-Obsoletes: plasma-irlume < 4.0.0
+Obsoletes: plasma-irlume < 5.1.0
 Provides:  plasma-irlume = %{version}-%{release}
 ```
 

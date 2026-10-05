@@ -6,7 +6,7 @@ were experimental and had not been qualified; several design claims were
 incorrect. This file is not implementation evidence or authorization to use
 system authentication.
 
-Current v5.1.0 boundary:
+Historical v5.1.0 boundary:
 
 - The default CMake build and Fedora base RPM omit the daemon, PAM module,
   systemd units, sysusers entry, and SELinux source files.
@@ -20,6 +20,7 @@ Current v5.1.0 boundary:
   capture, and active randomized challenge-response remain incomplete.
 
 Do not install or enable experimental authentication components. Read
-[the current qualification status](RELEASE-QUALIFICATION-V5.1.md) for release
-gates. Any future lock-screen integration must preserve password access and
-must not alter SDDM, sudo, Polkit, or global theme configuration.
+[the current v5.2.0 qualification status](RELEASE-QUALIFICATION-V5.2.md) for
+release gates. The [v5.1.0 status](RELEASE-QUALIFICATION-V5.1.md) is a
+historical snapshot. Any future lock-screen integration must preserve password
+access and must not alter SDDM, sudo, Polkit, or global theme configuration.

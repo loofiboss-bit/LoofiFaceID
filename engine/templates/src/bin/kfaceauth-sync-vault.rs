@@ -105,6 +105,14 @@ fn usage() -> &'static str {
     "Usage: kfaceauth-sync-vault --enable-target sddm|plasma-lock | --disable-target sddm|plasma-lock"
 }
 
+fn success_message(enabled: bool) -> &'static str {
+    if enabled {
+        "result=ok state=enabled"
+    } else {
+        "result=ok state=disabled"
+    }
+}
+
 struct Options {
     target_uid: u32,
     target: String,
@@ -597,7 +605,7 @@ fn enable_target(options: Options, paths: &AnchoredDirectories) -> ExitCode {
     }
 
     let system_vault = Vault::system_with_root(&staging.path, target_uid);
-    let Ok(summary) = migrate_legacy_vault_with_separate_key(
+    let Ok(_summary) = migrate_legacy_vault_with_separate_key(
         &legacy_vault,
         &system_vault,
         &user_key,
@@ -630,7 +638,7 @@ fn enable_target(options: Options, paths: &AnchoredDirectories) -> ExitCode {
 
     swap.commit();
     new_key_guard.path = None;
-    println!("result=ok target={target} samples={}", summary.sample_count);
+    println!("{}", success_message(true));
     ExitCode::SUCCESS
 }
 
@@ -654,7 +662,7 @@ fn main() -> ExitCode {
     };
     if !options.enable {
         if run_setup(&options.target, options.target_uid, false) {
-            println!("target={} state=disabled", options.target);
+            println!("{}", success_message(false));
             return ExitCode::SUCCESS;
         }
         eprintln!("Could not disable the selected authentication target");
@@ -680,6 +688,12 @@ mod tests {
             "kfaceauth-sync-vault-{}-{nonce}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn success_messages_are_static_and_operation_specific() {
+        assert_eq!(success_message(true), "result=ok state=enabled");
+        assert_eq!(success_message(false), "result=ok state=disabled");
     }
 
     fn arguments(values: &[&str]) -> Vec<String> {
