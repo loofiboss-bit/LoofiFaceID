@@ -41,6 +41,7 @@ const OUTER_HEADER_BYTES: usize = 8 + 2 + NONCE_BYTES + 4 + TAG_BYTES;
 const MAXIMUM_VAULT_BYTES: usize = 16 * 1024;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(2);
 const LOCK_RETRY: Duration = Duration::from_millis(10);
+const O_NOFOLLOW: i32 = 0o400_000;
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct MasterKey {
@@ -187,6 +188,8 @@ pub fn system_vault_root() -> PathBuf {
 pub enum VaultKind {
     UserSession,
     System,
+    #[cfg(test)]
+    SystemTest,
 }
 
 pub struct Vault {
@@ -284,7 +287,7 @@ impl Vault {
         Self {
             root,
             uid,
-            kind: VaultKind::System,
+            kind: VaultKind::SystemTest,
         }
     }
 
@@ -721,10 +724,16 @@ impl<'a> Cursor<'a> {
     }
 }
 
-fn is_owner_valid(file_uid: u32, target_uid: u32, kind: VaultKind) -> bool {
+fn is_owner_valid(metadata: &fs::Metadata, target_uid: u32, kind: VaultKind) -> bool {
     match kind {
-        VaultKind::UserSession => file_uid == target_uid,
-        VaultKind::System => file_uid == target_uid || file_uid == 0,
+        VaultKind::UserSession => metadata.uid() == target_uid,
+        VaultKind::System => {
+            metadata.uid() == 0
+                && kfaceauth_crypto_openssl_sys::group_id("kfaceauth")
+                    .is_ok_and(|gid| metadata.gid() == gid)
+        }
+        #[cfg(test)]
+        VaultKind::SystemTest => metadata.uid() == target_uid || metadata.uid() == 0,
     }
 }
 
@@ -734,19 +743,21 @@ fn ensure_directory(path: &Path, uid: u32, kind: VaultKind) -> Result<(), VaultE
         let mode = match kind {
             VaultKind::UserSession => 0o700,
             VaultKind::System => 0o750,
+            #[cfg(test)]
+            VaultKind::SystemTest => 0o750,
         };
         builder.recursive(true).mode(mode);
         builder.create(path)?;
         if kind == VaultKind::System {
+            let directory = kfaceauth_crypto_openssl_sys::open_directory_nofollow(path)
+                .map_err(|_| VaultError::UnsafeFilesystem)?;
+            kfaceauth_crypto_openssl_sys::set_fd_permissions(&directory, 0, mode, "kfaceauth")
+                .map_err(|_| VaultError::UnsafeFilesystem)?;
+        }
+        #[cfg(test)]
+        if kind == VaultKind::SystemTest {
             let _ =
                 kfaceauth_crypto_openssl_sys::set_socket_permissions(path, mode, Some("kfaceauth"));
-            if let Some(parent) = path.parent() {
-                let _ = kfaceauth_crypto_openssl_sys::set_socket_permissions(
-                    parent,
-                    0o755,
-                    Some("kfaceauth"),
-                );
-            }
         }
     }
     validate_directory(path, uid, kind)
@@ -756,7 +767,7 @@ fn validate_directory(path: &Path, uid: u32, kind: VaultKind) -> Result<(), Vaul
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.file_type().is_dir()
         || metadata.file_type().is_symlink()
-        || !is_owner_valid(metadata.uid(), uid, kind)
+        || !is_owner_valid(&metadata, uid, kind)
     {
         return Err(VaultError::UnsafeFilesystem);
     }
@@ -768,7 +779,13 @@ fn validate_directory(path: &Path, uid: u32, kind: VaultKind) -> Result<(), Vaul
             }
         }
         VaultKind::System => {
-            if (mode != 0o750 && mode != 0o700) || (mode & 0o007 != 0) || (mode & 0o020 != 0) {
+            if mode != 0o750 {
+                return Err(VaultError::UnsafeFilesystem);
+            }
+        }
+        #[cfg(test)]
+        VaultKind::SystemTest => {
+            if mode != 0o750 {
                 return Err(VaultError::UnsafeFilesystem);
             }
         }
@@ -784,7 +801,7 @@ fn validate_secure_path(
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
-        || !is_owner_valid(metadata.uid(), uid, kind)
+        || !is_owner_valid(&metadata, uid, kind)
         || metadata.nlink() != 1
     {
         return Err(VaultError::UnsafeFilesystem);
@@ -797,7 +814,13 @@ fn validate_secure_path(
             }
         }
         VaultKind::System => {
-            if (mode != 0o640 && mode != 0o600) || (mode & 0o007 != 0) || (mode & 0o020 != 0) {
+            if mode != 0o640 {
+                return Err(VaultError::UnsafeFilesystem);
+            }
+        }
+        #[cfg(test)]
+        VaultKind::SystemTest => {
+            if mode != 0o640 {
                 return Err(VaultError::UnsafeFilesystem);
             }
         }
@@ -811,20 +834,21 @@ fn read_secure_file(path: &Path, uid: u32, kind: VaultKind) -> Result<Vec<u8>, V
     if usize::try_from(before.len()).map_or(true, |size| size > MAXIMUM_VAULT_BYTES) {
         return Err(VaultError::Oversized);
     }
-    let file = OpenOptions::new().read(true).open(path)?;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(path)?;
     let after = file.metadata()?;
     let expected_mode = after.mode() & 0o777;
     let mode_valid = match kind {
         VaultKind::UserSession => expected_mode == 0o600,
-        VaultKind::System => {
-            (expected_mode == 0o640 || expected_mode == 0o600)
-                && (expected_mode & 0o007 == 0)
-                && (expected_mode & 0o020 == 0)
-        }
+        VaultKind::System => expected_mode == 0o640,
+        #[cfg(test)]
+        VaultKind::SystemTest => expected_mode == 0o640,
     };
     if before.dev() != after.dev()
         || before.ino() != after.ino()
-        || !is_owner_valid(after.uid(), uid, kind)
+        || !is_owner_valid(&after, uid, kind)
         || !mode_valid
         || after.nlink() != 1
     {
@@ -860,6 +884,8 @@ impl VaultLock {
         let create_mode = match kind {
             VaultKind::UserSession => 0o600,
             VaultKind::System => 0o640,
+            #[cfg(test)]
+            VaultKind::SystemTest => 0o640,
         };
         loop {
             match OpenOptions::new()
@@ -869,19 +895,24 @@ impl VaultLock {
                 .open(&path)
             {
                 Ok(file) => {
+                    if kind == VaultKind::System {
+                        kfaceauth_crypto_openssl_sys::set_fd_permissions(
+                            &file,
+                            0,
+                            create_mode,
+                            "kfaceauth",
+                        )
+                        .map_err(|_| VaultError::UnsafeFilesystem)?;
+                    }
                     let metadata = file.metadata()?;
                     let mode = metadata.mode() & 0o777;
                     let mode_valid = match kind {
                         VaultKind::UserSession => mode == 0o600,
-                        VaultKind::System => {
-                            (mode == 0o640 || mode == 0o600)
-                                && (mode & 0o007 == 0)
-                                && (mode & 0o020 == 0)
-                        }
+                        VaultKind::System => mode == 0o640,
+                        #[cfg(test)]
+                        VaultKind::SystemTest => mode == 0o640,
                     };
-                    if !is_owner_valid(metadata.uid(), uid, kind)
-                        || !mode_valid
-                        || metadata.nlink() != 1
+                    if !is_owner_valid(&metadata, uid, kind) || !mode_valid || metadata.nlink() != 1
                     {
                         drop(file);
                         let _ = fs::remove_file(&path);
@@ -929,32 +960,24 @@ fn write_verified_atomic(
     let file_mode = match kind {
         VaultKind::UserSession => 0o600,
         VaultKind::System => 0o640,
+        #[cfg(test)]
+        VaultKind::SystemTest => 0o640,
     };
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(file_mode)
         .open(&temporary_path)?;
+    if kind == VaultKind::System {
+        kfaceauth_crypto_openssl_sys::set_fd_permissions(&file, 0, file_mode, "kfaceauth")
+            .map_err(|_| VaultError::UnsafeFilesystem)?;
+    }
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
-    if kind == VaultKind::System {
-        let _ = kfaceauth_crypto_openssl_sys::set_socket_permissions(
-            &temporary_path,
-            file_mode,
-            Some("kfaceauth"),
-        );
-    }
     let verified = SensitiveBytes(read_secure_file(&temporary_path, uid, kind)?);
     drop(decode_vault(&verified.0, key, uid)?);
     fs::rename(&temporary_path, final_path)?;
-    if kind == VaultKind::System {
-        let _ = kfaceauth_crypto_openssl_sys::set_socket_permissions(
-            final_path,
-            file_mode,
-            Some("kfaceauth"),
-        );
-    }
     cleanup.armed = false;
     sync_directory(root)
 }
@@ -1369,6 +1392,53 @@ mod tests {
         assert!(vault.open_profile(&key).is_ok());
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn production_system_vault_rejects_target_owned_replayed_ciphertext() {
+        let uid = current_uid();
+        if uid == 0 {
+            return;
+        }
+        let system_base = temporary_root("target-owned-system-replay");
+        let root = system_base.join(uid.to_string());
+        let writable_fixture = Vault::for_system_test(root.clone(), uid);
+        let key = MasterKey::generate().unwrap();
+        writable_fixture.commit_profile(&key, &profile()).unwrap();
+        let old_ciphertext = fs::read(root.join(VAULT_FILE)).unwrap();
+
+        let protected = Vault::system_with_root(&system_base, uid);
+        assert_eq!(protected.status(Some(&key)), VaultStatus::Unavailable);
+        assert!(protected.open_profile(&key).is_err());
+        assert_eq!(fs::read(root.join(VAULT_FILE)).unwrap(), old_ciphertext);
+
+        fs::remove_dir_all(system_base).unwrap();
+    }
+
+    #[test]
+    fn user_vault_rejects_a_symlinked_vault_file() {
+        use std::os::unix::fs::symlink;
+
+        let root = temporary_root("vault-file-symlink");
+        let target = temporary_root("vault-file-target");
+        let vault = Vault::for_test(root.clone(), current_uid());
+        let target_vault = Vault::for_test(target.clone(), current_uid());
+        let key = MasterKey::generate().unwrap();
+        vault.commit_profile(&key, &profile()).unwrap();
+        target_vault.commit_profile(&key, &profile()).unwrap();
+        fs::remove_file(root.join(VAULT_FILE)).unwrap();
+        symlink(target.join(VAULT_FILE), root.join(VAULT_FILE)).unwrap();
+
+        assert!(vault.open_profile(&key).is_err());
+        assert!(
+            fs::symlink_metadata(root.join(VAULT_FILE))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(target).unwrap();
     }
 
     #[test]

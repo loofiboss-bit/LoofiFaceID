@@ -68,7 +68,25 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
 
         self.assertIn("Requires=kfaceauth.socket", service)
         self.assertIn("ListenStream=/run/kfaceauth/kfaceauthd.sock", socket)
-        self.assertEqual(writable_path_sets, [["/var/lib/kfaceauth"]])
+        self.assertEqual(writable_path_sets, [])
+        read_only_path_sets = [
+            line.partition("=")[2].split()
+            for line in service.splitlines()
+            if line.startswith("ReadOnlyPaths=")
+        ]
+        self.assertIn("/var/lib/kfaceauth", read_only_path_sets[0])
+        main_policy = MAIN_POLICY.read_text(encoding="utf-8")
+        vault_permissions = next(
+            line for line in main_policy.splitlines()
+            if line.startswith("allow kfaceauth_t kfaceauth_var_lib_t:file")
+        )
+        key_permissions = next(
+            line for line in main_policy.splitlines()
+            if line.startswith("allow kfaceauth_t kfaceauth_etc_t:file")
+        )
+        for permissions in (vault_permissions, key_permissions):
+            self.assertIn("read", permissions)
+            self.assertNotRegex(permissions, r"\b(write|create|unlink|lock)\b")
 
     def test_activation_has_target_specific_transactions_and_no_selinux_toggle(self) -> None:
         setup = SETUP.read_text(encoding="utf-8")

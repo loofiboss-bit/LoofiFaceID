@@ -37,6 +37,7 @@ class TestPam : public QObject
     void testUnknownUserFallsBackToPassword();
     void testMissingSocketFailsClosedImmediately();
     void testHungServerAbortsWithinTwoSeconds();
+    void testSlowDripResponseUsesOneAbsoluteDeadline();
     void testMockServerSuccess();
     void testMockServerFailure();
     void testSetCredAndAcctMgmt();
@@ -109,6 +110,58 @@ void TestPam::testHungServerAbortsWithinTwoSeconds()
 
     QCOMPARE(res, PAM_AUTH_ERR);
     // Strict Gate 4.2 deadline: should abort at ~2.0s (+/- 300ms tolerance for OS scheduler)
+    QVERIFY2(elapsed_ms >= 1800 && elapsed_ms <= 2600,
+             qPrintable(QStringLiteral("Elapsed time was %1 ms").arg(elapsed_ms)));
+}
+
+void TestPam::testSlowDripResponseUsesOneAbsoluteDeadline()
+{
+    struct passwd *pw = getpwuid(getuid());
+    QVERIFY(pw != nullptr);
+
+    const char *sock_path = "/tmp/kfaceauth_slow_drip_test.sock";
+    unlink(sock_path);
+
+    int sfd = socket(AF_UNIX, SOCK_STREAM, 0);
+    QVERIFY(sfd >= 0);
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, sock_path, sizeof(addr.sun_path) - 1);
+    QCOMPARE(bind(sfd, (struct sockaddr *)&addr, sizeof(addr)), 0);
+    QCOMPARE(listen(sfd, 1), 0);
+
+    std::thread server_thread(
+        [sfd]()
+        {
+            int cfd = accept(sfd, nullptr, nullptr);
+            if (cfd >= 0)
+            {
+                uint8_t request[512];
+                (void)read(cfd, request, sizeof(request));
+                const uint8_t response[] = {0, 0, 0, 4, 0, 1, 0, 0};
+                for (uint8_t byte : response)
+                {
+                    usleep(300000);
+                    if (send(cfd, &byte, 1, MSG_NOSIGNAL) != 1)
+                        break;
+                }
+                close(cfd);
+            }
+            close(sfd);
+        });
+
+    setenv("KFACEAUTH_SOCKET_PATH", sock_path, 1);
+    QElapsedTimer timer;
+    timer.start();
+    int res = pam_sm_authenticate(reinterpret_cast<pam_handle_t *>(pw->pw_name), 0, 0, nullptr);
+    const qint64 elapsed_ms = timer.elapsed();
+
+    server_thread.join();
+    unlink(sock_path);
+
+    QCOMPARE(res, PAM_AUTH_ERR);
     QVERIFY2(elapsed_ms >= 1800 && elapsed_ms <= 2600,
              qPrintable(QStringLiteral("Elapsed time was %1 ms").arg(elapsed_ms)));
 }

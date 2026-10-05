@@ -38,13 +38,13 @@ allow init_t kfaceauth_sock_t:sock_file { create getattr setattr unlink write };
 # Self socket operations
 allow kfaceauth_t self:unix_stream_socket { create bind listen accept read write getattr setopt getopt };
 
-# Confinement to system vault in /var/lib/kfaceauth
-allow kfaceauth_t kfaceauth_var_lib_t:dir { read getattr search open write add_name remove_name };
-allow kfaceauth_t kfaceauth_var_lib_t:file { read write getattr open create lock unlink };
+# The daemon reads the root-owned system vault. Only the administrative helper writes it.
+allow kfaceauth_t kfaceauth_var_lib_t:dir { read getattr search open };
+allow kfaceauth_t kfaceauth_var_lib_t:file { read getattr open map };
 
-# Keys in /etc/kfaceauth
-allow kfaceauth_t kfaceauth_etc_t:dir { read getattr search open write add_name remove_name };
-allow kfaceauth_t kfaceauth_etc_t:file { read write getattr open create lock };
+# System-login keys are root-owned and read-only to the daemon.
+allow kfaceauth_t kfaceauth_etc_t:dir { read getattr search open };
+allow kfaceauth_t kfaceauth_etc_t:file { read getattr open map };
 
 # IPC Unix socket at /run/kfaceauth/kfaceauthd.sock. The parent directory
 # keeps its system default label so systemd can construct its sandbox mounts.

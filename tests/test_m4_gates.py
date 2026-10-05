@@ -58,7 +58,9 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         daemon = (ROOT / "engine/daemon/src/lib.rs").read_text(encoding="utf-8")
 
         self.assertIn("peer_uid == target_uid", daemon)
-        self.assertNotIn("peer_uid == 0 ||", daemon)
+        self.assertIn("peer_uid == target_uid || peer_uid == 0", daemon)
+        self.assertIn("MAX_ACTIVE_CONNECTIONS: usize = 4", daemon)
+        self.assertIn("MAX_CONNECTIONS_PER_PEER_UID: usize = 2", daemon)
         for removed in (
             "OP_GET_KEY",
             "OP_VERIFY_FRAME",

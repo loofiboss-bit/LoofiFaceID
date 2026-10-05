@@ -6,7 +6,8 @@
 
 use std::ffi::{CString, c_int};
 use std::fmt;
-use std::os::fd::{FromRawFd, RawFd};
+use std::fs::File;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 
@@ -60,6 +61,25 @@ unsafe extern "C" {
         output_size: usize,
     ) -> c_int;
     fn kfaceauth_current_uid() -> u32;
+    fn kfaceauth_effective_uid() -> u32;
+    fn kfaceauth_group_id(groupname: *const std::ffi::c_char, gid_out: *mut u32) -> c_int;
+    fn kfaceauth_open_directory_nofollow(path: *const std::ffi::c_char) -> c_int;
+    fn kfaceauth_open_child_directory_nofollow(
+        parent_fd: c_int,
+        name: *const std::ffi::c_char,
+    ) -> c_int;
+    fn kfaceauth_open_child_file_nofollow(parent_fd: c_int, name: *const std::ffi::c_char)
+    -> c_int;
+    fn kfaceauth_lock_child_file_nonblocking(
+        parent_fd: c_int,
+        name: *const std::ffi::c_char,
+    ) -> c_int;
+    fn kfaceauth_set_fd_permissions(
+        fd: c_int,
+        owner_uid: u32,
+        mode: u32,
+        groupname: *const std::ffi::c_char,
+    ) -> c_int;
     fn kfaceauth_socket_peer_cred(
         socket_fd: c_int,
         uid: *mut u32,
@@ -274,6 +294,117 @@ pub fn current_uid() -> u32 {
     unsafe { kfaceauth_current_uid() }
 }
 
+/// Returns the effective UID of the current process.
+#[must_use]
+pub fn effective_uid() -> u32 {
+    // SAFETY: this function has no pointer arguments or side effects.
+    unsafe { kfaceauth_effective_uid() }
+}
+
+/// Resolves a local group name to its numeric GID.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if the group does not exist or cannot be resolved.
+pub fn group_id(groupname: &str) -> Result<u32, CryptoError> {
+    let groupname = CString::new(groupname).map_err(|_| CryptoError::InvalidArgument)?;
+    let mut gid = 0_u32;
+    // SAFETY: groupname is NUL-terminated and gid is a valid output pointer.
+    let status = unsafe { kfaceauth_group_id(groupname.as_ptr(), &mut gid) };
+    status_result(status)?;
+    Ok(gid)
+}
+
+/// Opens an absolute directory path one component at a time without following symlinks.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if the path is invalid, contains a symlink, or cannot be opened.
+pub fn open_directory_nofollow(path: &Path) -> Result<File, CryptoError> {
+    let path = path.to_str().ok_or(CryptoError::InvalidArgument)?;
+    let path = CString::new(path).map_err(|_| CryptoError::InvalidArgument)?;
+    // SAFETY: path is NUL-terminated and the C function returns an owned descriptor or -1.
+    let fd = unsafe { kfaceauth_open_directory_nofollow(path.as_ptr()) };
+    if fd < 0 {
+        return Err(CryptoError::ProviderFailure);
+    }
+    // SAFETY: the C function returns a new descriptor whose ownership transfers here.
+    let owned_fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    Ok(File::from(owned_fd))
+}
+
+/// Opens one child directory of an existing directory descriptor without following symlinks.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if the child name is not a single path component or cannot be opened.
+pub fn open_child_directory_nofollow(parent: &File, name: &str) -> Result<File, CryptoError> {
+    let name = CString::new(name).map_err(|_| CryptoError::InvalidArgument)?;
+    // SAFETY: parent is an open descriptor and name is NUL-terminated.
+    let fd = unsafe { kfaceauth_open_child_directory_nofollow(parent.as_raw_fd(), name.as_ptr()) };
+    if fd < 0 {
+        return Err(CryptoError::ProviderFailure);
+    }
+    // SAFETY: the C function returns a new descriptor whose ownership transfers here.
+    let owned_fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    Ok(File::from(owned_fd))
+}
+
+/// Opens one child file of an existing directory descriptor without following symlinks.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if the child name is not a single path component or cannot be opened.
+pub fn open_child_file_nofollow(parent: &File, name: &str) -> Result<File, CryptoError> {
+    let name = CString::new(name).map_err(|_| CryptoError::InvalidArgument)?;
+    // SAFETY: parent is an open descriptor and name is NUL-terminated.
+    let fd = unsafe { kfaceauth_open_child_file_nofollow(parent.as_raw_fd(), name.as_ptr()) };
+    if fd < 0 {
+        return Err(CryptoError::ProviderFailure);
+    }
+    // SAFETY: the C function returns a new descriptor whose ownership transfers here.
+    let owned_fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    Ok(File::from(owned_fd))
+}
+
+/// Opens and nonblockingly locks a private regular child file without following symlinks.
+///
+/// The lock is exclusive and released when the returned file is dropped.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if the child is unsafe, already locked, or cannot be opened.
+pub fn lock_child_file_nonblocking(parent: &File, name: &str) -> Result<File, CryptoError> {
+    let name = CString::new(name).map_err(|_| CryptoError::InvalidArgument)?;
+    // SAFETY: parent is an open descriptor and name is NUL-terminated.
+    let fd = unsafe { kfaceauth_lock_child_file_nonblocking(parent.as_raw_fd(), name.as_ptr()) };
+    if fd < 0 {
+        return Err(CryptoError::ProviderFailure);
+    }
+    // SAFETY: the C function returns a new descriptor whose ownership transfers here.
+    let owned_fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    Ok(File::from(owned_fd))
+}
+
+/// Changes an already-open file or directory's owner, group, and mode by descriptor.
+///
+/// # Errors
+///
+/// Returns [`CryptoError`] if the descriptor or group is invalid or metadata cannot be changed.
+pub fn set_fd_permissions(
+    file: &File,
+    owner_uid: u32,
+    mode: u32,
+    groupname: &str,
+) -> Result<(), CryptoError> {
+    let groupname = CString::new(groupname).map_err(|_| CryptoError::InvalidArgument)?;
+    // SAFETY: file and groupname remain valid for the duration of the call.
+    let status = unsafe {
+        kfaceauth_set_fd_permissions(file.as_raw_fd(), owner_uid, mode, groupname.as_ptr())
+    };
+    status_result(status)
+}
+
 /// Computes a SHA-256 digest using OpenSSL's hardware-accelerated EVP implementation.
 ///
 /// # Errors
@@ -331,7 +462,8 @@ pub fn drop_privileges(username: &str, groupname: &str) -> Result<(), CryptoErro
 /// Loads an existing authoritative 32-byte master key for `uid` without creating one.
 ///
 /// If TPM 2.0 is available and functional, tries to unseal from TPM.
-/// Otherwise, uses the root-protected system keyring (`/etc/kfaceauth/keys/<uid>.key` with Mode `0600`).
+/// Otherwise, reads the root-protected system key file
+/// (`/etc/kfaceauth/keys/<uid>.key`, mode `0640`).
 ///
 /// # Errors
 ///
@@ -515,6 +647,54 @@ mod tests {
         let (sock_a, _sock_b) = UnixStream::pair().unwrap();
         let creds = peer_credentials(sock_a.as_raw_fd()).unwrap();
         assert_eq!(creds.uid, current_uid());
+    }
+
+    #[test]
+    fn descriptor_directory_openers_reject_symlinks() {
+        use std::os::unix::fs::symlink;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kfaceauth-nofollow-{nonce}"));
+        let real = root.join("real");
+        let directory_link = root.join("directory-link");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("key"), b"not a key").unwrap();
+        symlink(&real, &directory_link).unwrap();
+
+        assert!(open_directory_nofollow(&directory_link).is_err());
+        let root_fd = open_directory_nofollow(&root).unwrap();
+        assert!(open_child_directory_nofollow(&root_fd, "directory-link").is_err());
+        symlink(real.join("key"), real.join("key-link")).unwrap();
+        let real_fd = open_child_directory_nofollow(&root_fd, "real").unwrap();
+        assert!(open_child_file_nofollow(&real_fd, "key-link").is_err());
+        symlink(real.join("key"), root.join("lock-link")).unwrap();
+        assert!(lock_child_file_nonblocking(&root_fd, "lock-link").is_err());
+        assert_eq!(std::fs::read(real.join("key")).unwrap(), b"not a key");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn descriptor_lock_is_exclusive_and_released_on_drop() {
+        let root = std::env::temp_dir().join(format!(
+            "kfaceauth-lock-test-{}-{}",
+            std::process::id(),
+            current_uid()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let root_fd = open_directory_nofollow(&root).unwrap();
+        let first = lock_child_file_nonblocking(&root_fd, "helper.lock").unwrap();
+        assert!(lock_child_file_nonblocking(&root_fd, "helper.lock").is_err());
+        drop(first);
+        let second = lock_child_file_nonblocking(&root_fd, "helper.lock").unwrap();
+        drop(second);
+        drop(root_fd);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

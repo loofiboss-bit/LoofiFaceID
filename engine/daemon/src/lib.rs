@@ -7,11 +7,14 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use kfaceauth_crypto_openssl_sys::{PeerCredentials, peer_credentials};
@@ -31,6 +34,10 @@ pub const SOCKET_FILE_MODE: u32 = 0o666;
 pub const MAX_DAEMON_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_DAEMON_RESPONSE_BYTES: usize = 64 * 1024;
 pub const DEFAULT_PAM_TIMEOUT_MS: u32 = 2000;
+pub const MAX_ACTIVE_CONNECTIONS: usize = 4;
+pub const MAX_CONNECTIONS_PER_PEER_UID: usize = 2;
+const MIN_REMAINING_TIMEOUT_MS: u32 = 1;
+const PAM_RESPONSE_RESERVE: Duration = Duration::from_millis(100);
 pub const PAM_ATTEMPT_WINDOW: Duration = Duration::from_secs(30);
 pub const PAM_ATTEMPTS_PER_WINDOW: usize = 3;
 
@@ -89,6 +96,7 @@ pub struct DaemonConfig {
     pub test_frame_path: Option<PathBuf>,
     pub max_timeout_ms: u32,
     rate_limiter: Arc<AuthRateLimiter>,
+    processing_lock: Arc<Mutex<()>>,
 }
 
 impl Default for DaemonConfig {
@@ -116,6 +124,7 @@ impl DaemonConfig {
             test_frame_path,
             max_timeout_ms: DEFAULT_PAM_TIMEOUT_MS,
             rate_limiter: Arc::new(AuthRateLimiter::default()),
+            processing_lock: Arc::new(Mutex::new(())),
         }
     }
 }
@@ -244,6 +253,17 @@ fn capture_camera_frame(
     Ok((width, height, stride, format_u8, buffer))
 }
 
+fn remaining_timeout_ms(deadline: Instant) -> Option<u32> {
+    let remaining = deadline.checked_duration_since(Instant::now())?;
+    if remaining.is_zero() {
+        return None;
+    }
+    let milliseconds = remaining
+        .as_millis()
+        .max(u128::from(MIN_REMAINING_TIMEOUT_MS));
+    Some(u32::try_from(milliseconds.min(u128::from(u32::MAX))).unwrap_or(u32::MAX))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn verify_frame_against_vault(
     vault: &Vault,
@@ -253,7 +273,7 @@ fn verify_frame_against_vault(
     stride: u32,
     format_byte: u8,
     frame_bytes: &[u8],
-    timeout_ms: u32,
+    deadline: Instant,
     model_root: &Path,
 ) -> u8 {
     let Ok(format) = PixelFormat::try_from(format_byte) else {
@@ -262,15 +282,21 @@ fn verify_frame_against_vault(
     let Ok(image) = ImageView::new(format, width, height, stride, frame_bytes) else {
         return STATUS_AUTH_FAILED;
     };
+    if remaining_timeout_ms(deadline).is_none() {
+        return STATUS_TIMEOUT;
+    }
+    let Ok(provider) = IdentityProvider::from_model_root(model_root) else {
+        return STATUS_INTERNAL_ERROR;
+    };
+    let Some(timeout_ms) = remaining_timeout_ms(deadline) else {
+        return STATUS_TIMEOUT;
+    };
     let cancellation = CancellationToken::default();
     let Ok(control) = ProcessingControl::with_timeout(
         &cancellation,
         Duration::from_millis(u64::from(timeout_ms)),
     ) else {
         return STATUS_TIMEOUT;
-    };
-    let Ok(provider) = IdentityProvider::from_model_root(model_root) else {
-        return STATUS_INTERNAL_ERROR;
     };
     let embedding = match provider.extract(image, control) {
         Ok(emb) => emb,
@@ -279,17 +305,40 @@ fn verify_frame_against_vault(
         }
         Err(_) => return STATUS_AUTH_FAILED,
     };
+    if remaining_timeout_ms(deadline).is_none() {
+        return STATUS_TIMEOUT;
+    }
     match vault.open_profile(key) {
-        Ok(profile) => match profile.verify(&embedding) {
-            VerificationResult::Match => STATUS_SUCCESS,
-            VerificationResult::Ambiguous | VerificationResult::NoMatch => STATUS_AUTH_FAILED,
-        },
+        Ok(profile) => {
+            if remaining_timeout_ms(deadline).is_none() {
+                return STATUS_TIMEOUT;
+            }
+            match profile.verify(&embedding) {
+                VerificationResult::Match => STATUS_SUCCESS,
+                VerificationResult::Ambiguous | VerificationResult::NoMatch => STATUS_AUTH_FAILED,
+            }
+        }
         Err(_) => STATUS_AUTH_FAILED,
     }
 }
 
-fn handle_pam_request(target_uid: u32, timeout_ms: u32, config: &DaemonConfig) -> (u8, Vec<u8>) {
-    let effective_timeout_ms = timeout_ms.min(config.max_timeout_ms);
+fn handle_pam_request(
+    target_uid: u32,
+    timeout_ms: u32,
+    connection_deadline: Instant,
+    config: &DaemonConfig,
+) -> (u8, Vec<u8>) {
+    let timeout_ms = timeout_ms
+        .min(config.max_timeout_ms)
+        .min(DEFAULT_PAM_TIMEOUT_MS);
+    let request_deadline = Instant::now()
+        .checked_add(Duration::from_millis(u64::from(timeout_ms)))
+        .map_or(connection_deadline, |requested| {
+            requested.min(connection_deadline)
+        });
+    if remaining_timeout_ms(request_deadline).is_none() {
+        return (STATUS_TIMEOUT, Vec::new());
+    }
     let keys_dir = config.keys_dir.as_deref();
 
     let Ok(key_bytes) = kfaceauth_crypto_openssl_sys::load_master_key_for_uid(target_uid, keys_dir)
@@ -297,6 +346,9 @@ fn handle_pam_request(target_uid: u32, timeout_ms: u32, config: &DaemonConfig) -
         return (STATUS_AUTH_FAILED, Vec::new());
     };
     let master_key = MasterKey::from_bytes(key_bytes);
+    if remaining_timeout_ms(request_deadline).is_none() {
+        return (STATUS_TIMEOUT, Vec::new());
+    }
 
     let vault = match open_vault_for_uid(target_uid, config) {
         Ok(v) => v,
@@ -310,17 +362,23 @@ fn handle_pam_request(target_uid: u32, timeout_ms: u32, config: &DaemonConfig) -
         }) if sample_count > 0 => {}
         _ => return (STATUS_NO_PROFILE, Vec::new()),
     }
+    let Some(capture_timeout_ms) = remaining_timeout_ms(request_deadline) else {
+        return (STATUS_TIMEOUT, Vec::new());
+    };
 
     let frame_result = if let Some(path) = &config.test_frame_path {
         load_test_frame(path)
     } else {
-        capture_camera_frame(config.camera_device.as_deref(), effective_timeout_ms)
+        capture_camera_frame(config.camera_device.as_deref(), capture_timeout_ms)
     };
 
     let (width, height, stride, format, frame_bytes) = match frame_result {
         Ok(frame) => frame,
         Err(status) => return (status, Vec::new()),
     };
+    if remaining_timeout_ms(request_deadline).is_none() {
+        return (STATUS_TIMEOUT, Vec::new());
+    }
 
     let result = verify_frame_against_vault(
         &vault,
@@ -330,10 +388,14 @@ fn handle_pam_request(target_uid: u32, timeout_ms: u32, config: &DaemonConfig) -
         stride,
         format,
         &frame_bytes,
-        effective_timeout_ms,
+        request_deadline,
         &config.model_root,
     );
-    (result, Vec::new())
+    if remaining_timeout_ms(request_deadline).is_none() {
+        (STATUS_TIMEOUT, Vec::new())
+    } else {
+        (result, Vec::new())
+    }
 }
 
 /// Dispatches a validated daemon request, strictly enforcing peer authorization.
@@ -342,6 +404,20 @@ pub fn dispatch_request(
     request: &DaemonRequest,
     peer: &PeerCredentials,
     config: &DaemonConfig,
+) -> Vec<u8> {
+    let timeout =
+        Duration::from_millis(u64::from(config.max_timeout_ms.min(DEFAULT_PAM_TIMEOUT_MS)));
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .unwrap_or_else(Instant::now);
+    dispatch_request_until(request, peer, config, deadline)
+}
+
+fn dispatch_request_until(
+    request: &DaemonRequest,
+    peer: &PeerCredentials,
+    config: &DaemonConfig,
+    deadline: Instant,
 ) -> Vec<u8> {
     let target_uid = request.target_uid();
     // Deny requests that attempt to target a UID other than the socket peer.
@@ -355,14 +431,40 @@ pub fn dispatch_request(
             timeout_ms,
             ..
         } => {
-            if config.rate_limiter.allow(*target_uid) {
-                let result = handle_pam_request(*target_uid, *timeout_ms, config);
+            let timeout_ms = (*timeout_ms)
+                .min(config.max_timeout_ms)
+                .min(DEFAULT_PAM_TIMEOUT_MS);
+            let requested_deadline = Instant::now()
+                .checked_add(Duration::from_millis(u64::from(timeout_ms)))
+                .map_or(deadline, |requested| requested.min(deadline));
+            let Some(processing_deadline) = requested_deadline.checked_sub(PAM_RESPONSE_RESERVE)
+            else {
+                return encode_daemon_response(STATUS_TIMEOUT, &[]);
+            };
+            let worker_config = config.clone();
+            let target_uid = *target_uid;
+            match run_bounded_job(processing_deadline, move || {
+                // OpenCV and V4L2 calls may not be cancellable. Keep this lock
+                // in the worker until native processing actually returns, even
+                // if the ingress worker has already sent a timeout response.
+                let Ok(_processing_guard) = worker_config.processing_lock.try_lock() else {
+                    return (STATUS_DEVICE_BUSY, Vec::new());
+                };
+                if !worker_config.rate_limiter.allow(target_uid) {
+                    return (STATUS_RATE_LIMITED, Vec::new());
+                }
+                let result =
+                    handle_pam_request(target_uid, timeout_ms, requested_deadline, &worker_config);
                 if result.0 == STATUS_SUCCESS {
-                    config.rate_limiter.clear(*target_uid);
+                    worker_config.rate_limiter.clear(target_uid);
                 }
                 result
-            } else {
-                (STATUS_RATE_LIMITED, Vec::new())
+            }) {
+                Ok(result) => result,
+                Err(BoundedJobFailure::Timeout) => (STATUS_TIMEOUT, Vec::new()),
+                Err(BoundedJobFailure::Spawn | BoundedJobFailure::Disconnected) => {
+                    (STATUS_INTERNAL_ERROR, Vec::new())
+                }
             }
         }
         DaemonRequest::Status { target_uid } => {
@@ -390,66 +492,276 @@ pub fn dispatch_request(
     encode_daemon_response(status, &extra)
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum BoundedJobFailure {
+    Timeout,
+    Spawn,
+    Disconnected,
+}
+
+fn run_bounded_job<T, F>(deadline: Instant, work: F) -> Result<T, BoundedJobFailure>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    let remaining = remaining_duration(deadline).map_err(|_| BoundedJobFailure::Timeout)?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    thread::Builder::new()
+        .name("kfaceauth-pam-work".to_owned())
+        .spawn(move || {
+            let _ = sender.send(work());
+        })
+        .map_err(|_| BoundedJobFailure::Spawn)?;
+    let result = receiver
+        .recv_timeout(remaining)
+        .map_err(|error| match error {
+            mpsc::RecvTimeoutError::Timeout => BoundedJobFailure::Timeout,
+            mpsc::RecvTimeoutError::Disconnected => BoundedJobFailure::Disconnected,
+        })?;
+    if Instant::now() >= deadline {
+        return Err(BoundedJobFailure::Timeout);
+    }
+    Ok(result)
+}
+
+fn remaining_duration(deadline: Instant) -> io::Result<Duration> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|duration| !duration.is_zero())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "request deadline expired"))?;
+    Ok(remaining)
+}
+
+struct DeadlineStream<'a> {
+    stream: &'a mut UnixStream,
+    deadline: Instant,
+}
+
+impl Read for DeadlineStream<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.stream
+            .set_read_timeout(Some(remaining_duration(self.deadline)?))?;
+        self.stream.read(buffer)
+    }
+}
+
+impl Write for DeadlineStream<'_> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.stream
+            .set_write_timeout(Some(remaining_duration(self.deadline)?))?;
+        self.stream.write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream
+            .set_write_timeout(Some(remaining_duration(self.deadline)?))?;
+        self.stream.flush()
+    }
+}
+
+fn connection_deadline(config: &DaemonConfig) -> Instant {
+    let timeout = config.max_timeout_ms.min(DEFAULT_PAM_TIMEOUT_MS);
+    Instant::now()
+        .checked_add(Duration::from_millis(u64::from(timeout)))
+        .unwrap_or_else(Instant::now)
+}
+
 /// Handles a single incoming client connection on the Unix domain stream socket.
 ///
 /// # Errors
 ///
 /// Returns [`io::Error`] on network/stream I/O failures.
-pub fn handle_client_stream(mut stream: UnixStream, config: &DaemonConfig) -> io::Result<()> {
-    // Enforce 2.0s I/O deadline on the connection
-    let deadline = Duration::from_millis(u64::from(config.max_timeout_ms));
-    let _ = stream.set_read_timeout(Some(deadline));
-    let _ = stream.set_write_timeout(Some(deadline));
-
-    let peer = peer_credentials(stream.as_raw_fd()).map_err(|e| {
+pub fn handle_client_stream(stream: UnixStream, config: &DaemonConfig) -> io::Result<()> {
+    let peer = peer_credentials(stream.as_raw_fd()).map_err(|error| {
         io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!("peer credentials failed: {e:?}"),
+            format!("peer credentials failed: {error:?}"),
         )
     })?;
+    handle_client_stream_with_peer(stream, peer, config, connection_deadline(config))
+}
 
-    let payload = match read_frame(&mut stream, MAX_DAEMON_REQUEST_BYTES) {
-        Ok(p) => p,
-        Err(err) => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("frame error: {err}"),
-            ));
-        }
+fn handle_client_stream_with_peer(
+    mut stream: UnixStream,
+    peer: PeerCredentials,
+    config: &DaemonConfig,
+    deadline: Instant,
+) -> io::Result<()> {
+    let payload = {
+        let mut deadline_stream = DeadlineStream {
+            stream: &mut stream,
+            deadline,
+        };
+        read_frame(&mut deadline_stream, MAX_DAEMON_REQUEST_BYTES).map_err(|error| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("frame error: {error}"))
+        })?
     };
 
     let response = match decode_daemon_request(&payload) {
-        Ok(request) => dispatch_request(&request, &peer, config),
+        Ok(request) => dispatch_request_until(&request, &peer, config, deadline),
         Err(_) => encode_daemon_response(STATUS_INTERNAL_ERROR, &[]),
     };
 
-    write_frame(&mut stream, &response, MAX_DAEMON_RESPONSE_BYTES).map_err(|e| {
+    let mut deadline_stream = DeadlineStream {
+        stream: &mut stream,
+        deadline,
+    };
+    write_frame(&mut deadline_stream, &response, MAX_DAEMON_RESPONSE_BYTES).map_err(|error| {
         io::Error::new(
-            io::ErrorKind::BrokenPipe,
-            format!("response write error: {e}"),
+            io::ErrorKind::TimedOut,
+            format!("response write failed before deadline: {error}"),
         )
-    })?;
-
-    let _ = stream.flush();
-    Ok(())
+    })
 }
 
-/// Runs the daemon connection accept loop.
+#[derive(Default)]
+struct IngressState {
+    active_by_uid: Mutex<HashMap<u32, usize>>,
+}
+
+impl IngressState {
+    fn try_acquire(self: &Arc<Self>, peer_uid: u32) -> Option<IngressPermit> {
+        let mut active = self.active_by_uid.lock().ok()?;
+        let total: usize = active.values().sum();
+        let peer_count = active.get(&peer_uid).copied().unwrap_or_default();
+        if total >= MAX_ACTIVE_CONNECTIONS || peer_count >= MAX_CONNECTIONS_PER_PEER_UID {
+            return None;
+        }
+        active.insert(peer_uid, peer_count + 1);
+        Some(IngressPermit {
+            state: Arc::clone(self),
+            peer_uid,
+        })
+    }
+}
+
+struct IngressPermit {
+    state: Arc<IngressState>,
+    peer_uid: u32,
+}
+
+impl Drop for IngressPermit {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.state.active_by_uid.lock() {
+            if let Some(count) = active.get_mut(&self.peer_uid) {
+                *count -= 1;
+                if *count == 0 {
+                    active.remove(&self.peer_uid);
+                }
+            }
+        }
+    }
+}
+
+struct DaemonJob {
+    stream: UnixStream,
+    peer: PeerCredentials,
+    deadline: Instant,
+    permit: IngressPermit,
+}
+
+fn spawn_workers(
+    config: &DaemonConfig,
+) -> io::Result<(SyncSender<DaemonJob>, Vec<thread::JoinHandle<()>>)> {
+    let (sender, receiver) = mpsc::sync_channel::<DaemonJob>(MAX_ACTIVE_CONNECTIONS);
+    let receiver = Arc::new(Mutex::new(receiver));
+    let config = Arc::new(config.clone());
+    let mut workers = Vec::with_capacity(MAX_ACTIVE_CONNECTIONS);
+    for index in 0..MAX_ACTIVE_CONNECTIONS {
+        let receiver = Arc::clone(&receiver);
+        let config = Arc::clone(&config);
+        let worker = thread::Builder::new()
+            .name(format!("kfaceauth-ingress-{index}"))
+            .spawn(move || worker_loop(&receiver, &config))?;
+        workers.push(worker);
+    }
+    Ok((sender, workers))
+}
+
+fn worker_loop(receiver: &Arc<Mutex<Receiver<DaemonJob>>>, config: &Arc<DaemonConfig>) {
+    loop {
+        let next_job = {
+            let Ok(receiver) = receiver.lock() else {
+                return;
+            };
+            receiver.recv()
+        };
+        let Ok(job) = next_job else {
+            return;
+        };
+        let DaemonJob {
+            stream,
+            peer,
+            deadline,
+            permit: _permit,
+        } = job;
+        let _ = handle_client_stream_with_peer(stream, peer, config, deadline);
+    }
+}
+
+fn reject_busy(mut stream: UnixStream) {
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
+    let response = encode_daemon_response(STATUS_DEVICE_BUSY, &[]);
+    let _ = write_frame(&mut stream, &response, MAX_DAEMON_RESPONSE_BYTES);
+}
+
+/// Runs the daemon connection accept loop with a bounded, UID-aware worker pool.
 ///
 /// # Errors
 ///
 /// Returns [`io::Error`] if accepting connections fails persistently.
 pub fn run_daemon_loop(listener: &UnixListener, config: &DaemonConfig) -> io::Result<()> {
-    for stream_res in listener.incoming() {
-        match stream_res {
-            Ok(stream) => {
-                let _ = handle_client_stream(stream, config);
-            }
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
+    run_daemon_loop_until(listener, config, None)
+}
+
+fn run_daemon_loop_until(
+    listener: &UnixListener,
+    config: &DaemonConfig,
+    shutdown: Option<&AtomicBool>,
+) -> io::Result<()> {
+    listener.set_nonblocking(true)?;
+    let (sender, workers) = spawn_workers(config)?;
+    let ingress = Arc::new(IngressState::default());
+    let result = loop {
+        if shutdown.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            break Ok(());
         }
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let deadline = connection_deadline(config);
+                let Ok(peer) = peer_credentials(stream.as_raw_fd()) else {
+                    continue;
+                };
+                let Some(permit) = ingress.try_acquire(peer.uid) else {
+                    reject_busy(stream);
+                    continue;
+                };
+                let job = DaemonJob {
+                    stream,
+                    peer,
+                    deadline,
+                    permit,
+                };
+                if let Err(TrySendError::Full(job) | TrySendError::Disconnected(job)) =
+                    sender.try_send(job)
+                {
+                    let DaemonJob { stream, permit, .. } = job;
+                    reject_busy(stream);
+                    drop(permit);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => break Err(error),
+        }
+    };
+    drop(sender);
+    for worker in workers {
+        let _ = worker.join();
     }
-    Ok(())
+    result
 }
 
 #[cfg(test)]
@@ -466,6 +778,24 @@ mod tests {
         assert!(!limiter.allow_at(1000, start));
         assert!(limiter.allow_at(1001, start));
         assert!(limiter.allow_at(1000, start + PAM_ATTEMPT_WINDOW));
+    }
+
+    #[test]
+    fn ingress_limits_total_and_per_peer_connections_and_releases_permits() {
+        let ingress = Arc::new(IngressState::default());
+        let first = ingress.try_acquire(1000).expect("first peer slot");
+        let second = ingress.try_acquire(1000).expect("second peer slot");
+        assert!(ingress.try_acquire(1000).is_none());
+        let third = ingress.try_acquire(1001).expect("third global slot");
+        let fourth = ingress.try_acquire(1001).expect("fourth global slot");
+        assert!(ingress.try_acquire(1002).is_none());
+
+        drop(first);
+        assert!(ingress.try_acquire(1000).is_some());
+        drop(second);
+        drop(third);
+        drop(fourth);
+        assert!(ingress.try_acquire(1002).is_some());
     }
 
     #[test]
@@ -607,5 +937,101 @@ mod tests {
 
         handle.join().unwrap();
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn slow_partial_frame_does_not_block_a_concurrent_status_request() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "kfaceauth-daemon-deadline-{}-{}",
+            std::process::id(),
+            kfaceauth_crypto_openssl_sys::current_uid()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let config = DaemonConfig {
+            keys_dir: Some(temp_dir.join("keys")),
+            vault_root: Some(temp_dir.join("vault")),
+            max_timeout_ms: 1200,
+            ..DaemonConfig::default()
+        };
+        let peer = PeerCredentials {
+            uid: kfaceauth_crypto_openssl_sys::current_uid(),
+            gid: 0,
+            pid: 12345,
+        };
+
+        let (slow_server, mut slow_client) = UnixStream::pair().unwrap();
+        let slow_peer = peer;
+        let slow_config = config.clone();
+        let slow = thread::spawn(move || {
+            handle_client_stream_with_peer(
+                slow_server,
+                slow_peer,
+                &slow_config,
+                connection_deadline(&slow_config),
+            )
+        });
+        slow_client.write_all(&[0, 0]).unwrap();
+
+        let (status_server, mut status_client) = UnixStream::pair().unwrap();
+        let status_peer = peer;
+        let status_config = config.clone();
+        let status = thread::spawn(move || {
+            handle_client_stream_with_peer(
+                status_server,
+                status_peer,
+                &status_config,
+                connection_deadline(&status_config),
+            )
+        });
+        let mut request = Vec::new();
+        request.extend_from_slice(&DAEMON_PROTOCOL_VERSION.to_be_bytes());
+        request.push(OP_STATUS);
+        request.push(0);
+        request.extend_from_slice(&kfaceauth_crypto_openssl_sys::current_uid().to_be_bytes());
+        write_frame(&mut status_client, &request, MAX_DAEMON_REQUEST_BYTES).unwrap();
+
+        let start = Instant::now();
+        let response = read_frame(&mut status_client, MAX_DAEMON_RESPONSE_BYTES).unwrap();
+        assert_eq!(response[2], STATUS_INTERNAL_ERROR);
+        assert!(start.elapsed() < Duration::from_millis(600));
+        status.join().unwrap().unwrap();
+
+        assert!(slow.join().unwrap().is_err());
+        drop(slow_client);
+        fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn pam_deadline_returns_while_native_work_keeps_processing_lock() {
+        let processing_lock = Arc::new(Mutex::new(()));
+        let worker_lock = Arc::clone(&processing_lock);
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let deadline = Instant::now() + Duration::from_millis(150);
+
+        let worker = thread::spawn(move || {
+            run_bounded_job(deadline, move || {
+                let guard = worker_lock.lock().unwrap();
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                drop(guard);
+                finished_tx.send(()).unwrap();
+                STATUS_SUCCESS
+            })
+        });
+
+        started_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("bounded worker should start before its deadline");
+        assert_eq!(worker.join().unwrap(), Err(BoundedJobFailure::Timeout));
+        assert!(processing_lock.try_lock().is_err());
+
+        release_tx.send(()).unwrap();
+        finished_rx
+            .recv_timeout(Duration::from_millis(500))
+            .expect("timed-out native work should eventually release the lock");
+        assert!(processing_lock.try_lock().is_ok());
     }
 }

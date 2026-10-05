@@ -17,16 +17,18 @@
 #include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <pwd.h>
+#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <syslog.h>
+#include <time.h>
 #include <unistd.h>
 
 #define DEFAULT_SOCKET_PATH "/run/kfaceauth/kfaceauthd.sock"
@@ -35,35 +37,125 @@
 #define STATUS_SUCCESS 0x00
 #define MAX_TIMEOUT_MS 2000
 
-static int send_all(int fd, const uint8_t *buffer, size_t length)
+static int remaining_timeout_ms(const struct timespec *deadline, int *timeout_ms)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return -1;
+
+    int64_t seconds = (int64_t)deadline->tv_sec - (int64_t)now.tv_sec;
+    int64_t nanoseconds = (int64_t)deadline->tv_nsec - (int64_t)now.tv_nsec;
+    if (nanoseconds < 0)
+    {
+        seconds -= 1;
+        nanoseconds += INT64_C(1000000000);
+    }
+    if (seconds < 0 || (seconds == 0 && nanoseconds <= 0))
+    {
+        errno = ETIMEDOUT;
+        return -1;
+    }
+
+    int64_t milliseconds = seconds * INT64_C(1000) + (nanoseconds + INT64_C(999999)) / INT64_C(1000000);
+    if (milliseconds > INT_MAX)
+        milliseconds = INT_MAX;
+    if (milliseconds < 1)
+        milliseconds = 1;
+    *timeout_ms = (int)milliseconds;
+    return 0;
+}
+
+static int wait_for_fd(int fd, short events, const struct timespec *deadline)
+{
+    for (;;)
+    {
+        int timeout_ms = 0;
+        if (remaining_timeout_ms(deadline, &timeout_ms) != 0)
+            return -1;
+
+        struct pollfd descriptor;
+        memset(&descriptor, 0, sizeof(descriptor));
+        descriptor.fd = fd;
+        descriptor.events = events;
+        int result = poll(&descriptor, 1, timeout_ms);
+        if (result < 0 && errno == EINTR)
+            continue;
+        if (result <= 0)
+        {
+            if (result == 0)
+                errno = ETIMEDOUT;
+            return -1;
+        }
+        if ((descriptor.revents & (POLLERR | POLLNVAL)) != 0)
+        {
+            errno = EIO;
+            return -1;
+        }
+        if ((descriptor.revents & POLLHUP) != 0 && (events & POLLIN) == 0)
+        {
+            errno = ECONNRESET;
+            return -1;
+        }
+        if ((descriptor.revents & events) != 0 ||
+            ((events & POLLIN) != 0 && (descriptor.revents & POLLHUP) != 0))
+            return 0;
+    }
+}
+
+static int connect_until(int fd, const struct sockaddr *address, socklen_t address_length,
+                         const struct timespec *deadline)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0)
+        return -1;
+    if (connect(fd, address, address_length) == 0)
+        return 0;
+    if (errno != EINPROGRESS && errno != EAGAIN && errno != EWOULDBLOCK)
+        return -1;
+    if (wait_for_fd(fd, POLLOUT, deadline) != 0)
+        return -1;
+
+    int socket_error = 0;
+    socklen_t error_length = (socklen_t)sizeof(socket_error);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &socket_error, &error_length) != 0)
+        return -1;
+    if (socket_error != 0)
+    {
+        errno = socket_error;
+        return -1;
+    }
+    return 0;
+}
+
+static int send_all_until(int fd, const uint8_t *buffer, size_t length, const struct timespec *deadline)
 {
     size_t total = 0;
     while (total < length)
     {
-        ssize_t n = write(fd, buffer + total, length - total);
-        if (n <= 0)
-        {
-            if (n < 0 && errno == EINTR)
-                continue;
+        if (wait_for_fd(fd, POLLOUT, deadline) != 0)
             return -1;
-        }
+        ssize_t n = send(fd, buffer + total, length - total, MSG_NOSIGNAL);
+        if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+            continue;
+        if (n <= 0)
+            return -1;
         total += (size_t)n;
     }
     return 0;
 }
 
-static int read_all(int fd, uint8_t *buffer, size_t length)
+static int read_all_until(int fd, uint8_t *buffer, size_t length, const struct timespec *deadline)
 {
     size_t total = 0;
     while (total < length)
     {
-        ssize_t n = read(fd, buffer + total, length - total);
-        if (n <= 0)
-        {
-            if (n < 0 && errno == EINTR)
-                continue;
+        if (wait_for_fd(fd, POLLIN, deadline) != 0)
             return -1;
-        }
+        ssize_t n = recv(fd, buffer + total, length - total, 0);
+        if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+            continue;
+        if (n <= 0)
+            return -1;
         total += (size_t)n;
     }
     return 0;
@@ -129,25 +221,37 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         return PAM_AUTH_ERR;
     }
 
-    // Gate 4.2: Enforce strict 2.0-second timeout on all socket communication
-    struct timeval tv;
-    tv.tv_sec = 2;
-    tv.tv_usec = 0;
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, (socklen_t)sizeof(tv)) != 0 ||
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, (socklen_t)sizeof(tv)) != 0)
+    // Every socket operation shares one monotonic request deadline.
+    struct timespec deadline;
+    if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0)
     {
-        syslog(LOG_NOTICE, "daemon timeout setup failed; continuing with password stack");
+        syslog(LOG_NOTICE, "monotonic clock unavailable; continuing with password stack");
         close(fd);
         closelog();
         return PAM_AUTH_ERR;
+    }
+    deadline.tv_sec += (time_t)(MAX_TIMEOUT_MS / 1000);
+    deadline.tv_nsec += (long)((MAX_TIMEOUT_MS % 1000) * 1000000L);
+    if (deadline.tv_nsec >= 1000000000L)
+    {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000L;
     }
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, sock_path, sizeof(addr.sun_path) - 1);
+    size_t socket_path_len = strnlen(sock_path, sizeof(addr.sun_path));
+    if (socket_path_len == 0 || socket_path_len >= sizeof(addr.sun_path))
+    {
+        syslog(LOG_NOTICE, "daemon socket path is invalid; continuing with password stack");
+        close(fd);
+        closelog();
+        return PAM_AUTH_ERR;
+    }
+    memcpy(addr.sun_path, sock_path, socket_path_len + 1);
 
-    if (connect(fd, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) != 0)
+    if (connect_until(fd, (struct sockaddr *)&addr, (socklen_t)sizeof(addr), &deadline) != 0)
     {
         syslog(LOG_NOTICE, "daemon unavailable; continuing with password stack");
         close(fd);
@@ -179,14 +283,21 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     uint32_t uid_be = htobe32(target_uid);
     memcpy(req + 8, &uid_be, 4);
 
-    uint32_t timeout_be = htobe32(MAX_TIMEOUT_MS);
+    int remaining_ms = 0;
+    if (remaining_timeout_ms(&deadline, &remaining_ms) != 0)
+    {
+        close(fd);
+        closelog();
+        return PAM_AUTH_ERR;
+    }
+    uint32_t timeout_be = htobe32((uint32_t)remaining_ms);
     memcpy(req + 12, &timeout_be, 4);
 
     uint16_t ulen_be = htobe16((uint16_t)user_len);
     memcpy(req + 16, &ulen_be, 2);
     memcpy(req + 18, username, user_len);
 
-    if (send_all(fd, req, 4 + payload_len) != 0)
+    if (send_all_until(fd, req, 4 + payload_len, &deadline) != 0)
     {
         syslog(LOG_NOTICE, "daemon request failed; continuing with password stack");
         close(fd);
@@ -195,7 +306,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     }
 
     uint8_t resp_hdr[4];
-    if (read_all(fd, resp_hdr, 4) != 0)
+    if (read_all_until(fd, resp_hdr, 4, &deadline) != 0)
     {
         syslog(LOG_NOTICE, "daemon response unavailable; continuing with password stack");
         close(fd);
@@ -215,7 +326,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     }
 
     uint8_t resp_body[4];
-    if (read_all(fd, resp_body, resp_len) != 0)
+    if (read_all_until(fd, resp_body, resp_len, &deadline) != 0)
     {
         syslog(LOG_NOTICE, "daemon response failed; continuing with password stack");
         close(fd);
