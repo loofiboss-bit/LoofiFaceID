@@ -4,9 +4,9 @@ LoofiFace-ID (KFaceAuth) är ett experimentellt verktyg för en lokal profil och
 en uttrycklig jämförelse i den redan inloggade Fedora 44/KDE-sessionen. Det
 aktiverar inte PAM, SDDM, sudo, Polkit, upplåsning eller inloggning.
 
-Version 5.2.0 är den aktuella stabila paketversionen för det lokala flödet.
+Version 5.2.1 är den aktuella stabila paketversionen för det lokala flödet.
 Versionsstatusen innebär inte att ansiktsjämförelsen är kvalificerad för
-autentisering. Se [versionsnoteringarna](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.0)
+autentisering. Se [versionsnoteringarna](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.1)
 och [kvalificeringsrapporten](RELEASE-QUALIFICATION-V5.2.md).
 
 ## Installera och starta

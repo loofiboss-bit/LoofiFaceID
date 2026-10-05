@@ -12,7 +12,7 @@ those claims. The claims have been withdrawn in the
 [published v5.0.0 release notes](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0).
 
 Do not use the v5.0.0 release as an authentication mechanism or as evidence of
-liveness, spoof resistance, PAD, or biometric performance. The current v5.2.0
+liveness, spoof resistance, PAD, or biometric performance. The current v5.2.1
 standard product is an explicit local-profile and comparison utility for an
 already logged-in Fedora 44/KDE session. Its separate PAM path remains
 opt-in, unsupported, and unqualified for login. Password authentication stays

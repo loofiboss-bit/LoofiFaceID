@@ -7,12 +7,12 @@
 > disabled until an administrator enables an individual target. The PAM,
 > SDDM, sudo, Polkit, PAD, accelerator, latency, and physical qualification
 > material below is roadmap or historical review content, not a current
-> capability claim. See the [v5.2.0 qualification status](RELEASE-QUALIFICATION-V5.2.md).
+> capability claim. See the [v5.2.1 qualification status](RELEASE-QUALIFICATION-V5.2.md).
 >
 > **Qualification correction:** Checked tasks and gates in this archived draft
 > are historical status claims, not reproducible test evidence. The former
 > v5.0 PAD/authentication results are withdrawn. See the current
-> [v5.2.0 qualification status](RELEASE-QUALIFICATION-V5.2.md); no face-login
+> [v5.2.1 qualification status](RELEASE-QUALIFICATION-V5.2.md); no face-login
 > or physical qualification gate has passed.
 
 **Target Release**: KFaceAuth v5.0.0  

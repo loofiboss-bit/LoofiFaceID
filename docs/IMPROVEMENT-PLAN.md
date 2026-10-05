@@ -1,13 +1,16 @@
 # LoofiFaceID Improvement Plan
 
 - **Review date:** 2026-10-05
-- **Review baseline:** `2d6699c` (`origin/main`, after PR #13)
-- **Implementation status:** PR #13 and the v5.2.0 GitHub release are complete.
-  Its Fedora builds and four-file release artifact set passed, but COPR build
-  11075135 exposed a missing standard `systemd-devel` build requirement for
-  `libudev`. This branch prepares v5.2.1 with that packaging correction. Its
-  exact release, COPR publication, and wiki readback remain pending. Manual
-  hardware and real PAM login qualification remain open.
+- **Review baseline:** `7bdc6bf` (`origin/main`, after PR #14)
+- **Implementation status:** PR #13's security hardening and PR #14's
+  packaging correction are merged. v5.2.1 is published with passing tag and
+  release workflows, and its four-file asset set passed checksum and payload
+  verification. COPR build [11075253](https://copr.fedorainfracloud.org/coprs/build/11075253/)
+  succeeded from the exact published SRPM, and Fedora 44 repository metadata
+  lists `kfaceauth-5.2.1-1.fc44`. Wiki commit `2e7a463` was fetched from the
+  remote and matched the local page checksum; the public wiki page also
+  displays v5.2.1 and COPR build 11075253. Manual hardware and real PAM login
+  qualification remain open.
 - **Scope:** Reliability, test coverage, documentation, packaging, and
   qualification.
 
@@ -51,11 +54,13 @@ acceleration, or authentication features.
   verified. The original v5.0.0 tag and assets remain unchanged.
 - COPR build [11075135](https://copr.fedorainfracloud.org/coprs/build/11075135/)
   failed because `systemd-devel`, which provides `libudev.pc`, was only listed
-  as a build dependency of the experimental package. The v5.2.1 candidate
-  moves that dependency into the standard RPM build requirements and includes
-  a regression assertion for it.
-- v5.2.1 release evidence, the corrected COPR build, and the wiki readback are
-  recorded after their publication steps complete.
+  as a build dependency of the experimental package. v5.2.1 moves that
+  dependency into the standard RPM build requirements and includes a regression
+  assertion for it.
+- v5.2.1 tag and release workflows, the four downloaded and verified release
+  assets, and COPR build 11075253 from the official SRPM passed. The wiki
+  change was pushed as `2e7a463`, fetched back from origin with a matching
+  SHA-256, and read back from the public page.
 - KCM manual hardware/accessibility qualification is `NOT RUN`; PAM login,
   Enforcing-mode SELinux, and physical presentation-attack qualification
   remain `NOT RUN`. The independent post-patch source review is `PASS`.
