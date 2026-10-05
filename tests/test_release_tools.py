@@ -121,6 +121,12 @@ esac
     def test_container_workflows_install_git_before_checkout(self):
         ci = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertLess(ci.index("Install Git before checkout"), ci.index("Check out source"))
+        self.assertLess(
+            ci.index("Check out source"), ci.index("Configure Git safe directory")
+        )
+        self.assertIn(
+            'run: git config --global --add safe.directory "$GITHUB_WORKSPACE"', ci
+        )
 
         rpm = (ROOT / ".github/workflows/rpm.yml").read_text()
         positions = sorted(
@@ -146,6 +152,15 @@ esac
                 else "dnf install -y git-core"
             )
             self.assertIn(expected_install, job)
+            self.assertLess(
+                job.index("Check out source"),
+                job.index("Configure Git safe directory"),
+                job_name,
+            )
+            self.assertIn(
+                'run: git config --global --add safe.directory "$GITHUB_WORKSPACE"',
+                job,
+            )
 
     def test_rpm_workflow_can_rebuild_exact_tag_for_release_recovery(self):
         rpm = (ROOT / ".github/workflows/rpm.yml").read_text()
