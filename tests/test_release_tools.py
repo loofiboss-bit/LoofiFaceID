@@ -118,6 +118,42 @@ esac
         for entry in entries:
             self.assertFalse(entry.startswith(("build", "LoofiFaceID-", "CHATT_LOGG_")))
 
+    def test_container_workflows_install_git_before_checkout(self):
+        ci = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertLess(ci.index("Install Git before checkout"), ci.index("Check out source"))
+
+        rpm = (ROOT / ".github/workflows/rpm.yml").read_text()
+        positions = sorted(
+            (rpm.index(f"  {job_name}:"), job_name)
+            for job_name in ("rpm", "release-upload", "experimental-auth-rpm")
+        )
+        for index, (start, job_name) in enumerate(positions):
+            end = positions[index + 1][0] if index + 1 < len(positions) else len(rpm)
+            job = rpm[start:end]
+            install_step = (
+                "Install release upload dependencies"
+                if job_name == "release-upload"
+                else "Install Git before checkout"
+            )
+            self.assertLess(
+                job.index(install_step),
+                job.index("Check out source"),
+                job_name,
+            )
+            expected_install = (
+                "dnf install -y gh git-core rpm python3"
+                if job_name == "release-upload"
+                else "dnf install -y git-core"
+            )
+            self.assertIn(expected_install, job)
+
+    def test_rpm_workflow_can_rebuild_exact_tag_for_release_recovery(self):
+        rpm = (ROOT / ".github/workflows/rpm.yml").read_text()
+        self.assertIn("release_tag:", rpm)
+        self.assertIn("ref: ${{ inputs.release_tag || github.ref }}", rpm)
+        self.assertIn("inputs.release_tag || github.event.release.tag_name", rpm)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.release_tag != ''", rpm)
+
     def test_manifest_traversal_duplicate_and_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
