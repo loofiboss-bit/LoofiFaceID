@@ -10,7 +10,8 @@
   lists `kfaceauth-5.2.1-1.fc44`. Wiki commit `2e7a463` was fetched from the
   remote and matched the local page checksum; the public wiki page also
   displays v5.2.1 and COPR build 11075253. Manual hardware and real PAM login
-  qualification remain open.
+  qualification remain open. The reported SDDM/Plasma smoke check was on the
+  user's everyday computer; no separate qualification machine is available.
 - **Scope:** Reliability, test coverage, documentation, packaging, and
   qualification.
 
