@@ -7,12 +7,12 @@
 > disabled until an administrator enables an individual target. The PAM,
 > SDDM, sudo, Polkit, PAD, accelerator, latency, and physical qualification
 > material below is roadmap or historical review content, not a current
-> capability claim. See the [v5.2.1 qualification status](RELEASE-QUALIFICATION-V5.2.md).
+> capability claim. See the [v5.3.0 qualification status](RELEASE-QUALIFICATION-V5.3.md).
 >
 > **Qualification correction:** Checked tasks and gates in this archived draft
 > are historical status claims, not reproducible test evidence. The former
 > v5.0 PAD/authentication results are withdrawn. See the current
-> [v5.2.1 qualification status](RELEASE-QUALIFICATION-V5.2.md); no face-login
+> [v5.3.0 qualification status](RELEASE-QUALIFICATION-V5.3.md); no face-login
 > or physical qualification gate has passed.
 
 **Target Release**: KFaceAuth v5.0.0  
@@ -803,7 +803,7 @@ unqualified PAM integration. The default build and Fedora package exclude
 these components. Current daemon unit tests cover narrow protocol decoding,
 peer-UID authorization, bounded ingress, absolute frame and PAM deadlines, and
 read-only system-vault access. They do not qualify system authentication. See
-[the current qualification status](RELEASE-QUALIFICATION-V5.2.md).
+[the current qualification status](RELEASE-QUALIFICATION-V5.3.md).
 
 #### Measurable Test Criteria:
 - Automated PAM test suite executing against mock PAM environment succeeds in authenticating matching user and rejects non-matching user.

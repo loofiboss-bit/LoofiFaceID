@@ -7,14 +7,16 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
-RowLayout {
+GridLayout {
     id: root
 
     required property string label
     required property string value
     property int tone: 0
 
-    spacing: Kirigami.Units.largeSpacing
+    columns: root.width >= Kirigami.Units.gridUnit * 24 ? 2 : 1
+    columnSpacing: Kirigami.Units.largeSpacing
+    rowSpacing: Kirigami.Units.smallSpacing
 
     QQC2.Label {
         Layout.fillWidth: true
@@ -24,7 +26,8 @@ RowLayout {
     }
 
     QQC2.Label {
-        Layout.maximumWidth: Math.max(root.width * 0.52, Kirigami.Units.gridUnit * 8)
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
         text: root.value
         color: {
             switch (root.tone) {
@@ -39,7 +42,7 @@ RowLayout {
             }
         }
         font.weight: Font.Medium
-        horizontalAlignment: Text.AlignRight
+        horizontalAlignment: root.columns === 2 ? Text.AlignRight : Text.AlignLeft
         wrapMode: Text.Wrap
     }
 }

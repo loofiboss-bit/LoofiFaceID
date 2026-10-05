@@ -83,8 +83,8 @@ and camera are active. There is no background recognition.
 Enrollment starts explicitly, captures exactly one current frame per click,
 keeps 3–8 accepted embeddings only in memory (five recommended), and commits
 them atomically at Finish. Recoverable one-frame quality/face errors keep the
-bounded session available for an explicit retry; fatal failure, the 120-second
-timeout, page hide, app deactivation, preview stop, replacement, cancel, or
+bounded session available for an explicit retry; fatal failure, the shared 300-second
+deadline, page hide, app deactivation, preview stop, replacement, cancel, or
 teardown clears transient material.
 
 Verification also requires a preview and a separate one-frame action. The
@@ -109,9 +109,9 @@ corruption preservation, and explicit deletion/reset are defined in
 The backend reports aggregate engine/runtime, verified model availability,
 KWallet availability/lock state, vault/profile state, and bounded sample
 count. It exposes separate detector, embedding, enrollment, encrypted
-persistence, local verification, and deletion capabilities. PAM, authselect,
-system authentication, liveness, security tiers, and privileged services
-remain explicitly unsupported.
+persistence, local verification, and deletion capabilities. The standard package has no PAM, authselect, system-authentication service,
+liveness or qualified security tier. The optional authentication experiment
+reports configuration/readiness separately from qualification.
 
 The opt-in authentication status is queried through the system daemon's
 bounded status protocol. The KCM does not inspect the protected system vault
@@ -130,3 +130,21 @@ path only in unit tests.
 both reject missing, renamed, modified, duplicate, malformed, or unlisted
 artifacts before inference. Configure, build, test, install, and runtime never
 download a model.
+
+## v5.3.0 experimental worker isolation
+
+The optional daemon validates bounded socket requests and peer UID, rate-limits
+attempts and supervises at most one `/usr/libexec/kfaceauth-auth-worker` child.
+The child runs in the same `kfaceauth` account and SELinux domain, reads a fixed
+UID/timeout record from private stdin, and returns only a fixed status on its
+private output. It owns camera capture, verified model loading and system-vault
+comparison. No key or frame is sent through command arguments or environment.
+The parent terminates the child at its absolute deadline, ignores late results,
+and reaps without blocking the PAM response. An unreaped child remains busy;
+there is no overlapping camera operation or claim of recovery from kernel D-state.
+Owned frame/key buffers use zeroization wrappers. Standard payloads omit the child.
+
+`ExtractionPurpose::LocalProfile` performs face, geometry and quality checks
+without the speculative presentation heuristic. `ExperimentalAuth` keeps
+conservative heuristic rejection, including analysis failure, but is not PAD
+qualification. The internal extraction API requires a purpose at every call site.

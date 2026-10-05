@@ -8,6 +8,7 @@ use std::process::{Command, Output};
 fn main() {
     println!("cargo:rerun-if-changed=native/crypto_bridge.c");
     println!("cargo:rerun-if-changed=native/crypto_bridge.h");
+    println!("cargo:rerun-if-changed=native/camera_selection.h");
     println!("cargo:rerun-if-env-changed=CC");
     println!("cargo:rerun-if-env-changed=CFLAGS");
     println!("cargo:rerun-if-env-changed=AR");

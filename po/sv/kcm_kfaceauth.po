@@ -1559,3 +1559,45 @@ msgstr "Blockerad: %1"
 msgid "Blocked: status-unavailable"
 msgstr "Blockerad: status-ej-tillgänglig"
 
+
+msgid "Restart the camera preview before starting a new registration."
+msgstr "Starta om kameraförhandsvisningen innan du börjar en ny registrering."
+
+msgid "The experimental image check rejected this sample. Adjust lighting and retry; this is not verified attack detection."
+msgstr "Den experimentella bildkontrollen avvisade provet. Justera belysningen och försök igen; detta är inte verifierad attackdetektion."
+
+msgid "The experimental image check rejected this frame. Adjust lighting and retry; this is not verified attack detection."
+msgstr "Den experimentella bildkontrollen avvisade bilden. Justera belysningen och försök igen; detta är inte verifierad attackdetektion."
+
+msgid "Experimental authentication components are not installed."
+msgstr "De experimentella autentiseringskomponenterna är inte installerade."
+
+msgid "Experimental SDDM sign-in"
+msgstr "Experimentell SDDM-inloggning"
+
+msgid "Experimental Plasma lock-screen sign-in"
+msgstr "Experimentell inloggning på Plasmas låsskärm"
+
+msgid "Replace the current face profile?"
+msgstr "Ersätt den nuvarande ansiktsprofilen?"
+
+msgid "Saving replaces your current encrypted local profile. Cancelling or a failed save keeps the previous profile."
+msgstr "Om du sparar ersätts din nuvarande krypterade lokala profil. Vid avbrott eller misslyckad sparning behålls den tidigare profilen."
+
+msgid "Register a replacement profile"
+msgstr "Registrera en ersättningsprofil"
+
+msgid "Replace profile"
+msgstr "Ersätt profil"
+
+msgid "Completed"
+msgstr "Slutfört"
+
+msgid "Current step"
+msgstr "Aktuellt steg"
+
+msgid "Pending"
+msgstr "Återstår"
+
+msgid "Retry guidance"
+msgstr "Försök med guidningen igen"

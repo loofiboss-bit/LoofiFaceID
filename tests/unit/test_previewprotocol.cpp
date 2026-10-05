@@ -4,6 +4,7 @@
 
 #include <QTest>
 #include <QtEndian>
+#include <limits>
 
 class PreviewProtocolTest final : public QObject
 {
@@ -11,10 +12,23 @@ class PreviewProtocolTest final : public QObject
 
   private Q_SLOTS:
     void fragmentedRecord();
+    void deadlinesAreMonotonicAndBounded();
     void rejectsOversizedRecord();
     void rejectsInvalidCbor();
     void latestFrameWinsBackpressure();
 };
+
+void PreviewProtocolTest::deadlinesAreMonotonicAndBounded()
+{
+    const qint64 now = PreviewProtocol::monotonicMilliseconds();
+    QVERIFY(!PreviewProtocol::validDeadline(std::numeric_limits<qint64>::min(), PreviewProtocol::MaxEnrollmentSeconds));
+    QVERIFY(!PreviewProtocol::validDeadline(std::numeric_limits<qint64>::max(), PreviewProtocol::MaxEnrollmentSeconds));
+    QVERIFY(!PreviewProtocol::validDeadline(now - 1, PreviewProtocol::MaxPreviewSeconds));
+    QVERIFY(PreviewProtocol::validDeadline(now + 59000, PreviewProtocol::MaxPreviewSeconds));
+    QVERIFY(!PreviewProtocol::validDeadline(now + 61000, PreviewProtocol::MaxPreviewSeconds));
+    QVERIFY(PreviewProtocol::validDeadline(now + 299000, PreviewProtocol::MaxEnrollmentSeconds));
+    QVERIFY(!PreviewProtocol::validDeadline(now + 301000, PreviewProtocol::MaxEnrollmentSeconds));
+}
 
 void PreviewProtocolTest::fragmentedRecord()
 {

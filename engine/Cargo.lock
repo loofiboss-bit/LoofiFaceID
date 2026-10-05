@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "kfaceauth-crypto-openssl-sys"
-version = "0.1.0"
+version = "5.3.0"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
 name = "kfaceauth-daemon"
-version = "0.1.0"
+version = "5.3.0"
 dependencies = [
  "kfaceauth-crypto-openssl-sys",
  "kfaceauth-identity",
@@ -19,12 +19,13 @@ dependencies = [
  "kfaceauth-protocol",
  "kfaceauth-templates",
  "kfaceauth-vision",
+ "kfaceauth-vision-opencv-sys",
  "zeroize",
 ]
 
 [[package]]
 name = "kfaceauth-identity"
-version = "0.1.0"
+version = "5.3.0"
 dependencies = [
  "kfaceauth-protocol",
  "kfaceauth-templates",
@@ -35,21 +36,21 @@ dependencies = [
 
 [[package]]
 name = "kfaceauth-identity-types"
-version = "0.1.0"
+version = "5.3.0"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
 name = "kfaceauth-protocol"
-version = "0.1.0"
+version = "5.3.0"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
 name = "kfaceauth-templates"
-version = "0.1.0"
+version = "5.3.0"
 dependencies = [
  "kfaceauth-crypto-openssl-sys",
  "kfaceauth-identity-types",
@@ -58,7 +59,7 @@ dependencies = [
 
 [[package]]
 name = "kfaceauth-vision"
-version = "0.1.0"
+version = "5.3.0"
 dependencies = [
  "kfaceauth-crypto-openssl-sys",
  "kfaceauth-identity-types",
@@ -69,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "kfaceauth-vision-opencv-sys"
-version = "0.1.0"
+version = "5.3.0"
 dependencies = [
  "zeroize",
 ]

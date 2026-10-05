@@ -11,6 +11,7 @@ class CameraPreviewSessionTest final : public QObject
 
   private Q_SLOTS:
     void discoveryPreviewAndStop();
+    void enrollmentBudgetIsGrantedOncePerPreview();
     void invalidSelectionIsIgnored();
     void stableFailures();
     void lifecycleFailures();
@@ -37,6 +38,34 @@ void CameraPreviewSessionTest::discoveryPreviewAndStop()
     session.stopPreview();
     QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
     QVERIFY(!session.frameAvailable());
+}
+
+void CameraPreviewSessionTest::enrollmentBudgetIsGrantedOncePerPreview()
+{
+    CameraPreviewSession session(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    QVERIFY(!session.beginEnrollmentBudget());
+    session.refreshDevices();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    session.setSelectedDeviceIndex(0);
+    session.startPreview();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Streaming);
+    QCOMPARE(session.remainingSeconds(), PreviewProtocol::MaxPreviewSeconds);
+    QVERIFY(session.beginEnrollmentBudget());
+    QCOMPARE(session.remainingSeconds(), PreviewProtocol::MaxEnrollmentSeconds);
+    QVERIFY(!session.beginEnrollmentBudget());
+    QTest::qWait(1100);
+    QVERIFY(session.remainingSeconds() < PreviewProtocol::MaxEnrollmentSeconds);
+    const int remaining = session.remainingSeconds();
+    QVERIFY(!session.beginEnrollmentBudget());
+    QCOMPARE(session.remainingSeconds(), remaining);
+    session.stopPreview();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    session.startPreview();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Streaming);
+    QCOMPARE(session.remainingSeconds(), PreviewProtocol::MaxPreviewSeconds);
+    QVERIFY(session.beginEnrollmentBudget());
+    session.stopPreview();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
 }
 
 void CameraPreviewSessionTest::invalidSelectionIsIgnored()

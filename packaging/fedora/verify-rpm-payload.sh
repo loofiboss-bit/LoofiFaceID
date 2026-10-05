@@ -29,7 +29,7 @@ assert_package_name() {
 assert_no_auth_payload() {
     local rpm_path=$1
     local file_list=$2
-    if grep -Eq '(^|/)(kfaceauthd|kfaceauth-sync-vault|kfaceauth-pam-setup|pam_kfaceauth\.so|kfaceauth\.service|kfaceauth\.socket|kfaceauth\.conf|org\.kde\.kfaceauth\.policy)(/|$)' <<<"$file_list" \
+    if grep -Eq '(^|/)(kfaceauth-auth-worker|kfaceauthd|kfaceauth-sync-vault|kfaceauth-pam-setup|pam_kfaceauth\.so|kfaceauth\.service|kfaceauth\.socket|kfaceauth\.conf|org\.kde\.kfaceauth\.policy)(/|$)' <<<"$file_list" \
         || grep -Eq '^/usr/share/kfaceauth/selinux(/|$)' <<<"$file_list" \
         || grep -Eq '^/(etc/pam\.d|etc/kfaceauth|var/lib/kfaceauth)(/|$)' <<<"$file_list"; then
         fail "$rpm_path contains experimental authentication files or state"
@@ -83,7 +83,8 @@ if [[ $# -eq 2 ]]; then
     expected_auth_files=(
         /usr/bin/kfaceauth-pam-setup
         /usr/lib64/security/pam_kfaceauth.so
-        /usr/libexec/kfaceauthd
+        /usr/libexec/kfaceauth-auth-worker
+    /usr/libexec/kfaceauthd
         /usr/libexec/kfaceauth-sync-vault
         /usr/lib/systemd/system/kfaceauth.service
         /usr/lib/systemd/system/kfaceauth.socket

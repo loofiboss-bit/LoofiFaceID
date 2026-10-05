@@ -22,8 +22,10 @@ outside its scope.
   kept separate from the KWallet comparison profile.
 
 OpenCV and ONNX parsing remain native-library risk. They are confined to
-short-lived ordinary-user workers with disabled core dumps, bounded input and
-output, no network, and no privilege.
+short-lived workers with disabled core dumps, bounded input/output and no
+network. Standard workers run as the logged-in user. The opt-in authentication
+worker runs under the confined `kfaceauth` service account with read-only system
+vault/key access and camera access; it does not obtain administrator privilege.
 
 ## Explicitly unsupported
 
@@ -75,3 +77,15 @@ snapshots/backups, or physical erasure. KWallet is unavailable before login.
 See [IDENTITY-PIPELINE.md](IDENTITY-PIPELINE.md),
 [IDENTITY-PROTOCOL.md](IDENTITY-PROTOCOL.md), and
 [TEMPLATE-VAULT.md](TEMPLATE-VAULT.md).
+
+## v5.3.0 process boundary
+
+The daemon owns peer authorization, ingress/rate limits and at most one auth
+child. A fixed private stdin record carries UID and timeout; the child returns
+only a fixed status. Neither keys nor camera frames enter argv, environment,
+logs or the public socket. Child capture/native inference is terminated at the
+parent's deadline; late success is rejected. An unreaped child continues to
+exclude new capture, without blocking the password-fallback response.
+`LocalProfile` and `ExperimentalAuth` are explicit internal extraction purposes:
+local comparison has no speculative PAD gate, while authentication rejects
+heuristic analysis failure. Neither purpose establishes spoof resistance.

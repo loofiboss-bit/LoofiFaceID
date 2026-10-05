@@ -1,3 +1,4 @@
+/usr/libexec/kfaceauth-auth-worker         -- system_u:object_r:kfaceauth_exec_t:s0
 /usr/libexec/kfaceauthd                  -- system_u:object_r:kfaceauth_exec_t:s0
 /var/lib/kfaceauth(/.*)?                    system_u:object_r:kfaceauth_var_lib_t:s0
 /etc/kfaceauth(/.*)?                        system_u:object_r:kfaceauth_etc_t:s0

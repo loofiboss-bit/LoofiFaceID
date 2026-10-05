@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 
 PreviewWorker::PreviewWorker(QObject *parent) : QObject(parent)
@@ -23,7 +24,8 @@ PreviewWorker::PreviewWorker(QObject *parent) : QObject(parent)
                 auto record = baseRecord(QStringLiteral("started"));
                 record.insert(QStringLiteral("seconds"), PreviewProtocol::MaxPreviewSeconds);
                 queueControl(record);
-                m_previewLimit.start();
+                m_previewLimit.start(
+                    static_cast<int>(std::max<qint64>(1, m_deadlineMs - PreviewProtocol::monotonicMilliseconds())));
             });
     connect(&m_provider, &CameraProvider::rawFrameReady, this,
             [this](const QByteArray &rgb, int width, int height, const QString &spectrum)
@@ -152,11 +154,28 @@ void PreviewWorker::handleCommand(const QCborMap &command)
 
     if (type.toString() == QLatin1String("discover") && command.size() == 4)
         discover();
-    else if (type.toString() == QLatin1String("start") && command.size() == 5 &&
+    else if (type.toString() == QLatin1String("start") && command.size() == 6 &&
+             command.value(QStringLiteral("deadline_ms")).isInteger() &&
+             PreviewProtocol::validDeadline(command.value(QStringLiteral("deadline_ms")).toInteger(),
+                                            PreviewProtocol::MaxPreviewSeconds) &&
              command.value(QStringLiteral("device")).isString() &&
              !command.value(QStringLiteral("device")).toString().isEmpty() &&
              command.value(QStringLiteral("device")).toString().size() <= 64)
-        startPreview(command.value(QStringLiteral("device")).toString());
+        startPreview(command.value(QStringLiteral("device")).toString(),
+                     command.value(QStringLiteral("deadline_ms")).toInteger());
+    else if (type.toString() == QLatin1String("enrollment") && command.size() == 5 && m_provider.active() &&
+             !m_enrollmentBudgetGranted && command.value(QStringLiteral("deadline_ms")).isInteger() &&
+             m_deadlineMs > PreviewProtocol::monotonicMilliseconds() &&
+             PreviewProtocol::validDeadline(command.value(QStringLiteral("deadline_ms")).toInteger(),
+                                            PreviewProtocol::MaxEnrollmentSeconds))
+    {
+        m_enrollmentBudgetGranted = true;
+        m_deadlineMs = command.value(QStringLiteral("deadline_ms")).toInteger();
+        m_previewLimit.start(static_cast<int>(m_deadlineMs - PreviewProtocol::monotonicMilliseconds()));
+        auto record = baseRecord(QStringLiteral("budget"));
+        record.insert(QStringLiteral("deadline_ms"), m_deadlineMs);
+        queueControl(record);
+    }
     else if (type.toString() == QLatin1String("stop") && command.size() == 4)
         stopPreview(QStringLiteral("requested"));
     else
@@ -180,13 +199,15 @@ void PreviewWorker::discover()
     queueControl(record);
 }
 
-void PreviewWorker::startPreview(const QString &token)
+void PreviewWorker::startPreview(const QString &token, qint64 deadlineMs)
 {
     if (m_provider.active())
     {
         sendError(QStringLiteral("camera-busy"));
         return;
     }
+    m_deadlineMs = deadlineMs;
+    m_enrollmentBudgetGranted = false;
     m_droppedFrames = 0;
     m_pendingFrame.clear();
     if (!m_sessionId.isEmpty())

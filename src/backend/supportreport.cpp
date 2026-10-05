@@ -3,7 +3,9 @@
 #include "supportreport.h"
 
 #include "camerapreviewsession.h"
+#include "enrollmentsession.h"
 #include "systemstate.h"
+#include <QMetaEnum>
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -38,6 +40,16 @@ SupportReport::SupportReport(SystemState *systemState, CameraPreviewSession *cam
         connect(m_cameraPreviewSession, &CameraPreviewSession::devicesChanged, this, &SupportReport::rebuild);
         connect(m_cameraPreviewSession, &CameraPreviewSession::stateChanged, this, &SupportReport::rebuild);
     }
+    rebuild();
+}
+
+void SupportReport::setEnrollmentSession(EnrollmentSession *session)
+{
+    if (m_enrollmentSession)
+        disconnect(m_enrollmentSession, nullptr, this, nullptr);
+    m_enrollmentSession = session;
+    if (session)
+        connect(session, &EnrollmentSession::systemAuthChanged, this, &SupportReport::rebuild);
     rebuild();
 }
 
@@ -311,17 +323,24 @@ void SupportReport::rebuild()
                        "- Native cameras: total=%15 rgb=%16 ir=%17 unknown=%18\n"
                        "- Native preview error: %19\n"
                        "- Native preview dropped frames: %20\n")
-            .arg(redactedValue(m_systemState->dataSource()), redactedValue(m_systemState->distribution()),
-                 redactedValue(m_systemState->fedoraVersion()), redactedValue(m_systemState->plasmaVersion()),
-                 redactedValue(m_systemState->activeDisplayManager()),
-                 redactedValue(m_systemState->engineStatusLabel()), redactedValue(m_systemState->engineVersion()),
-                 redactedValue(m_systemState->visionStatusLabel()),
-                 redactedValue(m_systemState->enrollmentStatusLabel()),
-                 redactedValue(m_systemState->authenticationStatusLabel()),
-                 redactedValue(m_systemState->pamStatusLabel()),
-                 redactedValue(m_systemState->templatePersistenceStatusLabel()),
-                 redactedValue(m_systemState->secureBootStatusLabel()),
-                 redactedValue(m_issueCode.isEmpty() ? QStringLiteral("none") : m_issueCode))
+            .arg(
+                redactedValue(m_systemState->dataSource()), redactedValue(m_systemState->distribution()),
+                redactedValue(m_systemState->fedoraVersion()), redactedValue(m_systemState->plasmaVersion()),
+                redactedValue(m_systemState->activeDisplayManager()), redactedValue(m_systemState->engineStatusLabel()),
+                redactedValue(m_systemState->engineVersion()), redactedValue(m_systemState->visionStatusLabel()),
+                redactedValue(m_systemState->enrollmentStatusLabel()),
+                QStringLiteral("Local comparison only; system authentication is an unqualified experiment"),
+                m_enrollmentSession
+                    ? QStringLiteral("SDDM=%1; Plasma=%2")
+                          .arg(
+                              QString::fromLatin1(QMetaEnum::fromType<EnrollmentSession::AuthTargetStatus>().valueToKey(
+                                  static_cast<int>(m_enrollmentSession->sddmAuthStatus()))),
+                              QString::fromLatin1(QMetaEnum::fromType<EnrollmentSession::AuthTargetStatus>().valueToKey(
+                                  static_cast<int>(m_enrollmentSession->plasmaLockAuthStatus()))))
+                    : QStringLiteral("Unavailable"),
+                redactedValue(m_systemState->templatePersistenceStatusLabel()),
+                redactedValue(m_systemState->secureBootStatusLabel()),
+                redactedValue(m_issueCode.isEmpty() ? QStringLiteral("none") : m_issueCode))
             .arg(m_cameraPreviewSession ? m_cameraPreviewSession->deviceCount() : 0)
             .arg(m_cameraPreviewSession ? m_cameraPreviewSession->deviceCountForSpectrum(QStringLiteral("rgb")) : 0)
             .arg(m_cameraPreviewSession ? m_cameraPreviewSession->deviceCountForSpectrum(QStringLiteral("ir")) : 0)

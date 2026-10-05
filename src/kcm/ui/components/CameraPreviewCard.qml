@@ -189,9 +189,11 @@ Kirigami.AbstractCard {
             }
         }
 
-        RowLayout {
+        GridLayout {
             Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
+            columns: root.width >= Kirigami.Units.gridUnit * 28 ? 3 : 1
+            columnSpacing: Kirigami.Units.smallSpacing
+            rowSpacing: Kirigami.Units.smallSpacing
 
             QQC2.ComboBox {
                 id: deviceSelector

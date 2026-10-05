@@ -62,8 +62,8 @@ CameraPreviewSession::CameraPreviewSession(QString workerPath, QObject *parent)
     connect(&m_countdownTimer, &QTimer::timeout, this,
             [this]()
             {
-                if (m_remainingSeconds > 0)
-                    --m_remainingSeconds;
+                m_remainingSeconds = static_cast<int>(
+                    std::max<qint64>(0, (m_deadlineMs - PreviewProtocol::monotonicMilliseconds() + 999) / 1000));
                 Q_EMIT stateChanged();
                 if (m_remainingSeconds == 0)
                     stopPreview();
@@ -195,7 +195,10 @@ QString CameraPreviewSession::spectrum() const
 
 int CameraPreviewSession::remainingSeconds() const
 {
-    return m_remainingSeconds;
+    if (m_state != State::Starting && m_state != State::Streaming)
+        return 0;
+    return static_cast<int>(
+        std::max<qint64>(0, (m_deadlineMs - PreviewProtocol::monotonicMilliseconds() + 999) / 1000));
 }
 
 quint64 CameraPreviewSession::droppedFrames() const
@@ -266,6 +269,8 @@ void CameraPreviewSession::startPreview()
     m_errorCode.clear();
     m_droppedFrames = 0;
     m_remainingSeconds = PreviewProtocol::MaxPreviewSeconds;
+    m_deadlineMs = PreviewProtocol::monotonicMilliseconds() + PreviewProtocol::MaxPreviewSeconds * 1000;
+    m_enrollmentBudgetGranted = false;
     if (!m_sessionId.isEmpty())
     {
         if (m_sharedMemory.isAttached())
@@ -276,6 +281,19 @@ void CameraPreviewSession::startPreview()
     setState(State::Starting, translate("Starting the selected camera…"));
     sendCommand(QStringLiteral("start"), m_devices.at(m_selectedDeviceIndex).token);
     m_startupTimer.start();
+}
+
+bool CameraPreviewSession::beginEnrollmentBudget()
+{
+    if (m_state != State::Streaming || m_enrollmentBudgetGranted ||
+        m_deadlineMs <= PreviewProtocol::monotonicMilliseconds())
+        return false;
+    m_enrollmentBudgetGranted = true;
+    m_deadlineMs = PreviewProtocol::monotonicMilliseconds() + PreviewProtocol::MaxEnrollmentSeconds * 1000;
+    m_remainingSeconds = PreviewProtocol::MaxEnrollmentSeconds;
+    sendCommand(QStringLiteral("enrollment"));
+    Q_EMIT stateChanged();
+    return m_state == State::Streaming;
 }
 
 void CameraPreviewSession::stopPreview()
@@ -377,6 +395,8 @@ void CameraPreviewSession::sendCommand(const QString &type, const QString &devic
     command.insert(QStringLiteral("type"), type);
     if (!deviceToken.isEmpty())
         command.insert(QStringLiteral("device"), deviceToken);
+    if (type == QLatin1String("start") || type == QLatin1String("enrollment"))
+        command.insert(QStringLiteral("deadline_ms"), m_deadlineMs);
     const QByteArray encoded = PreviewProtocol::encode(command);
     if (encoded.isEmpty() || m_process->write(encoded) != encoded.size())
     {
@@ -437,6 +457,10 @@ bool CameraPreviewSession::handleRecord(const QCborMap &record)
         setState(State::Streaming, translate("Preview is live and remains only in memory."));
         return true;
     }
+    if (type.toString() == QLatin1String("budget"))
+        return (m_state == State::Streaming || m_state == State::Stopping) && m_enrollmentBudgetGranted &&
+               record.size() == 5 && record.value(QStringLiteral("deadline_ms")).isInteger() &&
+               record.value(QStringLiteral("deadline_ms")).toInteger() == m_deadlineMs;
     if (type.toString() == QLatin1String("frame"))
         return handleFrame(record);
     if (type.toString() == QLatin1String("stopped"))

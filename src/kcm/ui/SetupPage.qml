@@ -67,6 +67,25 @@ Kirigami.ScrollablePage {
         }
     }
 
+    function retryGuidance() {
+        if (!root.isEnrolling || root.visionAnalysisSession === null
+            || root.cameraPreviewSession === null || !root.cameraPreviewSession.previewActive)
+            return
+        root.resetStability()
+        root.lastGuidanceGeneration = ""
+        autoCaptureCooldown.stop()
+        root.visionAnalysisSession.startGuidance()
+    }
+
+    function saveProfile() {
+        if (root.enrollmentSession === null || !root.enrollmentSession.canFinish)
+            return
+        if (root.enrollmentSession.replacementConfirmationRequired)
+            replacementConfirmation.open()
+        else
+            root.enrollmentSession.finishAndSave()
+    }
+
     function beginFirstStart() {
         if (!root.backendReady)
             return
@@ -187,6 +206,33 @@ Kirigami.ScrollablePage {
         function onSampleCaptured(sampleIndex, automatic) {
             root.resetStability()
             autoCaptureCooldown.restart()
+        }
+    }
+
+    QQC2.Dialog {
+        id: replacementConfirmation
+        objectName: "replaceProfileConfirmation"
+        parent: QQC2.Overlay.overlay
+        modal: true
+        title: i18n("Replace the current face profile?")
+        standardButtons: QQC2.Dialog.Save | QQC2.Dialog.Cancel
+        onAccepted: {
+            if (root.enrollmentSession !== null && root.enrollmentSession.canFinish)
+                root.enrollmentSession.finishAndSave()
+        }
+        onClosed: {
+            if (finishButton.visible)
+                finishButton.forceActiveFocus()
+            else
+                saveNowButton.forceActiveFocus()
+        }
+
+        QQC2.Label {
+            width: Math.min(Kirigami.Units.gridUnit * 28, root.width)
+            text: i18n("Saving replaces your current encrypted local profile. Cancelling or a failed save keeps the previous profile.")
+            wrapMode: Text.Wrap
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
         }
     }
 
@@ -336,8 +382,8 @@ Kirigami.ScrollablePage {
                 contentItem: ColumnLayout {
                     spacing: Kirigami.Units.mediumSpacing
 
-                    // Header & Status
-                    RowLayout {
+                    // Keep long translated status and actions readable at narrow widths.
+                    ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Kirigami.Units.smallSpacing
 
@@ -394,10 +440,10 @@ Kirigami.ScrollablePage {
                         visible: root.isEnrolling || (root.enrollmentSession !== null && root.enrollmentSession.sampleCount > 0)
                         spacing: Kirigami.Units.smallSpacing
 
-                        // 5 Steps Visual Indicators
-                        RowLayout {
+                        // Wrap pose indicators instead of compressing their labels.
+                        Flow {
                             Layout.fillWidth: true
-                            spacing: 4
+                            spacing: Kirigami.Units.smallSpacing
 
                             Repeater {
                                 model: [
@@ -409,8 +455,15 @@ Kirigami.ScrollablePage {
                                 ]
 
                                 Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Kirigami.Units.gridUnit * 2.2
+                                    width: poseLabel.implicitWidth + Kirigami.Units.iconSizes.small
+                                        + Kirigami.Units.smallSpacing * 4
+                                    height: Math.max(Kirigami.Units.gridUnit * 2.2,
+                                        poseLabel.implicitHeight + Kirigami.Units.smallSpacing * 2)
+                                    objectName: "enrollmentPoseStep"
+                                    Accessible.role: Accessible.StaticText
+                                    Accessible.name: modelData.name + " " + (index < root.currentStep
+                                        ? i18n("Completed") : (index === root.currentStep
+                                            ? i18n("Current step") : i18n("Pending")))
                                     radius: Kirigami.Units.cornerRadius
                                     color: index < root.currentStep
                                         ? Qt.alpha(Kirigami.Theme.positiveTextColor, 0.18)
@@ -440,6 +493,7 @@ Kirigami.ScrollablePage {
                                         }
 
                                         QQC2.Label {
+                                            id: poseLabel
                                             text: modelData.name
                                             font.pointSize: Kirigami.Theme.smallFont.pointSize * 0.9
                                             font.weight: index === root.currentStep && root.isEnrolling ? Font.Bold : Font.Normal
@@ -457,13 +511,16 @@ Kirigami.ScrollablePage {
                         // Prominent Current Instruction Banner
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
+                            objectName: "enrollmentGuidanceBanner"
+                            Layout.preferredHeight: Math.max(Kirigami.Units.gridUnit * 2.5,
+                                guidanceLayout.implicitHeight + Kirigami.Units.smallSpacing * 2)
                             radius: Kirigami.Units.cornerRadius
                             color: Qt.alpha(Kirigami.Theme.highlightColor, 0.12)
                             border.color: Kirigami.Theme.highlightColor
                             border.width: 1
 
-                            RowLayout {
+                            ColumnLayout {
+                                id: guidanceLayout
                                 anchors.fill: parent
                                 anchors.margins: Kirigami.Units.smallSpacing
                                 spacing: Kirigami.Units.smallSpacing
@@ -477,6 +534,8 @@ Kirigami.ScrollablePage {
 
                                 QQC2.Label {
                                     Layout.fillWidth: true
+                                    objectName: "enrollmentGuidanceText"
+                                    Layout.minimumHeight: implicitHeight
                                     text: root.currentGuidanceText
                                     font.weight: Font.DemiBold
                                     font.pointSize: Kirigami.Theme.defaultFont.pointSize
@@ -541,7 +600,8 @@ Kirigami.ScrollablePage {
                         QQC2.Button {
                             id: startButton
                             objectName: "startEnrollmentButton"
-                            text: i18n("Start guided registration")
+                            text: root.enrollmentSession !== null && root.enrollmentSession.profileReady
+                                ? i18n("Register a replacement profile") : i18n("Start guided registration")
                             icon.name: "list-add-user"
                             enabled: root.enrollmentSession !== null && root.enrollmentSession.canStartEnrollment
                             visible: !root.isEnrolling && root.cameraPreviewSession !== null
@@ -590,7 +650,8 @@ Kirigami.ScrollablePage {
                         QQC2.Button {
                             id: finishButton
                             objectName: "finishEnrollmentButton"
-                            text: i18n("Save profile")
+                            text: root.enrollmentSession !== null && root.enrollmentSession.profileReady
+                                ? i18n("Replace profile") : i18n("Save profile")
                             icon.name: "document-save"
                             enabled: root.enrollmentSession !== null && root.enrollmentSession.canFinish
                             visible: root.enrollmentSession !== null && root.enrollmentSession.canFinish
@@ -598,10 +659,7 @@ Kirigami.ScrollablePage {
                             activeFocusOnTab: true
                             Accessible.name: text
                             onClicked: {
-                                if (root.enrollmentSession !== null)
-                                    root.enrollmentSession.finishAndSave()
-                                if (root.visionAnalysisSession !== null)
-                                    root.visionAnalysisSession.stopGuidance()
+                                root.saveProfile()
                             }
                         }
 
@@ -618,10 +676,7 @@ Kirigami.ScrollablePage {
                             Accessible.name: text
                             Accessible.description: i18n("Five samples are recommended for a more varied local profile.")
                             onClicked: {
-                                if (root.enrollmentSession !== null)
-                                    root.enrollmentSession.finishAndSave()
-                                if (root.visionAnalysisSession !== null)
-                                    root.visionAnalysisSession.stopGuidance()
+                                root.saveProfile()
                             }
                         }
 
@@ -668,6 +723,19 @@ Kirigami.ScrollablePage {
                         wrapMode: Text.Wrap
                         Accessible.role: Accessible.Alert
                         Accessible.name: text
+                    }
+
+                    QQC2.Button {
+                        objectName: "retryGuidanceButton"
+                        visible: root.isEnrolling && root.visionAnalysisSession !== null
+                            && root.visionAnalysisSession.errorCode.length > 0
+                        enabled: root.cameraPreviewSession !== null && root.cameraPreviewSession.previewActive
+                            && !root.enrollmentSession.busy
+                        text: i18n("Retry guidance")
+                        icon.name: "view-refresh"
+                        activeFocusOnTab: true
+                        Accessible.name: text
+                        onClicked: root.retryGuidance()
                     }
 
                     QQC2.Label {

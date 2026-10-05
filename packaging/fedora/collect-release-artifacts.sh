@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+version="$(python3 "${repo_root}/tools/verify_project_identity.py" --field version)"
+archive_name="$(python3 "${repo_root}/tools/verify_project_identity.py" --field archive)"
 
 if [[ $# -ne 3 ]]; then
     echo "Usage: $0 SOURCE_ARCHIVE RPMBUILD_ROOT OUTPUT_DIRECTORY" >&2
@@ -11,8 +14,8 @@ source_archive="$(realpath "$1")"
 rpmbuild_root="$(realpath "$2")"
 output_directory="$3"
 
-if [[ ! -s "${source_archive}" || "$(basename "${source_archive}")" != "kfaceauth-5.2.1.tar.gz" ]]; then
-    echo "Expected a non-empty kfaceauth-5.2.1.tar.gz source archive" >&2
+if [[ ! -s "${source_archive}" || "$(basename "${source_archive}")" != "${archive_name}" ]]; then
+    echo "Expected a non-empty ${archive_name} source archive" >&2
     exit 1
 fi
 if [[ ! -d "${rpmbuild_root}/RPMS" || ! -d "${rpmbuild_root}/SRPMS" ]]; then
@@ -23,21 +26,21 @@ fi
 binary_rpms=()
 while IFS= read -r candidate; do
     if [[ "$(rpm -qp --queryformat '%{NAME}' "${candidate}")" == "kfaceauth" &&
-          "$(rpm -qp --queryformat '%{VERSION}' "${candidate}")" == "5.2.1" &&
-          "$(rpm -qp --queryformat '%{ARCH}' "${candidate}")" != "src" ]]; then
+          "$(rpm -qp --queryformat '%{VERSION}' "${candidate}")" == "${version}" &&
+          "$(rpm -qp --queryformat '%{SOURCEPACKAGE}' "${candidate}")" != "1" ]]; then
         binary_rpms+=("${candidate}")
     fi
 done < <(find "${rpmbuild_root}/RPMS" -type f -name '*.rpm' -print)
 if [[ ${#binary_rpms[@]} -ne 1 ]]; then
-    echo "Expected exactly one binary kfaceauth 5.2.1 RPM, found ${#binary_rpms[@]}" >&2
+    echo "Expected exactly one binary kfaceauth ${version} RPM, found ${#binary_rpms[@]}" >&2
     exit 1
 fi
 
 mapfile -t source_rpms < <(
-    find "${rpmbuild_root}/SRPMS" -maxdepth 1 -type f -name 'kfaceauth-5.2.1-*.src.rpm' -print
+    find "${rpmbuild_root}/SRPMS" -maxdepth 1 -type f -name "kfaceauth-${version}-*.src.rpm" -print
 )
 if [[ ${#source_rpms[@]} -ne 1 || ! -s "${source_rpms[0]:-}" ]]; then
-    echo "Expected exactly one non-empty kfaceauth 5.2.1 source RPM" >&2
+    echo "Expected exactly one non-empty kfaceauth ${version} source RPM" >&2
     exit 1
 fi
 

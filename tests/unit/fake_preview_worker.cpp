@@ -68,6 +68,12 @@ class FakeWorker final : public QObject
                 response.insert(QStringLiteral("devices"), devices);
                 send(response);
             }
+            else if (type == QLatin1String("enrollment"))
+            {
+                QCborMap response = base(QStringLiteral("budget"));
+                response.insert(QStringLiteral("deadline_ms"), command.value(QStringLiteral("deadline_ms")));
+                send(response);
+            }
             else if (type == QLatin1String("start"))
             {
                 m_activeToken = command.value(QStringLiteral("device")).toString();

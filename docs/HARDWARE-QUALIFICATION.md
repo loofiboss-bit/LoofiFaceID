@@ -97,3 +97,36 @@ For each track, record date, tester/reviewer role, build, Fedora/Plasma/OpenCV
 versions, camera class, lighting and accessibility conditions, scenario,
 result, failures, and untested coverage. Never record a participant's identity,
 camera serial, image, embedding, or per-image score.
+
+## Aggregate profile evaluator
+
+Run the non-installed `kfaceauth-identity-evaluate` with absolute
+`--model-root` and `--dataset-manifest` paths. Use only consented data.
+The UTF-8, tab-separated manifest starts with `kfaceauth-evaluation-v2`.
+Each subsequent row is `positive-pseudonymous-group<TAB>enrollment|probe<TAB>absolute-PPM-path`.
+For example, group `1` has three to eight separate `enrollment` images and
+one or more held-out `probe` images. Every image path must be unique across
+roles and groups (symlink aliases are rejected). Do not put names in group IDs.
+PPM images must be P6 RGB, maximum 1920 by 1080, with maximum value 255.
+
+The evaluator supports up to 100,000 entries and 32 MiB of manifest metadata.
+It processes one frame at a time and holds only one profile (3–8 embeddings)
+and one probe embedding. Each profile is compared with every held-out probe,
+using the product's `Profile::verify` median policy and ambiguity margin.
+A profile with a failed extraction or an enrollment count outside 3–8 is
+counted as an enrollment failure and is excluded from comparison denominators.
+`genuine` and `impostor` report aggregate Match, NoMatch, Ambiguous, and
+extraction-failure counts; `attempted` includes failed probe extractions.
+The top-level image errors and accepted count describe the initial measurement
+pass, whereas decision counts describe profile/probe comparison attempts.
+No identity, path, image, embedding, or individual similarity is reported.
+
+Schema 3 output retains model initialization, cold/warm pipeline and worker
+process median/p95/worst latency, and peak RSS measurements. Repeated probe
+extraction trades runtime for bounded biometric memory. `--labelled-evaluation`
+labels a multi-profile result with no enrollment or probe failures
+`decision_evaluation: dataset-scoped`; `far_frr_qualification` stays `unqualified`.
+This is not hardware,
+authentication, demographic, spoof, or general FAR/FRR qualification. The
+pairwise threshold sweep is replaced by the product's actual decision policy.
+Permissioned dataset and physical qualification remain `NOT RUN`.

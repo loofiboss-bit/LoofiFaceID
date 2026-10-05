@@ -89,6 +89,7 @@ class CameraPreviewSession final : public QAbstractListModel
     Q_INVOKABLE void startPreview();
     Q_INVOKABLE void stopPreview();
     void clearFrame();
+    bool beginEnrollmentBudget();
 
   Q_SIGNALS:
     void stateChanged();
@@ -132,6 +133,8 @@ class CameraPreviewSession final : public QAbstractListModel
     quint64 m_droppedFrames = 0;
     quint64 m_frameRevision = 0;
     int m_remainingSeconds = 0;
+    qint64 m_deadlineMs = 0;
+    bool m_enrollmentBudgetGranted = false;
     qsizetype m_stderrBytes = 0;
     bool m_expectedExit = false;
     QTimer m_startupTimer;

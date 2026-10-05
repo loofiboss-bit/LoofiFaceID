@@ -4,10 +4,10 @@ LoofiFace-ID (KFaceAuth) is an experimental local profile and explicit
 comparison utility for a logged-in Fedora 44/KDE Plasma session. It does not
 enable PAM, SDDM, sudo, Polkit, desktop unlock, or login authentication.
 
-Version 5.2.1 is the current stable package release for this local workflow.
+Version 5.3.0 is the current stable package release for this local workflow.
 This release status does not qualify face comparison as an authentication
-factor. See the [release notes](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.1)
-and [qualification record](RELEASE-QUALIFICATION-V5.2.md).
+factor. See the [release notes](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.3.0)
+and [qualification record](RELEASE-QUALIFICATION-V5.3.md).
 
 ## Install and launch
 
@@ -23,6 +23,18 @@ Open **Home** and follow the one primary action. Choose **Get started** when a
 profile is missing and the camera is not running. The only usable camera is
 selected automatically; the camera selector appears only when multiple usable
 cameras are discovered.
+
+## What's new in 5.3.0
+
+Explicit registration shares a five-minute deadline with its camera
+preview; ordinary preview still ends after one minute. Hiding the page, app
+inactivity, camera failure or cancellation clears unsaved samples. A failed
+framing guide can be retried within the active deadline without losing accepted
+samples. Saving over an existing profile requires a replacement confirmation;
+failed saving preserves the previous profile. Local comparison uses face/quality
+checks and does not claim or apply qualified spoof detection. The opt-in
+authentication experiment now performs native work in a separate bounded
+worker process, while remaining unqualified and absent from the standard RPM.
 
 ## First start and enrollment
 
