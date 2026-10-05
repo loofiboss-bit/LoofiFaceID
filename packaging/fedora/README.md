@@ -1,9 +1,11 @@
 # Fedora packaging
 
-The current stable package release is [KFaceAuth 5.2.0](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.0),
+The published stable package is [KFaceAuth 5.2.0](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.0),
 for the explicit local-profile workflow on Fedora 44/KDE Plasma 6. It does not
-provide an authentication factor. The opt-in PAM subpackage remains
-unsupported and unqualified for login.
+provide an authentication factor. Its COPR SRPM rebuild exposed a missing
+standard `systemd-devel` build requirement for `libudev`; the v5.2.1 candidate
+adds that requirement. The opt-in PAM subpackage remains unsupported and
+unqualified for login.
 
 The ordinary Fedora 44 RPM builds the KCM and local workers. It installs the exact
 verified YuNet FP32 and SFace FP32 artifacts with manifest, licenses, and

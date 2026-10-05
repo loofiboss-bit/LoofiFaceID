@@ -4,8 +4,8 @@
 %bcond_with experimental_auth
 
 Name:           kfaceauth
-Version:        5.2.0
-Release:        13%{?dist}
+Version:        5.2.1
+Release:        1%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
 License:        GPL-3.0-or-later AND MIT AND Apache-2.0
@@ -39,11 +39,11 @@ BuildRequires:  qt6-qtdeclarative-devel >= 6.8.0
 BuildRequires:  qt6-qtmultimedia-devel >= 6.8.0
 BuildRequires:  rust
 BuildRequires:  rustfmt
+BuildRequires:  systemd-devel
 %if %{with experimental_auth}
 BuildRequires:  checkpolicy
 BuildRequires:  pam-devel
 BuildRequires:  policycoreutils-devel
-BuildRequires:  systemd-devel
 %endif
 
 Requires:       kf6-kcmutils >= 6.10.0
@@ -173,6 +173,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %endif
 
 %changelog
+* Mon Oct 05 2026 Loofi <noreply@example.invalid> - 5.2.1-1
+- Require systemd-devel for the standard build's libudev development files.
+
 * Mon Oct 05 2026 Loofi <noreply@example.invalid> - 5.2.0-13
 - Restrict privileged vault helper output to static, non-identifying status
 - Require root in CI before ownership and rollback regression tests

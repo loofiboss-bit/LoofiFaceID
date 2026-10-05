@@ -27,7 +27,7 @@ class PackagingContractTests(unittest.TestCase):
 
         for declaration in (
             'set(KFACEAUTH_PROJECT_ID "kfaceauth")',
-            'set(KFACEAUTH_VERSION "5.2.0")',
+            'set(KFACEAUTH_VERSION "5.2.1")',
             'set(KFACEAUTH_DISPLAY_NAME "LoofiFace-ID")',
             'set(KFACEAUTH_KCM_ID "kcm_kfaceauth")',
             'set(KFACEAUTH_APP_ID "io.github.loofiboss_bit.KFaceAuth")',
@@ -51,7 +51,7 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn('"Version": "@PROJECT_VERSION@"', metadata)
         self.assertIn("Exec=systemsettings @KFACEAUTH_KCM_ID@", desktop)
         self.assertRegex(spec, r"(?m)^Name:\s+kfaceauth$")
-        self.assertRegex(spec, r"(?m)^Version:\s+5\.2\.0$")
+        self.assertRegex(spec, r"(?m)^Version:\s+5\.2\.1$")
         self.assertRegex(spec, r"(?m)^Release:\s+[1-9][0-9]*")
         self.assertRegex(spec, r"(?m)^URL:\s+https://github\.com/loofiboss-bit/LoofiFaceID$")
         self.assertRegex(
@@ -74,6 +74,13 @@ class PackagingContractTests(unittest.TestCase):
             r"(?m)^Provides:\s+plasma-irlume = %\{version\}-%\{release\}$",
         )
         main_metadata = spec.split("%package experimental-auth", 1)[0]
+        standard_build_requirements = main_metadata.split(
+            "%if %{with experimental_auth}", 1
+        )[0]
+        self.assertRegex(
+            standard_build_requirements,
+            r"(?m)^BuildRequires:\s+systemd-devel$",
+        )
         self.assertNotRegex(main_metadata, r"(?im)^Requires:.*(?:face|biometric|pam)")
         self.assertNotRegex(spec, r"(?m)^%(?:pre|post|preun|postun|trigger)(?:\s|$)")
         self.assertNotIn("kf6-kauth", spec)
@@ -196,8 +203,8 @@ class PackagingContractTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "kfaceauth-5.2.0.tar.gz"
-            second = Path(directory) / "kfaceauth-5.2.0-second.tar.gz"
+            output = Path(directory) / "kfaceauth-5.2.1.tar.gz"
+            second = Path(directory) / "kfaceauth-5.2.1-second.tar.gz"
             subprocess.run(
                 [
                     str(ROOT / "packaging/fedora/create-source-archive.sh"),
@@ -226,8 +233,8 @@ class PackagingContractTests(unittest.TestCase):
             self.assertTrue(names)
             self.assertTrue(
                 all(
-                    name == "kfaceauth-5.2.0"
-                    or name.startswith("kfaceauth-5.2.0/")
+                    name == "kfaceauth-5.2.1"
+                    or name.startswith("kfaceauth-5.2.1/")
                     for name in names
                 )
             )
@@ -236,16 +243,16 @@ class PackagingContractTests(unittest.TestCase):
             )
             self.assertFalse(any("/.agents/" in f"/{name}/" for name in names))
             for excluded in ("docs/IMPROVEMENT-PLAN.md",):
-                self.assertNotIn(f"kfaceauth-5.2.0/{excluded}", names)
+                self.assertNotIn(f"kfaceauth-5.2.1/{excluded}", names)
             self.assertIn(
-                "kfaceauth-5.2.0/docs/RELEASE-ERRATA-V5.0.0.md", names
+                "kfaceauth-5.2.1/docs/RELEASE-ERRATA-V5.0.0.md", names
             )
             legacy_package = "plasma-" + "irlume"
             legacy_names = [name for name in names if legacy_package in name.lower()]
             self.assertEqual(
                 legacy_names,
                 [
-                    "kfaceauth-5.2.0/packaging/fedora/tests/"
+                    "kfaceauth-5.2.1/packaging/fedora/tests/"
                     "plasma-irlume-3.0.0-fixture.spec"
                 ],
             )
@@ -332,7 +339,7 @@ class PackagingContractTests(unittest.TestCase):
             r"      contents: write\n",
         )
         self.assertEqual(workflow.count("contents: write"), 1)
-        self.assertIn('"$PWD/kfaceauth-5.2.0.tar.gz"', workflow)
+        self.assertIn('"$PWD/kfaceauth-5.2.1.tar.gz"', workflow)
         self.assertIn("retention-days: 7", workflow)
         self.assertIn("gh release upload", workflow)
         self.assertNotIn("if [ -n \"$TAG_NAME\" ]", workflow)
@@ -350,9 +357,9 @@ class PackagingContractTests(unittest.TestCase):
         collector_text = collector.read_text(encoding="utf-8")
         verifier_text = verifier.read_text(encoding="utf-8")
         for required in (
-            "kfaceauth-5.2.0.tar.gz",
+            "kfaceauth-5.2.1.tar.gz",
             "Expected exactly one binary",
-            "Expected exactly one non-empty kfaceauth 5.2.0 source RPM",
+            "Expected exactly one non-empty kfaceauth 5.2.1 source RPM",
             "sha256sum --",
         ):
             self.assertIn(required, collector_text)

@@ -16,7 +16,8 @@ Fedora OpenCV 4.13, OpenSSL 3, and KWallet. OpenVINO is optional: when the
 OpenCV build exposes its inference-engine backend, the worker probes it at
 runtime and falls back to CPU if it is unavailable. Vulkan is also optional
 and is enabled only after the worker sandbox is applied. Neither accelerator
-runtime is bundled. `systemd-devel` supplies libudev headers only. The default
+runtime is bundled. `systemd-devel` supplies the standard build's libudev
+development files. The default
 build does not build or install the experimental daemon, PAM module, systemd
 units, sysusers entry, or SELinux files.
 

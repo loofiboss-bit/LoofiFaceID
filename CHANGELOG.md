@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.2.1 — Fedora packaging correction
+
+- Declare `systemd-devel` as a standard build requirement so clean Fedora
+  buildroots provide the `libudev` development metadata used by CMake.
+- No runtime or authentication behavior changes. PAM remains opt-in,
+  unsupported, and unqualified for login.
+
 ## 5.2.0 — Stable local-session release; PAM remains experimental
 
 - Publish the Fedora 44/KDE local-profile workflow as the current stable

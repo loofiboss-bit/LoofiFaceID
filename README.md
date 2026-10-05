@@ -12,6 +12,11 @@ does not qualify face comparison for login or other security decisions. See
 the [v5.2.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.0)
 and the [release qualification record](docs/RELEASE-QUALIFICATION-V5.2.md).
 
+The v5.2.0 GitHub RPM and release checks passed, but its source package did
+not rebuild in COPR because the standard build omitted `systemd-devel` for
+`libudev`. The v5.2.1 packaging correction is being qualified; the qualification
+record tracks the COPR failure and the remaining release gates.
+
 ## What you get
 
 - A private camera preview with one-camera auto-selection and clear recovery
