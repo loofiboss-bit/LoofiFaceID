@@ -15,6 +15,11 @@ material, report aggregate results, and mark unobserved cases `NOT RUN` or
   implementation candidate.
 - PAM login-path, Enforcing-mode SELinux, and physical presentation-attack
   qualification: `NOT RUN`.
+- User-reported on 2026-10-05: face authentication worked for both SDDM login
+  and Plasma lock-screen unlock. The tested build/device, attempt counts,
+  negative cases, and password-fallback behavior were not supplied. This
+  limited report is not a complete or independently reviewed qualification;
+  the full PAM track remains `NOT RUN`.
 - Local targeted source checks pass. Root-owned vault metadata and rollback
   cases require root and are `NOT RUN` on this UID 1000 desktop; the candidate
   Fedora CI now fails early unless its test process is root.
