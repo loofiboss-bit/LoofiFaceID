@@ -2,7 +2,7 @@
 
 **Updated:** 2026-10-05
 **Review baseline:** `v5.2.1`
-**Delivery:** v5.3.0 release candidate; publication is pending the tag workflow and public readback. PAM remains an unqualified experiment.
+**Delivery:** v5.3.0 is published on GitHub and available from the Fedora 44 COPR repository; release artifacts and repository metadata were read back. PAM remains an unqualified experiment.
 
 ## Product boundary
 
@@ -60,16 +60,22 @@ Validated locally on 2026-10-05:
   ms, warm median 60.503 ms, p95 71.371 ms, peak RSS 66636 KiB. These numbers
   describe synthetic inference on the build host, not camera or login latency.
 - Exact v5.3.0 source passed fresh standard and experimental CMake/CTest builds
-  and the 72-test Python suite. The local Fedora RPM build and artifact checks
-  were performed against v5.2.1, not this candidate; the v5.3.0 tag workflow
-  must provide the release-version RPM/SRPM and payload evidence before launch.
-  SRPM identity uses SOURCEPACKAGE=1 independently of its build architecture,
-  covered by a regression test.
+  and the 72-test Python suite. Fedora 44 tag CI passed for both configurations.
+  Recovery workflow [37349441222](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37349441222)
+  rebuilt the tagged standard RPM and SRPM, checked payloads and lifecycle, then
+  verified tag/commit/archive lineage and byte-for-byte release readback. The
+  public GitHub release contains the source archive, standard RPM, source RPM,
+  and `SHA256SUMS`; the opt-in authentication RPM remains CI-only. SRPM identity
+  uses SOURCEPACKAGE=1 independently of build architecture, covered by a
+  regression test.
+- COPR build [11080464](https://copr.fedorainfracloud.org/coprs/build/11080464/)
+  succeeded for Fedora 44 x86_64. Public primary repository metadata lists
+  `kfaceauth-5.3.0-1.fc44`.
 
 Automated tests establish source behavior and packaging boundaries, not real
-camera, accessibility, SELinux login-path behavior, password fallback, or biometric
-suitability. Public release upload/readback is pending; upload protection was
-verified using mocked release endpoints.
+camera, accessibility, SELinux login-path behavior, password fallback, or
+biometric suitability. The public asset and COPR readbacks establish delivery,
+not authentication qualification.
 
 ## Remaining qualification
 

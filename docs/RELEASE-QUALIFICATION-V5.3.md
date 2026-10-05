@@ -21,17 +21,28 @@ build host:
 - Python suite: **72 tests passed**. Rust workspace tests, Clippy with warnings
   denied, Cargo formatting, C++ formatting, QML lint, Swedish translation
   checks, and all six model-integrity checks passed.
-- Exact v5.3.0 RPM/SRPM builds, payload inspection, `rpmlint`, lifecycle checks,
-  artifact verification, and release workflow results are pending the tag CI.
-  The locally verified isolated Fedora RPM build and artifact readback were for
-  v5.2.1 and do not qualify these release-version artifacts.
+- The exact v5.3.0 tag passed [Fedora 44 CI](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37337299127)
+  and [Fedora 44 RPM CI](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37337299113)
+  for standard and experimental configurations. The [tag recovery workflow](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37349441222)
+  rebuilt both variants from the existing tag; standard RPM/SRPM lint, payload,
+  and install/remove checks passed. The uploader verified tag, commit, archive
+  provenance, and byte-for-byte readback before attaching the standard release
+  asset set.
+- The public [v5.3.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.3.0)
+  contains exactly the source archive, standard x86_64 RPM, source RPM, and
+  `SHA256SUMS`. The downloaded checksum file matches GitHub's published SHA-256
+  digest for that asset, and its entries match the three artifact digests.
+- [COPR build 11080464](https://copr.fedorainfracloud.org/coprs/build/11080464/)
+  succeeded in `fedora-44-x86_64`; public repository metadata lists
+  `kfaceauth-5.3.0-1.fc44`.
 - The release artifact verifier identifies Fedora source RPMs by the RPM
   `SOURCEPACKAGE` marker, independently of build architecture; a regression
   test covers the source-package marker.
 
-These checks exercise source behavior and package contents. The automated
-release workflows and public asset readback are separate publication checks;
-a tag or local build alone is not proof that those completed.
+These checks establish source behavior, package contents, and publication of
+the standard Fedora package. They do not qualify face comparison for
+authentication or establish physical-device, accessibility, or biometric
+security suitability.
 
 ## Product performance and biometric evidence
 
