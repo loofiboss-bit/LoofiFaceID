@@ -132,6 +132,7 @@ target_compile_definitions(test_qmlpages PRIVATE
     KFACEAUTH_VERSION_STRING="${KFACEAUTH_VERSION}"
     KFACEAUTH_FAKE_PREVIEW_WORKER_PATH="$<TARGET_FILE:fake_preview_worker>"
     KFACEAUTH_FAKE_VISION_WORKER_PATH="$<TARGET_FILE:fake_vision_worker>"
+    KFACEAUTH_FAKE_IDENTITY_WORKER_PATH="$<TARGET_FILE:fake_identity_worker>"
 )
 target_link_libraries(test_qmlpages
     kfaceauth_core
@@ -142,7 +143,7 @@ target_link_libraries(test_qmlpages
     Qt6::Test
     KF6::I18nQml
 )
-add_dependencies(test_qmlpages fake_preview_worker fake_vision_worker)
+add_dependencies(test_qmlpages fake_preview_worker fake_vision_worker fake_identity_worker)
 add_test(NAME qmlpages COMMAND test_qmlpages)
 set_tests_properties(qmlpages PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 

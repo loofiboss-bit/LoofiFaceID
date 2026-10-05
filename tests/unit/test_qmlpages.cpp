@@ -19,6 +19,7 @@
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <QTest>
 #include <algorithm>
 #include <qqml.h>
@@ -36,6 +37,7 @@ class QmlPagesTest final : public QObject
     void mainSurfaceHandlesUnavailableBackend();
     void destinationPagesCreateForUnavailableEngine();
     void setupPageStopsWhenHidden();
+    void setupRecoveryReplacementAndResponsiveFocus();
     void analysisCancelsWhenApplicationDeactivates();
 };
 
@@ -362,6 +364,152 @@ void QmlPagesTest::destinationPagesCreateForUnavailableEngine()
         QVERIFY(dialog->property("modal").toBool());
         QVERIFY(!dialog->property("title").toString().isEmpty());
     }
+}
+
+namespace
+{
+class QmlTestKeyProvider final : public KWalletKeyProvider
+{
+  public:
+    void requestKey(Completion completion) override
+    {
+        completion(Result{State::Available, QByteArray(32, char(0x41))});
+    }
+};
+} // namespace
+
+void QmlPagesTest::setupRecoveryReplacementAndResponsiveFocus()
+{
+    CameraPreviewSession preview(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    VisionAnalysisSession analysis(&preview, QStringLiteral(KFACEAUTH_FAKE_VISION_WORKER_PATH),
+                                   environmentFor(QStringLiteral("crash")), nullptr);
+    QmlTestKeyProvider keys;
+    QProcessEnvironment identityEnvironment = QProcessEnvironment::systemEnvironment();
+    identityEnvironment.insert(QStringLiteral("KFACEAUTH_TEST_MODE"), QStringLiteral("session-fail-commit"));
+    IdentityWorkerClient worker(QStringLiteral(KFACEAUTH_FAKE_IDENTITY_WORKER_PATH), identityEnvironment, nullptr);
+    SystemState state;
+    EnrollmentSession enrollment(&preview, &worker, &keys);
+    QQmlEngine engine;
+    auto *localizedContext = KLocalization::setupLocalizedContext(&engine);
+    localizedContext->setTranslationDomain(QStringLiteral("kcm_kfaceauth"));
+    auto page = createPage(engine, QStringLiteral("SetupPage.qml"),
+                           {{QStringLiteral("systemState"), QVariant::fromValue(&state)},
+                            {QStringLiteral("cameraPreviewSession"), QVariant::fromValue(&preview)},
+                            {QStringLiteral("visionAnalysisSession"), QVariant::fromValue(&analysis)},
+                            {QStringLiteral("enrollmentSession"), QVariant::fromValue(&enrollment)},
+                            {QStringLiteral("autoCaptureEnabled"), false}});
+    QVERIFY(page);
+    auto *item = qobject_cast<QQuickItem *>(page.get());
+    QVERIFY(item);
+    QQuickWindow window;
+    window.resize(320, 720);
+    item->setParentItem(window.contentItem());
+    item->setSize(QSizeF(320, 720));
+    window.show();
+    window.requestActivate();
+    QCoreApplication::processEvents();
+    preview.refreshDevices();
+    QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+    preview.startPreview();
+    QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Streaming);
+    QTRY_VERIFY(preview.frameAvailable());
+    enrollment.setPageActive(true);
+    QTRY_COMPARE(enrollment.profileState(), EnrollmentSession::ProfileState::Ready);
+    enrollment.startEnrollment();
+    QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+    for (int sample = 0; sample < 3; ++sample)
+    {
+        enrollment.captureSample(false);
+        QTRY_COMPARE(enrollment.sampleCount(), sample + 1);
+    }
+
+    analysis.startGuidance();
+    QTRY_COMPARE(analysis.state(), VisionAnalysisSession::State::Failed);
+    QCOMPARE(enrollment.sampleCount(), 3);
+    auto *guidanceRetry = page->findChild<QObject *>(QStringLiteral("retryGuidanceButton"));
+    QVERIFY(guidanceRetry);
+    QTRY_VERIFY(guidanceRetry->property("visible").toBool());
+    QVERIFY(guidanceRetry->property("enabled").toBool());
+    page->setProperty("stableObservations", 2);
+    page->setProperty("lastGuidanceGeneration", QStringLiteral("stale"));
+    QVERIFY(QMetaObject::invokeMethod(guidanceRetry, "clicked"));
+    QCOMPARE(page->property("stableObservations").toInt(), 0);
+    QCOMPARE(page->property("lastGuidanceGeneration").toString(), QString());
+    QCOMPARE(enrollment.sampleCount(), 3);
+    QVERIFY(analysis.continuousTracking());
+    const int budget = preview.remainingSeconds();
+    QVERIFY(QMetaObject::invokeMethod(page.get(), "retryGuidance"));
+    QVERIFY(preview.remainingSeconds() <= budget);
+    QCOMPARE(enrollment.sampleCount(), 3);
+    analysis.stopGuidance();
+
+    auto *guidance = page->findChild<QQuickItem *>(QStringLiteral("enrollmentGuidanceText"));
+    auto *banner = page->findChild<QQuickItem *>(QStringLiteral("enrollmentGuidanceBanner"));
+    QVERIFY(guidance);
+    QVERIFY(banner);
+    for (const int width : {320, 480, 960})
+    {
+        window.resize(width, 720);
+        item->setSize(QSizeF(width, 720));
+        QCoreApplication::processEvents();
+        guidance->setProperty("text", QStringLiteral("En lång svensk instruktion som måste vara fullt läsbar "
+                                                     "även i ett smalt fönster utan att texten klipps bort."));
+        QTest::qWait(30);
+        QVERIFY2(guidance->height() + 1 >= guidance->property("implicitHeight").toReal(),
+                 qPrintable(QStringLiteral("width=%1 label=%2 implicit=%3 banner=%4")
+                                .arg(width)
+                                .arg(guidance->height())
+                                .arg(guidance->property("implicitHeight").toReal())
+                                .arg(banner->height())));
+        QVERIFY(banner->height() >= guidance->height());
+        QList<QQuickItem *> steps;
+        const auto collectSteps = [&steps](auto &&self, QQuickItem *parent) -> void
+        {
+            for (auto *child : parent->childItems())
+            {
+                if (child->objectName() == QLatin1String("enrollmentPoseStep"))
+                    steps.append(child);
+                self(self, child);
+            }
+        };
+        collectSteps(collectSteps, item);
+        QCOMPARE(steps.size(), 5);
+        for (auto *step : steps)
+        {
+            QVERIFY(step->width() > 0);
+            QVERIFY(step->x() >= 0);
+            QVERIFY(step->x() + step->width() <= step->parentItem()->width() + 1);
+        }
+    }
+
+    auto *capture = page->findChild<QQuickItem *>(QStringLiteral("captureButton"));
+    auto *retry = page->findChild<QQuickItem *>(QStringLiteral("retrySampleButton"));
+    QVERIFY(capture);
+    QVERIFY(retry);
+    capture->forceActiveFocus();
+    QTRY_VERIFY(capture->hasActiveFocus());
+    QTest::keyClick(&window, Qt::Key_Tab);
+    QTRY_VERIFY(retry->hasActiveFocus());
+    QTest::keyClick(&window, Qt::Key_Tab, Qt::ShiftModifier);
+    QTRY_VERIFY(capture->hasActiveFocus());
+
+    QVERIFY(QMetaObject::invokeMethod(page.get(), "saveProfile"));
+    auto *dialog = page->findChild<QObject *>(QStringLiteral("replaceProfileConfirmation"));
+    QVERIFY(dialog);
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    QCOMPARE(enrollment.state(), EnrollmentSession::State::ReadyToSave);
+    QVERIFY(QMetaObject::invokeMethod(dialog, "reject"));
+    QCOMPARE(enrollment.sampleCount(), 3);
+    QVERIFY(enrollment.profileReady());
+    QVERIFY(QMetaObject::invokeMethod(page.get(), "saveProfile"));
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(dialog, "accept"));
+    QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Failed);
+    QVERIFY(enrollment.profileReady());
+    QCOMPARE(enrollment.storedSampleCount(), 5);
+    item->setVisible(false);
+    QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+    item->setParentItem(nullptr);
 }
 
 void QmlPagesTest::setupPageStopsWhenHidden()

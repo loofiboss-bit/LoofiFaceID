@@ -253,7 +253,11 @@ fn process_request_with_cache(
                 Ok(provider) => provider,
                 Err(error) => return encode_error(map_load_error(&error), generation),
             };
-            match provider.extract(image, control) {
+            match provider.extract(
+                image,
+                control,
+                kfaceauth_vision::identity::ExtractionPurpose::LocalProfile,
+            ) {
                 Ok(sample)
                     if prior.iter().any(|existing| {
                         cosine_similarity(existing, &sample) >= DUPLICATE_COSINE_THRESHOLD
@@ -299,7 +303,11 @@ fn process_request_with_cache(
                 Ok(provider) => provider,
                 Err(error) => return encode_error(map_load_error(&error), generation),
             };
-            match provider.extract(image, control) {
+            match provider.extract(
+                image,
+                control,
+                kfaceauth_vision::identity::ExtractionPurpose::LocalProfile,
+            ) {
                 Ok(candidate) => encode_verification(generation, profile.verify(&candidate)),
                 Err(error) => encode_error(map_identity_error(&error), generation),
             }

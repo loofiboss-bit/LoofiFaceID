@@ -262,16 +262,16 @@ void LocalVerificationSession::handleResponse(quint64 generation, QByteArrayView
                               : response.code == 23 ? Result::SpoofDetected
                                                     : Result::InternalFailure;
         response.clearSensitive();
-        setResult(result, result == Result::Cancelled ? State::Cancelled : State::Failed,
-                  result == Result::NoProfile     ? translate("No enrolled face profile exists.")
-                  : result == Result::VaultLocked ? translate("The user-session vault is locked.")
-                  : result == Result::ModelMismatch
-                      ? translate("The enrolled profile belongs to a different model version.")
-                  : result == Result::Cancelled ? translate("The local recognition test was cancelled.")
-                  : result == Result::SpoofDetected
-                      ? translate("Presentation attack detected — replay or print presentation rejected.")
-                      : translate("The local recognition test failed safely."),
-                  QStringLiteral("identity-error-%1").arg(response.code));
+        setResult(
+            result, result == Result::Cancelled ? State::Cancelled : State::Failed,
+            result == Result::NoProfile       ? translate("No enrolled face profile exists.")
+            : result == Result::VaultLocked   ? translate("The user-session vault is locked.")
+            : result == Result::ModelMismatch ? translate("The enrolled profile belongs to a different model version.")
+            : result == Result::Cancelled     ? translate("The local recognition test was cancelled.")
+            : result == Result::SpoofDetected ? translate("The experimental image check rejected this frame. Adjust "
+                                                          "lighting and retry; this is not verified attack detection.")
+                                              : translate("The local recognition test failed safely."),
+            QStringLiteral("identity-error-%1").arg(response.code));
         return;
     }
     response.clearSensitive();

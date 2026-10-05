@@ -1,5 +1,25 @@
 # Changelog
 
+## 5.3.0 — Reliable local enrollment and release delivery
+
+- Give explicit enrollment one shared five-minute camera/session deadline while
+  retaining the one-minute ordinary preview limit and cancellation cleanup.
+- Retry failed framing guidance without discarding accepted session samples;
+  confirm replacement at save, improve narrow layouts, and unify experimental
+  authentication status across Setup, Diagnostics, and support reports.
+- Isolate experimental authentication in a killable, confined worker process;
+  bound the daemon protocol and zeroize owned camera buffers.
+- Separate local profile extraction from unqualified spoof heuristics; keep
+  conservative heuristic rejection in the authentication experiment.
+- Select only a unique compatible camera automatically and remove generic
+  vendor emitter controls.
+- Evaluate actual multi-sample profile decisions using separated enrollment
+  and probe data, with aggregate-only reporting and bounded biometric memory.
+- Build archives from an explicit source manifest; check version consistency,
+  release lineage, and immutable published artifact readback.
+- No camera, accessibility, PAM login, presentation-attack, or biometric
+  suitability qualification is claimed by this release.
+
 ## 5.2.1 — Fedora packaging correction
 
 - Declare `systemd-devel` as a standard build requirement so clean Fedora

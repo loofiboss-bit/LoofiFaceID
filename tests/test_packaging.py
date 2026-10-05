@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 IDENTITY = ROOT / "cmake/ProjectIdentity.cmake"
 SPEC = ROOT / "packaging/fedora/kfaceauth.spec"
+VERSION = re.search(r'set\(KFACEAUTH_VERSION "([0-9.]+)"\)', IDENTITY.read_text()).group(1)
 
 
 class PackagingContractTests(unittest.TestCase):
@@ -27,7 +28,7 @@ class PackagingContractTests(unittest.TestCase):
 
         for declaration in (
             'set(KFACEAUTH_PROJECT_ID "kfaceauth")',
-            'set(KFACEAUTH_VERSION "5.2.1")',
+            f'set(KFACEAUTH_VERSION "{VERSION}")',
             'set(KFACEAUTH_DISPLAY_NAME "LoofiFace-ID")',
             'set(KFACEAUTH_KCM_ID "kcm_kfaceauth")',
             'set(KFACEAUTH_APP_ID "io.github.loofiboss_bit.KFaceAuth")',
@@ -51,7 +52,7 @@ class PackagingContractTests(unittest.TestCase):
         self.assertIn('"Version": "@PROJECT_VERSION@"', metadata)
         self.assertIn("Exec=systemsettings @KFACEAUTH_KCM_ID@", desktop)
         self.assertRegex(spec, r"(?m)^Name:\s+kfaceauth$")
-        self.assertRegex(spec, r"(?m)^Version:\s+5\.2\.1$")
+        self.assertRegex(spec, rf"(?m)^Version:\s+{re.escape(VERSION)}$")
         self.assertRegex(spec, r"(?m)^Release:\s+[1-9][0-9]*")
         self.assertRegex(spec, r"(?m)^URL:\s+https://github\.com/loofiboss-bit/LoofiFaceID$")
         self.assertRegex(
@@ -203,8 +204,8 @@ class PackagingContractTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "kfaceauth-5.2.1.tar.gz"
-            second = Path(directory) / "kfaceauth-5.2.1-second.tar.gz"
+            output = Path(directory) / f"kfaceauth-{VERSION}.tar.gz"
+            second = Path(directory) / f"kfaceauth-{VERSION}-second.tar.gz"
             subprocess.run(
                 [
                     str(ROOT / "packaging/fedora/create-source-archive.sh"),
@@ -233,8 +234,8 @@ class PackagingContractTests(unittest.TestCase):
             self.assertTrue(names)
             self.assertTrue(
                 all(
-                    name == "kfaceauth-5.2.1"
-                    or name.startswith("kfaceauth-5.2.1/")
+                    name == f"kfaceauth-{VERSION}"
+                    or name.startswith(f"kfaceauth-{VERSION}/")
                     for name in names
                 )
             )
@@ -243,16 +244,16 @@ class PackagingContractTests(unittest.TestCase):
             )
             self.assertFalse(any("/.agents/" in f"/{name}/" for name in names))
             for excluded in ("docs/IMPROVEMENT-PLAN.md",):
-                self.assertNotIn(f"kfaceauth-5.2.1/{excluded}", names)
+                self.assertNotIn(f"kfaceauth-{VERSION}/{excluded}", names)
             self.assertIn(
-                "kfaceauth-5.2.1/docs/RELEASE-ERRATA-V5.0.0.md", names
+                f"kfaceauth-{VERSION}/docs/RELEASE-ERRATA-V5.0.0.md", names
             )
             legacy_package = "plasma-" + "irlume"
             legacy_names = [name for name in names if legacy_package in name.lower()]
             self.assertEqual(
                 legacy_names,
                 [
-                    "kfaceauth-5.2.1/packaging/fedora/tests/"
+                    f"kfaceauth-{VERSION}/packaging/fedora/tests/"
                     "plasma-irlume-3.0.0-fixture.spec"
                 ],
             )
@@ -279,7 +280,7 @@ class PackagingContractTests(unittest.TestCase):
             "kfaceauth-[0-9]*.rpm",
             "kfaceauth-fedora-44",
             "collect-release-artifacts.sh",
-            "verify-release-artifacts.sh",
+            "upload_release_artifacts.py",
             "retention-days: 7",
             "actions/download-artifact@",
             "KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=${{ matrix.experimental_auth }}",
@@ -339,9 +340,11 @@ class PackagingContractTests(unittest.TestCase):
             r"      contents: write\n",
         )
         self.assertEqual(workflow.count("contents: write"), 1)
-        self.assertIn('"$PWD/kfaceauth-5.2.1.tar.gz"', workflow)
+        self.assertIn("tools/verify_project_identity.py --field archive", workflow)
         self.assertIn("retention-days: 7", workflow)
-        self.assertIn("gh release upload", workflow)
+        self.assertIn("python3 tools/upload_release_artifacts.py artifacts", workflow)
+        self.assertNotIn("--clobber", workflow)
+        self.assertIn("TAG_NAME: ${{ github.event.release.tag_name }}", workflow)
         self.assertNotIn("if [ -n \"$TAG_NAME\" ]", workflow)
         experimental_job = workflow.split("  experimental-auth-rpm:\n", 1)[1]
         self.assertNotIn("actions/upload-artifact@", experimental_job)
@@ -357,9 +360,9 @@ class PackagingContractTests(unittest.TestCase):
         collector_text = collector.read_text(encoding="utf-8")
         verifier_text = verifier.read_text(encoding="utf-8")
         for required in (
-            "kfaceauth-5.2.1.tar.gz",
+            "tools/verify_project_identity.py",
             "Expected exactly one binary",
-            "Expected exactly one non-empty kfaceauth 5.2.1 source RPM",
+            "Expected exactly one non-empty kfaceauth ${version} source RPM",
             "sha256sum --",
         ):
             self.assertIn(required, collector_text)

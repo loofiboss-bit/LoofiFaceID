@@ -77,8 +77,7 @@ EnrollmentSession::EnrollmentSession(CameraPreviewSession *preview, IdentityWork
     connect(&m_sessionTimer, &QTimer::timeout, this,
             [this]()
             {
-                if (m_remainingSeconds > 0)
-                    --m_remainingSeconds;
+                m_remainingSeconds = m_preview->remainingSeconds();
                 if (m_remainingSeconds <= 0)
                 {
                     cancel();
@@ -155,7 +154,7 @@ int EnrollmentSession::maximumSamples() const
 
 int EnrollmentSession::remainingSeconds() const
 {
-    return m_remainingSeconds;
+    return enrollmentActive() ? m_preview->remainingSeconds() : 0;
 }
 
 bool EnrollmentSession::busy() const
@@ -200,6 +199,12 @@ bool EnrollmentSession::enrollmentComplete() const
 bool EnrollmentSession::profileReady() const
 {
     return m_profileState == ProfileState::Ready;
+}
+
+bool EnrollmentSession::replacementConfirmationRequired() const
+{
+    // An unavailable status cannot establish that overwriting is harmless.
+    return m_profileState != ProfileState::Absent;
 }
 
 bool EnrollmentSession::profileNeedsAttention() const
@@ -266,6 +271,8 @@ QString EnrollmentSession::sddmAuthStatusText() const
 {
     switch (m_sddmAuthStatus)
     {
+    case AuthTargetStatus::MissingComponents:
+        return translate("Experimental authentication components are not installed.");
     case AuthTargetStatus::Off:
         return translate("Disabled");
     case AuthTargetStatus::Ready:
@@ -313,6 +320,8 @@ QString EnrollmentSession::plasmaLockAuthStatusText() const
 {
     switch (m_plasmaLockAuthStatus)
     {
+    case AuthTargetStatus::MissingComponents:
+        return translate("Experimental authentication components are not installed.");
     case AuthTargetStatus::Off:
         return translate("Disabled");
     case AuthTargetStatus::Ready:
@@ -348,7 +357,7 @@ void EnrollmentSession::updateAuthTargetStatus(const QString &target, bool pamCo
     QString errorCode;
     if (!authComponentsInstalled)
     {
-        status = AuthTargetStatus::Blocked;
+        status = AuthTargetStatus::MissingComponents;
         errorCode = QStringLiteral("experimental-components-not-installed");
     }
     else if (!pamServiceAvailable)
@@ -710,7 +719,13 @@ void EnrollmentSession::startEnrollment()
                 return;
             }
             result.clear();
-            m_remainingSeconds = 300;
+            if (!m_pageActive || !m_preview->beginEnrollmentBudget())
+            {
+                fail(QStringLiteral("preview-consent-expired"),
+                     translate("Restart the camera preview before starting a new registration."));
+                return;
+            }
+            m_remainingSeconds = m_preview->remainingSeconds();
             m_sessionTimer.start();
             setState(State::Enrolling, translate("Capture three to five deliberate appearance samples."));
         });
@@ -908,10 +923,9 @@ void EnrollmentSession::handleResponse(quint64 generation, QByteArrayView payloa
             : response.code == 10 ? translate("Move the face away from the frame edge and retry.")
             : response.code == 11
                 ? translate("This sample is too similar to an existing sample. Change appearance or pose.")
-            : response.code == 23
-                ? translate(
-                      "A potential spoofing attempt or reflection was detected. Look directly at the sensor and retry.")
-                : translate("The local identity operation failed safely.");
+            : response.code == 23 ? translate("The experimental image check rejected this sample. Adjust lighting and "
+                                              "retry; this is not verified attack detection.")
+                                  : translate("The local identity operation failed safely.");
         response.clearSensitive();
         if (m_pendingOperation == PendingOperation::Capture &&
             ((response.code >= 7 && response.code <= 11) || response.code == 23))

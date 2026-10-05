@@ -4,7 +4,7 @@
 %bcond_with experimental_auth
 
 Name:           kfaceauth
-Version:        5.2.1
+Version:        5.3.0
 Release:        1%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
@@ -25,6 +25,7 @@ BuildRequires:  desktop-file-utils
 BuildRequires:  extra-cmake-modules >= 6.10.0
 BuildRequires:  gcc-c++
 BuildRequires:  gettext
+BuildRequires:  git-core
 BuildRequires:  kf6-kcmutils-devel >= 6.10.0
 BuildRequires:  kf6-kcoreaddons-devel >= 6.10.0
 BuildRequires:  kf6-ki18n-devel >= 6.10.0
@@ -117,6 +118,7 @@ export QT_QPA_PLATFORM=offscreen
 %ctest
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tools/verify_models.py --root models
+python3 tools/verify_project_identity.py
 %{_qt6_bindir}/qmllint src/kcm/ui/*.qml src/kcm/ui/components/*.qml
 find src tests/unit engine/vision-opencv-sys/native engine/crypto-openssl-sys/native \
     -type f \( -name '*.cpp' -o -name '*.h' \) -print0 \
@@ -158,6 +160,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %files experimental-auth
 %{_bindir}/kfaceauth-pam-setup
 %{_libdir}/security/pam_kfaceauth.so
+%{_libexecdir}/kfaceauth-auth-worker
 %{_libexecdir}/kfaceauthd
 %{_libexecdir}/kfaceauth-sync-vault
 %{_unitdir}/kfaceauth.service
@@ -173,6 +176,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %endif
 
 %changelog
+* Mon Oct 05 2026 Loofi <noreply@example.invalid> - 5.3.0-1
+- Improve local enrollment recovery, diagnostics, camera selection, and source release integrity
+- Keep PAM authentication opt-in and unqualified
+
 * Mon Oct 05 2026 Loofi <noreply@example.invalid> - 5.2.1-1
 - Require systemd-devel for the standard build's libudev development files.
 

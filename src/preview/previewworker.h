@@ -30,7 +30,7 @@ class PreviewWorker final : public QObject
     void readCommands();
     void handleCommand(const QCborMap &command);
     void discover();
-    void startPreview(const QString &token);
+    void startPreview(const QString &token, qint64 deadlineMs);
     void stopPreview(const QString &reason);
     void sendError(const QString &errorCode);
     void queueControl(QCborMap record);
@@ -51,5 +51,7 @@ class PreviewWorker final : public QObject
     quint64 m_sequence = 0;
     quint64 m_droppedFrames = 0;
     QTimer m_previewLimit;
+    qint64 m_deadlineMs = 0;
+    bool m_enrollmentBudgetGranted = false;
     QSharedMemory m_sharedMemory;
 };

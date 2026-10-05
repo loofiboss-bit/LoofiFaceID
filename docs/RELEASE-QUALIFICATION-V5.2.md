@@ -1,11 +1,15 @@
 # v5.2 release-series qualification
 
+This document retains release-series evidence for v5.2.1. Current stable
+release scope and candidate-specific evidence are recorded in
+[v5.3.0 qualification](RELEASE-QUALIFICATION-V5.3.md).
+
 **Stable package scope:** explicit local-profile enrollment and comparison in
 an already logged-in session. Stable package delivery is not biometric,
 authentication, or presentation-attack qualification.
 
-The published v5.2.1 GitHub release is the current stable Fedora 44 package
-release. It corrects the v5.2.0 COPR rebuild failure by declaring the standard
+At the time, the published v5.2.1 GitHub release was the stable Fedora 44
+package release. It corrects the v5.2.0 COPR rebuild failure by declaring the standard
 `systemd-devel` dependency for `libudev`. The v5.2.1 tag and release workflows
 passed, and all four published assets passed checksum and payload verification.
 The exact published SRPM succeeded in [COPR build 11075253](https://copr.fedorainfracloud.org/coprs/build/11075253/),

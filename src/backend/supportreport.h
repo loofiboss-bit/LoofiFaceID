@@ -7,6 +7,7 @@
 
 class CameraPreviewSession;
 class SystemState;
+class EnrollmentSession;
 
 class SupportReport final : public QObject
 {
@@ -35,6 +36,7 @@ class SupportReport final : public QObject
     Q_INVOKABLE void copyReport();
     Q_INVOKABLE bool exportReport();
     void setTransientIssueCode(const QString &code);
+    void setEnrollmentSession(EnrollmentSession *session);
 
     bool exportToDirectory(const QString &directory);
     [[nodiscard]] static QString redactedValue(const QString &value);
@@ -50,6 +52,7 @@ class SupportReport final : public QObject
     [[nodiscard]] QString currentIssueCode() const;
 
     SystemState *m_systemState = nullptr;
+    EnrollmentSession *m_enrollmentSession = nullptr;
     CameraPreviewSession *m_cameraPreviewSession = nullptr;
     QString m_report;
     QString m_issueCode;

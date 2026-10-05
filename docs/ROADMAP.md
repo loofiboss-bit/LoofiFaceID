@@ -1,12 +1,10 @@
 # Roadmap
 
 **Reviewed:** 2026-10-05
-**Current source version:** 5.2.1
-**Release status:** v5.2.1 is published as the current stable GitHub release.
-Its Fedora tag and release workflows pass. The exact published SRPM succeeded
-in Fedora 44 [COPR build 11075253](https://copr.fedorainfracloud.org/coprs/build/11075253/)
-after v5.2.0 exposed the missing standard `systemd-devel` requirement. PAM
-remains unsupported.
+**Current source version:** 5.3.0
+**Release status:** 5.3.0 is the current stable release for local profile
+enrollment and explicit comparison. See [release qualification](RELEASE-QUALIFICATION-V5.3.md).
+System authentication and biometric suitability remain unqualified.
 
 ## Current product
 
@@ -14,26 +12,25 @@ The standard package is an experimental Fedora 44/KDE logged-in-session
 utility for guided enrollment and explicit local profile comparison. It does
 not authenticate, unlock a session, or authorize system actions.
 
-Version 5.2.1 also contains an opt-in PAM experiment for SDDM and the Plasma
+Version 5.3.0 also contains an opt-in PAM experiment for SDDM and the Plasma
 lock screen. It is unqualified and unsupported for login. The default build
 and COPR package omit its components, and installation does not enable it.
-See [v5.2 qualification](RELEASE-QUALIFICATION-V5.2.md) and the
+See [v5.3 qualification](RELEASE-QUALIFICATION-V5.3.md) and the
 [threat boundary](THREAT-BOUNDARY.md).
 
 ## Current release and remaining work
 
-The v5.2.1 source and Fedora package are published for the explicit
-logged-in local-profile workflow. v5.2.0's standard SRPM could not rebuild in
-a clean COPR environment because its spec omitted `systemd-devel` for
-`libudev`; v5.2.1 declares the dependency. Stable package status does not
-extend to the opt-in PAM experiment, which remains unqualified and unsupported
-for login.
+The v5.3.0 source and Fedora package deliver recoverable enrollment, clearer
+status, predictable camera selection, and stronger release integrity for the
+logged-in local-profile workflow. The Fedora 44 standard package contains no
+authentication components. The opt-in PAM experiment remains unqualified and
+unsupported for login.
 
 - Keep the README, release notes, qualification record, package metadata, and
   wiki consistent with the published release. The GitHub release is
-  [v5.2.1](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.1),
+  [v5.3.0](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.3.0),
   and the historical v5.0.0 correction is linked from its release notes.
-- v5.2.1 tag [CI](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37264564300)
+- Previous v5.2.1 tag [CI](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37264564300)
   and [RPM checks](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37264564276)
   passed. Release [CI](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37265108773)
   and [RPM, lifecycle, and artifact upload](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37265108797)

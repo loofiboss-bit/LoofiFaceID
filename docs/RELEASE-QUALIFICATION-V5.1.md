@@ -2,8 +2,8 @@
 
 **Historical status: unreleased development target; not release-qualified. Face unlock is not shipped.**
 
-This v5.1.0 record is superseded by the [current v5.2.1 release and
-authentication qualification](RELEASE-QUALIFICATION-V5.2.md). The v5.1.0
+This v5.1.0 record is superseded by the [current v5.3.0 release and
+authentication qualification](RELEASE-QUALIFICATION-V5.3.md). The v5.1.0
 development state remains below for historical reference.
 
 ## Supported scope

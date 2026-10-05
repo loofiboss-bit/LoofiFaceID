@@ -215,9 +215,18 @@ Kirigami.ScrollablePage {
 
                     Components.DetailRow {
                         Layout.fillWidth: true
-                        label: i18n("System authentication")
-                        value: i18n("Not implemented")
-                        tone: 2
+                        label: i18n("Experimental SDDM sign-in")
+                        value: root.enrollmentSession !== null
+                            ? root.enrollmentSession.sddmAuthStatusText : i18n("Initializing…")
+                        tone: root.enrollmentSession !== null && root.enrollmentSession.sddmAuthEnabled ? 1 : 2
+                    }
+
+                    Components.DetailRow {
+                        Layout.fillWidth: true
+                        label: i18n("Experimental Plasma lock-screen sign-in")
+                        value: root.enrollmentSession !== null
+                            ? root.enrollmentSession.plasmaLockAuthStatusText : i18n("Initializing…")
+                        tone: root.enrollmentSession !== null && root.enrollmentSession.plasmaLockAuthEnabled ? 1 : 2
                     }
                 }
             }

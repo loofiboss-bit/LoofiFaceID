@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+version="$(python3 "${repo_root}/tools/verify_project_identity.py" --field version)"
+archive_name="$(python3 "${repo_root}/tools/verify_project_identity.py" --field archive)"
 
 if [[ $# -ne 1 ]]; then
     echo "Usage: $0 ARTIFACT_DIRECTORY" >&2
@@ -22,7 +25,7 @@ if [[ ${#release_files[@]} -ne 4 ]]; then
     exit 1
 fi
 
-expected_archive="kfaceauth-5.2.1.tar.gz"
+expected_archive="${archive_name}"
 if [[ ! -s "${artifact_directory}/${expected_archive}" ]]; then
     echo "Missing or empty source archive: ${expected_archive}" >&2
     exit 1
@@ -33,7 +36,7 @@ if [[ ! -s "${artifact_directory}/SHA256SUMS" ]]; then
 fi
 
 mapfile -t source_rpms < <(
-    find "${artifact_directory}" -maxdepth 1 -type f -name 'kfaceauth-5.2.1-*.src.rpm' -printf '%f\n'
+    find "${artifact_directory}" -maxdepth 1 -type f -name "kfaceauth-${version}-*.src.rpm" -printf '%f\n'
 )
 if [[ ${#source_rpms[@]} -ne 1 || ! -s "${artifact_directory}/${source_rpms[0]:-}" ]]; then
     echo "Expected exactly one non-empty kfaceauth source RPM" >&2
@@ -43,15 +46,21 @@ fi
 binary_rpms=()
 while IFS= read -r candidate; do
     if [[ "$(rpm -qp --queryformat '%{NAME}' "${artifact_directory}/${candidate}")" == "kfaceauth" &&
-          "$(rpm -qp --queryformat '%{ARCH}' "${artifact_directory}/${candidate}")" != "src" ]]; then
+          "$(rpm -qp --queryformat '%{VERSION}' "${artifact_directory}/${candidate}")" == "${version}" &&
+          "$(rpm -qp --queryformat '%{SOURCEPACKAGE}' "${artifact_directory}/${candidate}")" != "1" ]]; then
         binary_rpms+=("${candidate}")
     fi
 done < <(
-    find "${artifact_directory}" -maxdepth 1 -type f -name 'kfaceauth-5.2.1-*.rpm' \
+    find "${artifact_directory}" -maxdepth 1 -type f -name "kfaceauth-${version}-*.rpm" \
         ! -name '*.src.rpm' -printf '%f\n'
 )
 if [[ ${#binary_rpms[@]} -ne 1 || ! -s "${artifact_directory}/${binary_rpms[0]:-}" ]]; then
     echo "Expected exactly one non-empty binary kfaceauth RPM" >&2
+    exit 1
+fi
+
+if [[ "$(rpm -qp --queryformat '%{NAME} %{VERSION} %{SOURCEPACKAGE}' "${artifact_directory}/${source_rpms[0]}")" != "kfaceauth ${version} 1" ]]; then
+    echo "Source RPM metadata differs from canonical identity" >&2
     exit 1
 fi
 

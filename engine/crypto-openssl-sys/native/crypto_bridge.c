@@ -3,25 +3,25 @@
 #define _GNU_SOURCE
 
 #include "crypto_bridge.h"
+#include "camera_selection.h"
 
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
-#include <linux/usb/video.h>
-#include <linux/uvcvideo.h>
 #include <linux/videodev2.h>
 #include <poll.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -229,8 +229,7 @@ int kfaceauth_open_directory_nofollow(const char *path)
     }
 
     char *saveptr = NULL;
-    for (char *component = strtok_r(copy, "/", &saveptr); component != NULL;
-         component = strtok_r(NULL, "/", &saveptr))
+    for (char *component = strtok_r(copy, "/", &saveptr); component != NULL; component = strtok_r(NULL, "/", &saveptr))
     {
         if (!valid_path_component(component))
         {
@@ -687,77 +686,67 @@ struct BufferMapping
     size_t length;
 };
 
-static void auto_detect_ir_camera(char *path_out, size_t max_len)
+/* Discovery is bounded and never infers spectrum from a pixel format. */
+static void auto_detect_camera(char *path_out, size_t max_len)
 {
     if (path_out == NULL || max_len == 0)
         return;
-    for (int i = 0; i < 16; ++i)
+    path_out[0] = '\0';
+    DIR *directory = opendir("/dev");
+    if (directory == NULL)
+        return;
+    unsigned int examined = 0;
+    unsigned int compatible = 0;
+    struct dirent *entry;
+    while ((entry = readdir(directory)) != NULL)
     {
-        char candidate[64];
-        snprintf(candidate, sizeof(candidate), "/dev/video%d", i);
+        if (!kfaceauth_camera_node_name(entry->d_name))
+            continue;
+        if (++examined > 4096)
+        {
+            compatible = 2;
+            break;
+        }
+        char candidate[128];
+        int length = snprintf(candidate, sizeof(candidate), "/dev/%s", entry->d_name);
+        if (length < 0 || (size_t)length >= sizeof(candidate))
+            continue;
         int fd = open(candidate, O_RDWR | O_NONBLOCK | O_CLOEXEC);
         if (fd < 0)
             continue;
-        struct v4l2_capability cap;
-        memset(&cap, 0, sizeof(cap));
+        struct v4l2_capability cap = {0};
+        int supported = 0;
         if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0)
         {
-            uint32_t caps = cap.device_caps ? cap.device_caps : cap.capabilities;
-            if (caps & V4L2_CAP_VIDEO_CAPTURE)
+            uint32_t caps = (cap.capabilities & V4L2_CAP_DEVICE_CAPS) ? cap.device_caps : cap.capabilities;
+            struct v4l2_fmtdesc format = {0};
+            format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            for (format.index = 0; format.index < 256 && ioctl(fd, VIDIOC_ENUM_FMT, &format) == 0; ++format.index)
             {
-                int is_ir = 0;
-                if (strstr((const char *)cap.card, "IR") != NULL || strstr((const char *)cap.card, "Infrared") != NULL)
+                if (kfaceauth_camera_compatible(caps, format.pixelformat))
                 {
-                    is_ir = 1;
-                }
-                else
-                {
-                    struct v4l2_fmtdesc fmtdesc;
-                    memset(&fmtdesc, 0, sizeof(fmtdesc));
-                    fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-                    while (ioctl(fd, VIDIOC_ENUM_FMT, &fmtdesc) == 0)
-                    {
-                        if (fmtdesc.pixelformat == V4L2_PIX_FMT_GREY ||
-                            fmtdesc.pixelformat == v4l2_fourcc('Y', '1', '0', ' ') ||
-                            fmtdesc.pixelformat == v4l2_fourcc('Y', '1', '6', ' ') ||
-                            fmtdesc.pixelformat == v4l2_fourcc('Z', '1', '6', ' '))
-                        {
-                            is_ir = 1;
-                            break;
-                        }
-                        fmtdesc.index++;
-                    }
-                }
-                if (is_ir)
-                {
-                    strncpy(path_out, candidate, max_len - 1);
-                    path_out[max_len - 1] = '\0';
-                    close(fd);
-                    return;
+                    supported = 1;
+                    break;
                 }
             }
         }
         close(fd);
+        if (supported)
+        {
+            ++compatible;
+            if (compatible > 1)
+                break;
+            if ((size_t)length >= max_len)
+            {
+                compatible = 2;
+                break;
+            }
+            memcpy(path_out, candidate, (size_t)length + 1);
+        }
     }
-    path_out[0] = '\0';
-}
-
-static void try_trigger_ir_emitter(int fd, int enable)
-{
-#if defined(UVCIOC_CTRL_QUERY) && defined(UVC_SET_CUR)
-    uint8_t data[2] = {(uint8_t)(enable ? 1 : 0), 0};
-    struct uvc_xu_control_query xu;
-    memset(&xu, 0, sizeof(xu));
-    xu.unit = 0x03;
-    xu.selector = 0x01;
-    xu.query = UVC_SET_CUR;
-    xu.size = 1;
-    xu.data = data;
-    (void)ioctl(fd, UVCIOC_CTRL_QUERY, &xu);
-#else
-    (void)fd;
-    (void)enable;
-#endif
+    closedir(directory);
+    if (!kfaceauth_camera_unique(compatible))
+        path_out[0] = '\0';
 }
 
 int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t *buffer, size_t buffer_size,
@@ -769,12 +758,14 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
     char resolved_path[128];
     if (device_path != NULL && device_path[0] != '\0')
     {
-        strncpy(resolved_path, device_path, sizeof(resolved_path) - 1);
-        resolved_path[sizeof(resolved_path) - 1] = '\0';
+        size_t path_length = strnlen(device_path, sizeof(resolved_path));
+        if (path_length >= sizeof(resolved_path))
+            return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
+        memcpy(resolved_path, device_path, path_length + 1);
     }
     else
     {
-        auto_detect_ir_camera(resolved_path, sizeof(resolved_path));
+        auto_detect_camera(resolved_path, sizeof(resolved_path));
     }
 
     if (resolved_path[0] == '\0')
@@ -792,14 +783,12 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
 
-    uint32_t caps = cap.device_caps ? cap.device_caps : cap.capabilities;
+    uint32_t caps = (cap.capabilities & V4L2_CAP_DEVICE_CAPS) ? cap.device_caps : cap.capabilities;
     if (!(caps & V4L2_CAP_VIDEO_CAPTURE) || !(caps & V4L2_CAP_STREAMING))
     {
         close(fd);
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
-
-    try_trigger_ir_emitter(fd, 1);
 
     struct v4l2_format fmt;
     memset(&fmt, 0, sizeof(fmt));
@@ -823,7 +812,7 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
             fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             if (ioctl(fd, VIDIOC_G_FMT, &fmt) != 0)
             {
-                try_trigger_ir_emitter(fd, 0);
+
                 close(fd);
                 return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
             }
@@ -832,16 +821,16 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
 
     if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_GREY && fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV)
     {
-        try_trigger_ir_emitter(fd, 0);
+
         close(fd);
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
 
     uint32_t width = fmt.fmt.pix.width;
     uint32_t height = fmt.fmt.pix.height;
-    if (width == 0 || height == 0 || (size_t)width * (size_t)height > buffer_size)
+    if (width == 0 || height == 0 || width > 1920 || height > 1080 || (size_t)width * (size_t)height > buffer_size)
     {
-        try_trigger_ir_emitter(fd, 0);
+
         close(fd);
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
@@ -853,7 +842,7 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
     req.memory = V4L2_MEMORY_MMAP;
     if (ioctl(fd, VIDIOC_REQBUFS, &req) != 0 || req.count < 1)
     {
-        try_trigger_ir_emitter(fd, 0);
+
         close(fd);
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
@@ -881,7 +870,7 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
 
     if (mapped_count == 0)
     {
-        try_trigger_ir_emitter(fd, 0);
+
         close(fd);
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
@@ -891,7 +880,7 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
     {
         for (uint32_t i = 0; i < mapped_count; ++i)
             munmap(mappings[i].start, mappings[i].length);
-        try_trigger_ir_emitter(fd, 0);
+
         close(fd);
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     }
@@ -936,13 +925,16 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
 
         const uint8_t *src = (const uint8_t *)mappings[dqbuf.index].start;
         size_t bytes_used = (size_t)dqbuf.bytesused;
+        if (bytes_used > mappings[dqbuf.index].length)
+            break;
         if (fmt.fmt.pix.pixelformat == V4L2_PIX_FMT_GREY)
         {
             uint32_t bytesperline = fmt.fmt.pix.bytesperline;
             if (bytesperline < width)
                 bytesperline = width;
             size_t min_needed = (size_t)bytesperline * (height - 1) + width;
-            if (bytes_used >= min_needed && buffer_size >= (size_t)width * height)
+            if (min_needed <= mappings[dqbuf.index].length && bytes_used >= min_needed &&
+                buffer_size >= (size_t)width * height)
             {
                 for (uint32_t y = 0; y < height; ++y)
                 {
@@ -960,7 +952,8 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
             if (bytesperline < width * 2)
                 bytesperline = width * 2;
             size_t min_needed = (size_t)bytesperline * (height - 1) + (size_t)width * 2;
-            if (bytes_used >= min_needed && buffer_size >= (size_t)width * height)
+            if (min_needed <= mappings[dqbuf.index].length && bytes_used >= min_needed &&
+                buffer_size >= (size_t)width * height)
             {
                 for (uint32_t y = 0; y < height; ++y)
                 {
@@ -1003,7 +996,8 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
     for (uint32_t i = 0; i < mapped_count; ++i)
         munmap(mappings[i].start, mappings[i].length);
 
-    try_trigger_ir_emitter(fd, 0);
     close(fd);
+    if (capture_status != KFACEAUTH_CRYPTO_OK)
+        OPENSSL_cleanse(buffer, buffer_size);
     return capture_status;
 }

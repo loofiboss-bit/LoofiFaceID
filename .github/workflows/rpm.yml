@@ -40,6 +40,7 @@ jobs:
             extra-cmake-modules \
             gcc-c++ \
             gh \
+            git-core \
             kf6-kcmutils-devel \
             kf6-kcoreaddons-devel \
             kf6-ki18n-devel \
@@ -91,7 +92,7 @@ jobs:
       - name: Collect RPM artifacts
         run: |
           packaging/fedora/collect-release-artifacts.sh \
-            "$PWD/kfaceauth-5.2.1.tar.gz" \
+            "$PWD/$(python3 tools/verify_project_identity.py --field archive)" \
             "$HOME/rpmbuild" \
             "$PWD/artifacts"
 
@@ -120,7 +121,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
 
       - name: Install release upload dependencies
-        run: dnf install -y gh rpm
+        run: dnf install -y gh rpm git python3
 
       - name: Download verified workflow artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -131,13 +132,10 @@ jobs:
       - name: Verify and attach the complete release artifact set
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
-          command -v gh
-          packaging/fedora/verify-release-artifacts.sh artifacts
-          TAG_NAME="${{ github.event.release.tag_name }}"
-          test -n "$TAG_NAME"
-          gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY"
-          gh release upload "$TAG_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
+          git fetch --no-tags origin "refs/tags/$TAG_NAME:refs/tags/$TAG_NAME"
+          python3 tools/upload_release_artifacts.py artifacts
 
   experimental-auth-rpm:
     permissions:
@@ -165,6 +163,7 @@ jobs:
             extra-cmake-modules \
             gcc-c++ \
             gettext \
+            git-core \
             kf6-kcmutils-devel \
             kf6-kcoreaddons-devel \
             kf6-ki18n-devel \

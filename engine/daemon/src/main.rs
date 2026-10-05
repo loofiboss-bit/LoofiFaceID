@@ -14,6 +14,10 @@ use kfaceauth_daemon::{
 };
 
 fn main() {
+    if kfaceauth_vision_opencv_sys::disable_core_dumps().is_err() {
+        eprintln!("daemon hardening failed");
+        std::process::exit(1);
+    }
     let listener = match kfaceauth_crypto_openssl_sys::systemd_socket_listener() {
         Ok(Some(l)) => l,
         Ok(None) => {
@@ -49,6 +53,16 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    // systemd may pass a listener without CLOEXEC. Duplicate it using the
+    // standard library's close-on-exec clone, then close the inherited fd before
+    // any auth worker can be started.
+    let Ok(isolated_listener) = listener.try_clone() else {
+        eprintln!("failed to isolate daemon listener");
+        std::process::exit(1);
+    };
+    drop(listener);
+    let listener = isolated_listener;
 
     // Gate 4.1: Daemon drops root privileges immediately upon socket creation;
     // worker executes strictly as kfaceauth:kfaceauth without requiring CAP_DAC_OVERRIDE.

@@ -45,6 +45,7 @@ jobs:
             extra-cmake-modules \
             gcc-c++ \
             gettext \
+            git-core \
             kf6-kcmutils-devel \
             kf6-kcoreaddons-devel \
             kf6-ki18n-devel \
@@ -92,6 +93,7 @@ jobs:
           cargo clippy --manifest-path engine/Cargo.toml --workspace --all-targets --locked --offline -- -D warnings
           cargo test --manifest-path engine/Cargo.toml --workspace --all-targets --locked --offline
           python3 tools/verify_models.py --root models
+          python3 tools/verify_project_identity.py
           msgfmt --check --check-format --output-file=/dev/null po/sv/kcm_kfaceauth.po
 
       - name: Run unit and fixture tests

@@ -237,6 +237,8 @@ void IdentitySessionsTest::enrollmentCancellationClearsTransientSamples()
 
     enrollment.startEnrollment();
     QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+    QCOMPARE(enrollment.remainingSeconds(), preview.remainingSeconds());
+    QCOMPARE(preview.remainingSeconds(), PreviewProtocol::MaxEnrollmentSeconds);
     enrollment.captureSample();
     QTRY_COMPARE(enrollment.sampleCount(), 1);
     enrollment.cancel();
@@ -259,6 +261,8 @@ void IdentitySessionsTest::pageHideCancelsActiveEnrollmentWorker()
     QTRY_COMPARE(enrollment.profileState(), EnrollmentSession::ProfileState::Absent);
     enrollment.startEnrollment();
     QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Enrolling);
+    QCOMPARE(enrollment.remainingSeconds(), preview.remainingSeconds());
+    QCOMPARE(preview.remainingSeconds(), PreviewProtocol::MaxEnrollmentSeconds);
     enrollment.captureSample();
     QTRY_COMPARE(enrollment.state(), EnrollmentSession::State::Capturing);
 

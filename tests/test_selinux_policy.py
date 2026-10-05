@@ -44,6 +44,7 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
             "allow kfaceauth_t kfaceauth_exec_t:file { entrypoint ioctl lock map execute getattr open read };",
             main_policy,
         )
+        self.assertIn("allow kfaceauth_t kfaceauth_exec_t:file execute_no_trans;", main_policy)
         self.assertIn("allow init_t kfaceauth_t:process2 nnp_transition;", main_policy)
         self.assertIn(
             "allow init_t kfaceauth_t:unix_stream_socket { create bind listen getattr setopt getopt };",
@@ -56,6 +57,9 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertIn("type v4l_device_t;", main_policy)
         self.assertIn("allow kfaceauth_t v4l_device_t:chr_file { read write open getattr ioctl map };", main_policy)
         self.assertNotIn("video_device_t", main_policy)
+        self.assertIn("/usr/libexec/kfaceauth-auth-worker", file_contexts)
+        self.assertIn("allow kfaceauth_t self:process { fork sigkill sigchld };", main_policy)
+        self.assertNotIn("allow kfaceauth_t domain:process", main_policy)
 
     def test_socket_activated_daemon_does_not_mount_runtime_directory_writable(self) -> None:
         service = SERVICE.read_text(encoding="utf-8")

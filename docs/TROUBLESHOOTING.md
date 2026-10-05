@@ -47,7 +47,8 @@ evidence.
 
 ## Preview stops or verification is rate-limited
 
-Preview stops after 60 seconds and on Setup/Test page hide, app deactivation,
+Ordinary preview stops after 60 seconds; explicit registration receives one
+shared five-minute deadline. Both stop on Setup/Test page hide, app deactivation,
 failure, or teardown. Restart it explicitly. Verification intentionally
 permits no faster than one request every two seconds.
 
@@ -56,3 +57,22 @@ permits no faster than one request every two seconds.
 `opencv-devel` must provide OpenCV >=4.8, `openssl-devel` OpenSSL 3, and
 `kf6-kwallet-devel` KF6 Wallet. KFaceAuth rejects another OpenCV minor until
 reviewed.
+
+## v5.3.0 framing-guide recovery
+
+If framing guidance fails while the camera and enrollment remain active, choose
+**Retry guidance** or capture manually. Retry clears stale observations without
+extending the deadline or discarding accepted samples. If the camera itself
+stops, transient samples are cleared and registration must be restarted.
+
+## Experimental authentication camera selection
+
+The opt-in auth worker automatically selects a camera only when exactly one
+V4L2 streaming capture node supports GREY or YUYV. With multiple compatible
+nodes, an administrator must configure `KFACEAUTH_CAMERA_DEVICE` in the service
+configuration. The KCM preview selection is separate. Formats or names alone
+are not liveness evidence. Generic vendor emitter controls are not sent.
+
+A timed-out native attempt is terminated in a separate confined process. A
+kernel-stuck process may remain busy until it actually exits; password fallback
+must remain available. Runtime and physical qualification are still unverified.

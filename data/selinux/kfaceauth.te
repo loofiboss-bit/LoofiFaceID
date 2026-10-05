@@ -7,12 +7,13 @@ require {
     type init_t;
     type v4l_device_t;
     role system_r;
-    class file { read write getattr open create lock unlink execute entrypoint ioctl map };
+    class file { read write getattr open create lock unlink execute execute_no_trans entrypoint ioctl map };
     class dir { read getattr search open write add_name remove_name mounton };
     class chr_file { read write open getattr ioctl map };
     class unix_stream_socket { create bind listen accept read write getattr setopt getopt connectto };
     class sock_file { create getattr setattr unlink write };
-    class process { transition };
+    class process { transition fork sigkill sigchld };
+    class fifo_file { create read write getattr ioctl };
     class process2 { nnp_transition };
 }
 
@@ -28,12 +29,17 @@ allow init_t kfaceauth_var_lib_t:dir mounton;
 # Domain transition from init
 allow init_t kfaceauth_exec_t:file { read getattr execute open };
 allow kfaceauth_t kfaceauth_exec_t:file { entrypoint ioctl lock map execute getattr open read };
+allow kfaceauth_t kfaceauth_exec_t:file execute_no_trans;
 allow init_t kfaceauth_t:process { transition };
 allow init_t kfaceauth_t:process2 nnp_transition;
 type_transition init_t kfaceauth_exec_t:process kfaceauth_t;
 # systemd creates and binds the service-context socket before activation.
 allow init_t kfaceauth_t:unix_stream_socket { create bind listen getattr setopt getopt };
 allow init_t kfaceauth_sock_t:sock_file { create getattr setattr unlink write };
+
+# The daemon launches and terminates its confined auth worker in the same domain.
+allow kfaceauth_t self:process { fork sigkill sigchld };
+allow kfaceauth_t self:fifo_file { create read write getattr ioctl };
 
 # Self socket operations
 allow kfaceauth_t self:unix_stream_socket { create bind listen accept read write getattr setopt getopt };

@@ -1,228 +1,89 @@
 # LoofiFaceID Improvement Plan
 
-- **Review date:** 2026-10-05
-- **Review baseline:** `7bdc6bf` (`origin/main`, after PR #14)
-- **Implementation status:** PR #13's security hardening and PR #14's
-  packaging correction are merged. v5.2.1 is published with passing tag and
-  release workflows, and its four-file asset set passed checksum and payload
-  verification. COPR build [11075253](https://copr.fedorainfracloud.org/coprs/build/11075253/)
-  succeeded from the exact published SRPM, and Fedora 44 repository metadata
-  lists `kfaceauth-5.2.1-1.fc44`. Wiki commit `2e7a463` was fetched from the
-  remote and matched the local page checksum; the public wiki page also
-  displays v5.2.1 and COPR build 11075253. Manual hardware and real PAM login
-  qualification remain open. The reported SDDM/Plasma smoke check was on the
-  user's everyday computer; no separate qualification machine is available.
-- **Scope:** Reliability, test coverage, documentation, packaging, and
-  qualification.
+**Updated:** 2026-10-05
+**Review baseline:** `v5.2.1`
+**Delivery:** v5.3.0 release candidate; publication is pending the tag workflow and public readback. PAM remains an unqualified experiment.
 
-## Current product boundary
+## Product boundary
 
-The standard package is a logged-in-session utility for local face-profile
-enrollment and explicit comparison. The optional PAM, daemon, systemd, and
-SELinux components are experimental, off by default, and not qualified for
-login. Preserve this separation while completing the work below. A local
-comparison result is not authentication or presentation-attack evidence.
+The standard package remains a logged-in Fedora 44/KDE local-profile utility.
+PAM, daemon, auth worker, systemd and SELinux artifacts remain exclusive to the
+explicit experimental build/subpackage. Authentication is unsupported and
+unqualified. Existing password fallback and active-session preservation apply.
 
-The README and package description state this boundary clearly. The next work
-should close evidence and release-engineering gaps before adding recognition,
-acceleration, or authentication features.
+## Implemented product improvements
 
-## Implementation record
+- Enrollment and camera share an explicit, non-renewing deadline of at most
+  300 seconds. Ordinary preview stays at 60 seconds. Cancellation, page hide,
+  app inactivity and camera failure still clear transient samples and workers.
+- Framing guidance can be retried within an active enrollment without losing
+  accepted samples; stale observations cannot trigger automatic capture.
+- Replacing an existing profile is confirmed at final save. Atomic failed-save
+  preservation remains in place; no biometric history or backup was added.
+- Setup, Diagnostics and support reports share typed authentication states;
+  configured experimental components do not imply qualification.
+- Registration instructions use content-driven height and wrapping step cards.
+- Local profile extraction and experimental authentication use explicit purposes.
+  Local comparison does not use unqualified spoof heuristics; the authentication
+  experiment retains conservative rejection. UI errors make no PAD claim.
+- A separate confined auth-worker process owns capture/inference/vault comparison.
+  The parent retains UID validation, attempt limits, ingress limits, deadline
+  enforcement, child ownership and nonblocking reap. A timed-out kernel D-state
+  process may delay recovery; no concurrent camera child is started in that state.
+- Camera buffers are zeroizing; protocol requests have exact lengths, valid
+  UTF-8/reserved fields and a 269-byte maximum.
+- Camera discovery considers actual video nodes, capture/streaming capabilities
+  and GREY/YUYV support. Auto-selection requires one compatible node. Generic
+  vendor emitter writes have been removed.
+- Evaluation uses separated enrollment/probe inputs and the production 3–8
+  sample median policy, with aggregate results and bounded biometric memory.
+- Source archives use a reviewed explicit file list, portable to unpacked SRPMs;
+  canonical version, Cargo and RPM metadata must agree. Release upload verifies
+  tag/commit/archive lineage and refuses to overwrite different published bytes.
 
-- The current v5.2 status, version-neutral release checklist, KCM/PAM
-  qualification split, and published v5.0.0 correction record are in place.
-  The dated host readback was moved outside the source tree and package inputs.
-- CI now builds and tests standard and opt-in configurations separately,
-  checks both staged installs, and builds the experimental RPM subpackage in
-  its own job. The ordinary RPM and COPR build remain authentication-free.
-- The setup helper is exercised against a temporary filesystem and stubbed
-  commands. Tests cover both PAM targets, idempotency, exact-rule adoption,
-  password fallback, malformed markers, and failure rollback.
-- The privileged helper emits fixed success status instead of caller/profile
-  metadata. CI now fails before CTest and Python fixture tests unless the
-  Fedora container runs as root, so root-only vault tests cannot silently
-  return early in the canonical workflow.
-- Targeted local Rust format, test, and Clippy checks pass for the helper. The
-  desktop runs as UID 1000, so this does not execute the root-only ownership
-  and rollback branches; candidate Fedora CI must provide that evidence.
-- The v5.0.0 release text was corrected publicly on 2026-10-05; the original
-  tag and four assets were preserved. The final correction record is in
-  `docs/RELEASE-ERRATA-V5.0.0.md`.
-- PR #13 merged as `2d6699c`; annotated tag `v5.2.0` points to that merge.
-  Tag CI, standard and opt-in RPM jobs, and release-event artifact upload all
-  passed. The published release is the latest stable GitHub release; its
-  source archive, standard RPM, SRPM, and `SHA256SUMS` were downloaded and
-  verified. The original v5.0.0 tag and assets remain unchanged.
-- COPR build [11075135](https://copr.fedorainfracloud.org/coprs/build/11075135/)
-  failed because `systemd-devel`, which provides `libudev.pc`, was only listed
-  as a build dependency of the experimental package. v5.2.1 moves that
-  dependency into the standard RPM build requirements and includes a regression
-  assertion for it.
-- v5.2.1 tag and release workflows, the four downloaded and verified release
-  assets, and COPR build 11075253 from the official SRPM passed. The wiki
-  change was pushed as `2e7a463`, fetched back from origin with a matching
-  SHA-256, and read back from the public page.
-- KCM manual hardware/accessibility qualification is `NOT RUN`; PAM login,
-  Enforcing-mode SELinux, and physical presentation-attack qualification
-  remain `NOT RUN`. The independent post-patch source review is `PASS`.
+## Verification record
 
-## Findings
+Validated locally on 2026-10-05:
 
-1. **Resolved — project status was spread across documents with conflicting scope.**
-   [`ROADMAP.md`](ROADMAP.md) points to the historical v5.0 roadmap and still
-   describes PAM as blocked, while the source now contains a v5.2 opt-in
-   experiment. [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md) still identifies
-   v5.1.0 as the current unreleased target.
-2. **Resolved — the base RPM included host-specific qualification notes.** The RPM spec
-   packages every `docs/*.md`; [`RELEASE-QUALIFICATION-V5.2.md`](RELEASE-QUALIFICATION-V5.2.md)
-   includes local SELinux, service, and PAM configuration readbacks. These
-   operational details do not belong in general user documentation or the
-   standard package payload.
-3. **Resolved — CI only built the default configuration.** The experimental components
-   are controlled by `KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS`, which
-   defaults to `OFF`. The CI and RPM workflows do not configure the `ON` path or
-   build the experimental RPM subpackage, so changes to that path are not
-   covered by the canonical workflow.
-4. **Resolved — the privileged setup transaction lacked execution-level tests.** The SELinux
-   policy tests check shell syntax and source text. The qualification report
-   says the helper's rollback behavior has source-contract checks only and the
-   privileged helper has not been executed.
-5. **Open — important qualification remains outstanding.** SELinux policy activation, PAM
-   login through SDDM and the Plasma lock screen, password fallback, device and
-   session cycles, physical attack behavior, and independent security review
-   have not been demonstrated. The opt-in path must remain experimental and
-   disabled by default.
+- Fresh standard and experimental CMake builds: PASS. Full CTest results:
+  standard 17/17 and experimental 18/18, including native sanitizers and QML
+  geometry/focus checks at 320/480/960 pixels with increased text size.
+- Python: 72 tests PASS. Rust workspace/all-target tests, Clippy with warnings
+  denied, Cargo formatting, C++ formatting, QML lint, translations and six
+  model-integrity checks: PASS.
+- Current template (16) and vault-helper (6) test binaries executed as root in
+  disposable, network-disabled Fedora containers: PASS. No host authentication
+  configuration or installed package was changed.
+- Staged standard/experimental installation payload checks: PASS. Standard
+  installation has no authentication payload; the experimental worker is opt-in.
+- Synthetic CPU YuNet benchmark, 320x320, 3 warmups/20 iterations: cold 1851.821
+  ms, warm median 60.503 ms, p95 71.371 ms, peak RSS 66636 KiB. These numbers
+  describe synthetic inference on the build host, not camera or login latency.
+- Exact v5.3.0 source passed fresh standard and experimental CMake/CTest builds
+  and the 72-test Python suite. The local Fedora RPM build and artifact checks
+  were performed against v5.2.1, not this candidate; the v5.3.0 tag workflow
+  must provide the release-version RPM/SRPM and payload evidence before launch.
+  SRPM identity uses SOURCEPACKAGE=1 independently of its build architecture,
+  covered by a regression test.
 
-## Ordered plan
+Automated tests establish source behavior and packaging boundaries, not real
+camera, accessibility, SELinux login-path behavior, password fallback, or biometric
+suitability. Public release upload/readback is pending; upload protection was
+verified using mocked release endpoints.
 
-### 1. Make project status and shipped documentation consistent
+## Remaining qualification
 
-**Priority:** P0
-**Files:** `docs/ROADMAP.md`, `docs/RELEASE-CHECKLIST.md`,
-`docs/RELEASE-QUALIFICATION-V5.2.md`, `packaging/fedora/kfaceauth.spec`,
-`tests/test_packaging.py`
+- Manual KCM camera recovery, enrollment/comparison, cancellation, suspend/resume,
+  repeated sessions, keyboard, large-text and screen-reader qualification.
+- Experimental SELinux Enforcing login-path evidence, real SDDM/Plasma cycles,
+  negative decisions and password fallback after every failure condition.
+- Consent-based product-policy and presentation-attack evaluation at the attempt
+  counts required by `RELEASE-QUALIFICATION-V5.3.md`.
+- Runtime/physical review of the new confined child-process path. Source review
+  and compiled policy alone cannot qualify it.
 
-- Make `ROADMAP.md` the current, short status page. Link the v5.0 roadmap and
-  v4 review as historical references, and state the actual v5.2 package and
-  authentication boundaries.
-- Replace the v5.1 release checklist with a version-neutral checklist or a
-  v5.2 checklist that separates standard-package gates from experimental-auth
-  gates.
-- Keep qualification reports focused on reproducible evidence. Remove
-  machine-specific host readbacks from distributable documentation; retain
-  operational records outside the RPM documentation set.
-- Replace `%doc docs/*.md` with an explicit allowlist of user and developer
-  documentation. Add a package-content check that rejects qualification logs,
-  private host state, and internal planning documents from the standard RPM.
-
-**Done when:** the README, roadmap, checklist, qualification report, and RPM
-description agree; every current link resolves; and the standard RPM contains
-no machine-specific operational report.
-
-### 2. Build and package both configurations in CI
-
-**Priority:** P1
-**Files:** `.github/workflows/ci.yml`, `.github/workflows/rpm.yml`,
-`packaging/fedora/kfaceauth.spec`, `tests/test_packaging.py`
-
-- Add an explicit default configuration job and an explicit experimental
-  configuration job using `KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS=ON`.
-- Build and test the experimental RPM subpackage in a separate job. Keep it out
-  of the normal COPR/default build path.
-- Inspect staged install and RPM payloads in both jobs: the standard package
-  must contain zero authentication artifacts; the opt-in subpackage must
-  contain the intended PAM, daemon, service, setup, and policy artifacts.
-- Run the existing C++, Rust, Python, QML, formatting, model, and packaging
-  checks against the relevant build configuration.
-
-**Done when:** a change to either configuration fails CI when it breaks, and
-the workflow verifies both package boundaries from built artifacts.
-
-### 3. Exercise setup and rollback as transactions
-
-**Priority:** P1
-**Files:** `data/pam/kfaceauth-pam-setup.sh`, `tests/test_selinux_policy.py`,
-new helper integration fixtures
-
-- Execute the helper against a disposable filesystem and stubbed
-  `systemctl`, `semodule`, and `restorecon` commands. Do not edit the host's
-  PAM, systemd, or SELinux state during automated tests.
-- Cover enable/disable and repeat operations for SDDM and Plasma lock screen
-  independently, including exact-rule adoption, malformed markers, missing
-  password fallback, and unmanaged PAM rules.
-- Inject failures after each state-changing step: SELinux module install or
-  removal, PAM replacement, daemon reload, socket enable/disable, and relabel.
-- Assert that rollback restores the prior PAM bytes, socket enabled/active
-  state, daemon active state, and module set; also assert that operating on one
-  target leaves the other target intact.
-
-**Done when:** tests execute the real helper logic for success, idempotency,
-failure, and rollback paths and do not rely on source-string assertions as the
-only evidence.
-
-### 4. Close local-session hardware and accessibility evidence
-
-**Priority:** P2
-**Files:** `docs/HARDWARE-QUALIFICATION.md`, `docs/TEST-MATRIX.md`,
-`docs/USER-GUIDE.md`, `src/kcm/ui/`
-
-- Execute the documented preview-release procedure and record manual results
-  for the ordinary enrollment and local-comparison workflow separately from
-  PAM qualification.
-- Exercise camera selection and recovery, cancellation, suspend/resume, and
-  repeated enrollment/test sessions on the supported Fedora 44 and Plasma 6
-  baseline.
-- Review keyboard-only operation, focus order, narrow-window scaling, and
-  screen-reader labels. Turn observed failures into focused regressions before
-  changing UI structure.
-- Report only the tested device, lighting, desktop, and accessibility
-  conditions; keep untested combinations marked `unverified`.
-
-**Done when:** the supported local workflow has a reproducible manual matrix
-and identified failures have regression coverage or a documented limitation.
-
-### 5. Decide whether to pursue supported system authentication
-
-**Priority:** P3; starts only after steps 1–3 and an explicit product decision
-**Files:** `docs/RELEASE-QUALIFICATION-V5.2.md`,
-`docs/THREAT-BOUNDARY.md`, PAM/daemon/SELinux implementation
-
-- Obtain an independent review of PAM ordering, UID binding, key separation,
-  attempt limits, service confinement, SELinux policy, and rollback behavior.
-- On Fedora 44 with SELinux Enforcing, activate the packaged policy through the
-  documented path and verify labels, service startup, and relevant audit events.
-- If the feature remains a product goal, complete repeated SDDM and Plasma
-  lock-screen cycles, positive and negative decisions, and password fallback
-  after camera, profile, timeout, daemon, and non-match failures. Include
-  missing/busy camera, suspend/resume, and multiple-user cases.
-- Complete the consent-based physical evaluation and aggregate-only reporting
-  already specified in the qualification document. Do not use camera spectrum,
-  image quality, or an internal match threshold as liveness evidence.
-- If representative physical testing and independent review are not available,
-  keep the path off by default and describe it only as an unsupported experiment.
-
-**Done when:** every release gate has independently reviewable evidence and the
-product decision, package contents, and user-facing claims agree. No gate is
-waived by a green CI run.
-
-## Explicitly deferred
-
-Do not add new model families, accelerator backends, passive camera operation,
-or authentication targets as part of this plan. Revisit them only after the
-reliability and qualification work establishes a concrete user need and a
-measurable acceptance target.
-
-## Review basis
-
-- [`README.md`](../README.md) and
-  [`RELEASE-QUALIFICATION-V5.2.md`](RELEASE-QUALIFICATION-V5.2.md): current
-  product boundary and open qualification gates.
-- [`ROADMAP.md`](ROADMAP.md) and
-  [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md): outdated status references.
-- [`ci.yml`](../.github/workflows/ci.yml),
-  [`rpm.yml`](../.github/workflows/rpm.yml), and
-  [`kfaceauth.spec`](../packaging/fedora/kfaceauth.spec): separate standard and
-  opt-in build/package paths with explicit documentation and payload checks.
-- [`test_pam_setup_transaction.py`](../tests/test_pam_setup_transaction.py):
-  the real setup helper runs against temporary PAM, service, and SELinux
-  fixtures with injected command failures.
+The user's previously reported successful login/unlock remains limited smoke
+evidence in the current qualification documents. Unobserved cases remain
+`NOT RUN` or `unverified`. This work adds no automated logout or locking, new
+model, accelerator, inference cache, or qualified authentication target. The
+standard package continues to support only the already logged-in local workflow.

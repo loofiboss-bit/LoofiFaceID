@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "camerapreviewsession.h"
+#include "enrollmentsession.h"
+#include "identityworkerclient.h"
+#include "kwalletkeyprovider.h"
 #include "supportreport.h"
 #include "systemstate.h"
 
 #include <QDir>
 #include <QFile>
+#include <QMetaEnum>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -16,6 +20,7 @@ class SupportReportTest final : public QObject
   private Q_SLOTS:
     void mapsMilestoneIssuesToActions();
     void reportPreservesPreviewPrivacy();
+    void reportUsesTypedAuthenticationStatus();
     void exportsMarkdownAtomically();
 };
 
@@ -75,6 +80,27 @@ void SupportReportTest::reportPreservesPreviewPrivacy()
     QVERIFY(report.contains(QStringLiteral("Native cameras: total=10 rgb=1 ir=1 unknown=8")));
     QVERIFY(!report.contains(QStringLiteral("RGB Test Camera")));
     QVERIFY(!report.contains(QStringLiteral("rgb-token")));
+}
+
+void SupportReportTest::reportUsesTypedAuthenticationStatus()
+{
+    SystemState state;
+    CameraPreviewSession preview(QStringLiteral("/nonexistent/preview-worker"), nullptr);
+    IdentityWorkerClient worker(QStringLiteral("/nonexistent/identity-worker"), {}, nullptr);
+    KWalletKeyProvider keys;
+    EnrollmentSession enrollment(&preview, &worker, &keys);
+    SupportReport report(&state, &preview);
+    report.setEnrollmentSession(&enrollment);
+    const auto states = QMetaEnum::fromType<EnrollmentSession::AuthTargetStatus>();
+    QVERIFY(report.report().contains(
+        QStringLiteral("SDDM=%1; Plasma=%2")
+            .arg(QString::fromLatin1(states.valueToKey(static_cast<int>(enrollment.sddmAuthStatus()))),
+                 QString::fromLatin1(states.valueToKey(static_cast<int>(enrollment.plasmaLockAuthStatus()))))));
+    QVERIFY(!report.report().contains(QStringLiteral("PAM configuration: Not implemented")));
+    QVERIFY(!report.report().contains(QStringLiteral("Authentication decisions: Not implemented")));
+    QVERIFY(report.report().contains(QStringLiteral("unqualified experiment")));
+    report.setEnrollmentSession(nullptr);
+    QVERIFY(report.report().contains(QStringLiteral("PAM configuration: Unavailable")));
 }
 
 void SupportReportTest::exportsMarkdownAtomically()

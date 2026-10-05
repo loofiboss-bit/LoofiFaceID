@@ -20,6 +20,9 @@ set(KFACEAUTH_IDENTITY_WORKER_BINARY
 set(KFACEAUTH_DAEMON_BINARY
     "${KFACEAUTH_CARGO_TARGET_DIR}/${KFACEAUTH_CARGO_PROFILE}/kfaceauthd"
 )
+set(KFACEAUTH_AUTH_WORKER_BINARY
+    "${KFACEAUTH_CARGO_TARGET_DIR}/${KFACEAUTH_CARGO_PROFILE}/kfaceauth-auth-worker"
+)
 set(KFACEAUTH_SYNC_VAULT_BINARY
     "${KFACEAUTH_CARGO_TARGET_DIR}/${KFACEAUTH_CARGO_PROFILE}/kfaceauth-sync-vault"
 )
@@ -36,11 +39,13 @@ set(KFACEAUTH_RUST_PACKAGES
 if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
     list(APPEND KFACEAUTH_RUST_OUTPUTS
         "${KFACEAUTH_DAEMON_BINARY}"
+        "${KFACEAUTH_AUTH_WORKER_BINARY}"
         "${KFACEAUTH_SYNC_VAULT_BINARY}"
     )
     list(APPEND KFACEAUTH_RUST_PACKAGES
         --package kfaceauth-daemon
         --bin kfaceauthd
+        --bin kfaceauth-auth-worker
         --package kfaceauth-templates
         --bin kfaceauth-sync-vault
     )
@@ -135,6 +140,10 @@ if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
     install(PROGRAMS "${KFACEAUTH_DAEMON_BINARY}"
         DESTINATION libexec
         RENAME "kfaceauthd"
+    )
+    install(PROGRAMS "${KFACEAUTH_AUTH_WORKER_BINARY}"
+        DESTINATION libexec
+        RENAME "kfaceauth-auth-worker"
     )
     install(PROGRAMS "${KFACEAUTH_SYNC_VAULT_BINARY}"
         DESTINATION libexec

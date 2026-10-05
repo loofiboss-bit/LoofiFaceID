@@ -32,6 +32,7 @@ class EnrollmentSession final : public QObject
     Q_PROPERTY(bool canFinish READ canFinish NOTIFY stateChanged)
     Q_PROPERTY(bool enrollmentComplete READ enrollmentComplete NOTIFY stateChanged)
     Q_PROPERTY(bool profileReady READ profileReady NOTIFY profileChanged)
+    Q_PROPERTY(bool replacementConfirmationRequired READ replacementConfirmationRequired NOTIFY profileChanged)
     Q_PROPERTY(bool profileNeedsAttention READ profileNeedsAttention NOTIFY profileChanged)
     Q_PROPERTY(QString profileStatusText READ profileStatusText NOTIFY profileChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
@@ -96,6 +97,7 @@ class EnrollmentSession final : public QObject
 
     enum class AuthTargetStatus
     {
+        MissingComponents,
         Off,
         Ready,
         Enabled,
@@ -123,6 +125,7 @@ class EnrollmentSession final : public QObject
     [[nodiscard]] bool canFinish() const;
     [[nodiscard]] bool enrollmentComplete() const;
     [[nodiscard]] bool profileReady() const;
+    [[nodiscard]] bool replacementConfirmationRequired() const;
     [[nodiscard]] bool profileNeedsAttention() const;
     [[nodiscard]] QString profileStatusText() const;
     [[nodiscard]] QString statusText() const;

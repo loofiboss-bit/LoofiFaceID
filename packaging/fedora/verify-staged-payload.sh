@@ -20,7 +20,7 @@ fail() {
 
 mapfile -t files < <(cd "$stage_root" && find . -type f -printf '/%P\n' | sort)
 
-auth_pattern='(^|/)(kfaceauthd|kfaceauth-sync-vault|kfaceauth-pam-setup|pam_kfaceauth\.so|kfaceauth\.service|kfaceauth\.socket|kfaceauth\.conf|org\.kde\.kfaceauth\.policy)(/|$)'
+auth_pattern='(^|/)(kfaceauth-auth-worker|kfaceauthd|kfaceauth-sync-vault|kfaceauth-pam-setup|pam_kfaceauth\.so|kfaceauth\.service|kfaceauth\.socket|kfaceauth\.conf|org\.kde\.kfaceauth\.policy)(/|$)'
 forbidden_state_pattern='^/(etc/pam\.d|etc/kfaceauth|var/lib/kfaceauth)(/|$)'
 
 if [[ $2 == standard ]]; then
@@ -35,6 +35,7 @@ fi
 
 expected_auth_files=(
     /usr/bin/kfaceauth-pam-setup
+    /usr/libexec/kfaceauth-auth-worker
     /usr/libexec/kfaceauthd
     /usr/libexec/kfaceauth-sync-vault
     /usr/lib/systemd/system/kfaceauth.service

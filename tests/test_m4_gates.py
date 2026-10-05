@@ -43,6 +43,7 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         )[0]
         for artifact in (
             "kfaceauthd",
+            "kfaceauth-auth-worker",
             "pam_kfaceauth",
             "kfaceauth.service",
             "kfaceauth.socket",

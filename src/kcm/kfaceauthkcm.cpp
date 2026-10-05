@@ -44,6 +44,7 @@ KFaceAuthKcm::KFaceAuthKcm(QObject *parent, const KPluginMetaData &data, std::un
     qmlRegisterUncreatableType<SupportReport>(KFACEAUTH_QML_URI, 4, 0, "SupportReport",
                                               QStringLiteral("SupportReport is provided by the KCM"));
     setButtons(NoAdditionalButton);
+    m_supportReport.setEnrollmentSession(&m_enrollmentSession);
     connect(&m_refreshCoordinator, &RefreshCoordinator::snapshotChanged, this,
             [this](const EngineSnapshot &snapshot)
             {

@@ -6,18 +6,18 @@ features in memory or in the encrypted user-session profile. The normal
 workflow never enables PAM, SDDM, sudo, Polkit, or another system
 authentication service.
 
-Version 5.2.1 is the current stable package release for this explicit local
+Version 5.3.0 is the current stable package release for this explicit local
 workflow. Stable release status describes the published source and package; it
 does not qualify face comparison for login or other security decisions. See
-the [v5.2.1 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.1)
-and the [release qualification record](docs/RELEASE-QUALIFICATION-V5.2.md).
+the [v5.3.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.3.0)
+and the [release qualification record](docs/RELEASE-QUALIFICATION-V5.3.md).
 
-The v5.2.0 source package could not rebuild in a clean COPR build because the
-standard spec omitted `systemd-devel` for `libudev`. v5.2.1 adds that standard
-build requirement. The exact published v5.2.1 SRPM rebuilt successfully as
-[COPR build 11075253](https://copr.fedorainfracloud.org/coprs/build/11075253/);
-the Fedora 44 repository publishes `kfaceauth-5.2.1-1.fc44`. Manual
-qualification gates remain open in the qualification record.
+The previous v5.2.0 source package could not rebuild in a clean COPR build
+because its standard spec omitted `systemd-devel` for `libudev`. v5.2.1 fixed
+that requirement and passed COPR build 11075253. v5.3.0 carries forward the
+corrected Fedora build dependency and improves enrollment recovery, diagnostics,
+and release integrity. Manual qualification gates remain open in the current
+qualification record.
 
 ## What you get
 
@@ -40,7 +40,7 @@ authentication through SDDM and the KDE Plasma lock screen. The default CMake
 build and COPR RPM omit its PAM module, daemon, service files, and SELinux
 policy. The opt-in path is unqualified and unsupported; a positive face match
 is not evidence of liveness or spoof resistance. Password authentication is
-kept as the PAM fallback. See the [current v5.2.1 qualification status](docs/RELEASE-QUALIFICATION-V5.2.md)
+kept as the PAM fallback. See the [current v5.3.0 qualification status](docs/RELEASE-QUALIFICATION-V5.3.md)
 before enabling or describing this experiment.
 
 The historical [v5.0.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0)
@@ -108,6 +108,19 @@ sudo dnf install ./kfaceauth-*.rpm
 
 The COPR route is preferred for ordinary Fedora users because dependencies and
 updates are resolved by Fedora.
+
+## What's new in 5.3.0
+
+Explicit registration shares a five-minute deadline with its camera
+preview; ordinary preview still ends after one minute. Hiding the page, app
+inactivity, camera failure or cancellation clears unsaved samples. A failed
+framing guide can be retried within the active deadline without losing accepted
+samples. Saving over an existing profile requires a replacement confirmation;
+failed saving preserves the previous profile. Local comparison uses face/quality
+checks and does not claim or apply qualified spoof detection. The opt-in
+authentication experiment now runs its native capture and comparison in a
+separate bounded worker process; it remains unqualified and absent from the
+standard RPM.
 
 ## First start
 

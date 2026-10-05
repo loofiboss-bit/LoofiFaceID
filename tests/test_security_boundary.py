@@ -166,6 +166,7 @@ class SecurityBoundaryTests(unittest.TestCase):
             Path("docs/RELEASE-CHECKLIST.md"),
             Path("packaging/fedora/README.md"),
             Path("packaging/fedora/kfaceauth.spec"),
+            Path("packaging/fedora/source-files.txt"),
             Path("packaging/fedora/rpm-smoke-test.sh"),
             Path("packaging/fedora/tests/plasma-irlume-3.0.0-fixture.spec"),
             Path("tests/test_packaging.py"),

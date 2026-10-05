@@ -4,7 +4,7 @@
 
 ```bash
 sudo dnf install \
-  cargo clang-tools-extra cmake extra-cmake-modules gcc-c++ ninja-build rust \
+  cargo clang-tools-extra cmake extra-cmake-modules gcc-c++ git-core ninja-build rust \
   kf6-kcmutils-devel kf6-kcoreaddons-devel kf6-ki18n-devel \
   kf6-kirigami-devel kf6-kwallet-devel \
   qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel \
@@ -25,7 +25,7 @@ units, sysusers entry, or SELinux files.
 builds unqualified engineering components only; it does not qualify them,
 install a PAM stack, or make them suitable for a login or lock-screen flow.
 Fedora release packaging must keep it off. See
-[v5.2.1 qualification status](RELEASE-QUALIFICATION-V5.2.md).
+[v5.3.0 qualification status](RELEASE-QUALIFICATION-V5.3.md).
 
 For the opt-in engineering build, install its additional build dependencies:
 
@@ -66,6 +66,7 @@ find src tests/unit engine/vision-opencv-sys/native \
   -type f \( -name '*.cpp' -o -name '*.h' \) -print0 \
   | xargs -0 clang-format --dry-run --Werror
 python3 tools/verify_models.py --root models
+python3 tools/verify_project_identity.py
 python3 tools/audit_quantization.py --help
 git diff --check
 ```
@@ -140,3 +141,20 @@ The default payload includes the KCM, translation, camera/vision/identity
 workers, YuNet/SFace models, licenses, provenance, and manifest. It contains no
 evaluator, fake provider, PAM module, system service, privileged daemon,
 migration utility, enrolled profile, or key.
+
+## Source and release identity
+
+`cmake/ProjectIdentity.cmake` owns the product version. Cargo workspace and RPM
+metadata must match it; `tools/verify_project_identity.py` checks this offline.
+Add new distributable files to sorted `packaging/fedora/source-files.txt`.
+`packaging/fedora/create-source-archive.sh` includes only that list plus a bounded
+`SOURCE-PROVENANCE.json` record. It works without Git in an unpacked SRPM and
+never recursively includes unknown local files. Source manifests reject missing
+files, links, traversal and duplicates. Preserve the record when rebuilding
+an exported source archive.
+
+Release upload checks canonical version, tag/checkout commit and source archive
+provenance, then reads existing public files before uploading missing ones.
+Identical files remain untouched; different bytes fail. It independently reads
+back the complete four-file set. Running those publication tools requires
+explicit release authorization; local tests use fixtures only.

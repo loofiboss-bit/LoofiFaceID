@@ -32,6 +32,32 @@ const EDGE_MARGIN: f32 = 4.0;
 
 const _: [(); SFACE_EMBEDDING_DIMENSION] = [(); EMBEDDING_DIMENSION];
 
+/// Selects the policy appropriate to the caller's explicit workflow.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExtractionPurpose {
+    LocalProfile,
+    ExperimentalAuth,
+}
+
+fn require_presentation_policy(
+    purpose: ExtractionPurpose,
+    analyze: impl FnOnce() -> crate::liveness::LivenessDecision,
+) -> Result<(), IdentityError> {
+    if purpose == ExtractionPurpose::LocalProfile {
+        return Ok(());
+    }
+    match analyze() {
+        crate::liveness::LivenessDecision::SpoofDetected(spoof) => {
+            Err(IdentityError::SpoofDetected(spoof))
+        }
+        crate::liveness::LivenessDecision::AnalysisFailed => {
+            Err(IdentityError::LivenessUnavailable)
+        }
+        crate::liveness::LivenessDecision::BonaFide
+        | crate::liveness::LivenessDecision::AwaitingChallenge(_) => Ok(()),
+    }
+}
+
 pub struct IdentityProvider {
     detector: YuNetProvider,
     recognizer: Recognizer,
@@ -82,6 +108,7 @@ impl IdentityProvider {
         &self,
         image: ImageView<'_>,
         control: ProcessingControl<'_>,
+        purpose: ExtractionPurpose,
     ) -> Result<NormalizedEmbedding, IdentityError> {
         let (bgr, mut detections, quality) =
             self.detector
@@ -122,24 +149,16 @@ impl IdentityProvider {
             .and_then(|width| width.checked_mul(3))
             .ok_or(IdentityError::InvalidEmbedding)?;
 
-        let pad_decision = crate::liveness::PresentationAttackDetector::evaluate_single_frame(
-            &bgr.bytes.0,
-            bgr.width,
-            bgr.height,
-            stride,
-            detection,
-            None,
-        );
-        match pad_decision {
-            crate::liveness::LivenessDecision::SpoofDetected(spoof) => {
-                return Err(IdentityError::SpoofDetected(spoof));
-            }
-            crate::liveness::LivenessDecision::AnalysisFailed => {
-                return Err(IdentityError::LivenessUnavailable);
-            }
-            crate::liveness::LivenessDecision::BonaFide
-            | crate::liveness::LivenessDecision::AwaitingChallenge(_) => {}
-        }
+        require_presentation_policy(purpose, || {
+            crate::liveness::PresentationAttackDetector::evaluate_single_frame(
+                &bgr.bytes.0,
+                bgr.width,
+                bgr.height,
+                stride,
+                detection,
+                None,
+            )
+        })?;
 
         let raw = self
             .recognizer
@@ -293,7 +312,36 @@ fn require_expected_metadata(entry: &ManifestEntry) -> Result<(), IdentityLoadEr
 
 #[cfg(test)]
 mod tests {
-    use super::{IdentityError, VisionError};
+    use super::{ExtractionPurpose, IdentityError, VisionError, require_presentation_policy};
+    use crate::liveness::{LivenessDecision, SpoofKind};
+
+    #[test]
+    fn local_profile_and_authentication_have_distinct_pad_policies() {
+        assert!(
+            require_presentation_policy(ExtractionPurpose::LocalProfile, || {
+                panic!("local comparison must not invoke experimental PAD")
+            })
+            .is_ok()
+        );
+        assert!(matches!(
+            require_presentation_policy(ExtractionPurpose::ExperimentalAuth, || {
+                LivenessDecision::AnalysisFailed
+            }),
+            Err(IdentityError::LivenessUnavailable)
+        ));
+        assert!(matches!(
+            require_presentation_policy(ExtractionPurpose::ExperimentalAuth, || {
+                LivenessDecision::SpoofDetected(SpoofKind::PrintAttack)
+            }),
+            Err(IdentityError::SpoofDetected(SpoofKind::PrintAttack))
+        ));
+        assert!(
+            require_presentation_policy(ExtractionPurpose::ExperimentalAuth, || {
+                LivenessDecision::BonaFide
+            })
+            .is_ok()
+        );
+    }
 
     #[test]
     fn clipped_detector_geometry_is_rejected_as_face_geometry() {
