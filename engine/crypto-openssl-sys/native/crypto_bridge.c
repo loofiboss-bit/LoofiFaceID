@@ -400,16 +400,21 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
         return -1;
     }
 
-    if (gr != NULL)
+    int final_fd = open(final_path, O_RDONLY | O_CLOEXEC);
+    if (final_fd >= 0)
     {
-        if (chown(final_path, (uid_t)-1, gr->gr_gid) != 0)
+        if (gr != NULL)
+        {
+            if (fchown(final_fd, (uid_t)-1, gr->gr_gid) != 0)
+            {
+                // Non-fatal if unprivileged
+            }
+        }
+        if (fchmod(final_fd, 0640) != 0)
         {
             // Non-fatal if unprivileged
         }
-    }
-    if (chmod(final_path, 0640) != 0)
-    {
-        // Non-fatal if unprivileged
+        close(final_fd);
     }
 
     int dir_fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
