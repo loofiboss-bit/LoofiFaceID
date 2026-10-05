@@ -33,20 +33,21 @@ tracks.
 
 | Gate | Requirement | Status |
 |---|---|---|
-| Build and package boundary | Standard and opt-in CMake builds; standard RPM excludes auth artifacts; experimental RPM contains only the opt-in components | Candidate release CI and RPM checks are pending. The previous main-branch RPM run is historical and is not evidence for this release. Update this row with exact successful release-run links before marking the automated release gate complete. |
-| Helper, vault, and deadline regressions | Fixed helper roots and caller UID, protected vault metadata, rollback/replay resistance, two-second deadline, bounded ingress, and password fallback | Local targeted Rust tests pass. This desktop runs as UID 1000, so root-only ownership and rollback cases return early locally. Candidate CI now asserts that the Fedora test container is root before running CTest and Python fixtures; record that run here when complete. |
+| Build and package boundary | Standard and opt-in CMake builds; standard RPM excludes auth artifacts; experimental RPM contains only the opt-in components | PR #13 implementation commit `5fa0e1e` passed [Fedora 44 CI](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37260509918) and [Fedora 44 RPM checks](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37260509976), including standard package install/removal lifecycle and both payload boundaries. Release-tag workflows remain a separate publication gate. |
+| Helper, vault, and deadline regressions | Fixed helper roots and caller UID, protected vault metadata, rollback/replay resistance, two-second deadline, bounded ingress, and password fallback | Rust workspace tests and root-only vault ownership/rollback cases passed in the Fedora CI container. The workflow fails unless the test process is root. This desktop runs as UID 1000, so root-only ownership and rollback cases return early locally. |
 | Setup transaction | Target isolation, idempotency, PAM preservation, command failure injection, rollback of PAM/service/policy state | Local isolated execution tests pass; they do not touch host PAM or SELinux |
 | SELinux integration | Fedora 44 Enforcing; expected labels, service startup, and relevant audit events | `NOT RUN` for the login path |
 | Real login paths | Repeated SDDM and Plasma lock-screen decisions with password fallback after every failure | `NOT RUN` |
 | Device/session behavior | At least 20 cycles on at least two RGB cameras and three lighting conditions; missing/busy camera, suspend/resume, and multiple users | `NOT RUN` |
 | Physical attack behavior | Consent-based RGB and IR evaluation with aggregate-only reporting and the thresholds below | `NOT RUN` |
-| Independent review | PAM ordering, UID/key separation, attempt limits, service confinement, SELinux policy, rollback, and failure behavior | Post-patch source review: `PASS`; root-only tests and system/runtime qualification remain `NOT RUN` until the candidate CI and manual gates complete. |
+| Independent review | PAM ordering, UID/key separation, attempt limits, service confinement, SELinux policy, rollback, and failure behavior | Post-patch source review: `PASS`; all [CodeQL analyzers](https://github.com/loofiboss-bit/LoofiFaceID/actions/runs/37260508417) passed. System/runtime and physical qualification remain `NOT RUN`. |
 
-The published release record must link its exact Fedora CI, RPM, and CodeQL
-runs here. Local builds or checks from another commit do not replace those
-links. Any warnings, dependency-resolution limits, and package lifecycle gaps
-must be stated alongside the corresponding run rather than inferred from a
-successful compile.
+For PR #13, `rpmlint` reported zero errors. It reported three warnings for the
+standard build and five for the opt-in build: the Fedora container's missing
+`en_US.UTF-8` locale, the desktop file's external `systemsettings` launcher,
+and missing manual/documentation metadata for the opt-in setup helper. The RPM
+workflow completed successfully. The exact release-tag builds, final asset
+manifest, and publication upload must still pass and be read back separately.
 
 Before any support status, physical testing must include at least 300
 consent-based photo presentations and 300 screen-replay presentations per

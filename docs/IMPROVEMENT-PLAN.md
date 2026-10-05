@@ -3,7 +3,8 @@
 - **Review date:** 2026-10-05
 - **Review baseline:** `88ff73d` (`origin/main`, after PR #12)
 - **Implementation status:** Security fixes and release-documentation updates
-  are prepared on `codex/release-v5.2.0`. Candidate CI, merge, GitHub/COPR
+  are prepared on `codex/release-v5.2.0`. PR #13's Fedora standard/auth builds,
+  RPM checks, and CodeQL passed for commit `5fa0e1e`. Merge, release, COPR
   publication, and wiki readback are pending. Manual hardware qualification
   and real PAM login qualification remain open.
 - **Scope:** Reliability, test coverage, documentation, packaging, and
@@ -42,11 +43,11 @@ acceleration, or authentication features.
 - The v5.0.0 release text was corrected publicly on 2026-10-05; the original
   tag and four assets were preserved. The final correction record is in
   `docs/RELEASE-ERRATA-V5.0.0.md`.
-- Candidate CI, stable v5.2.0 publication, COPR build, and wiki update remain
-  pending until the exact published source and artifacts are read back.
+- Stable v5.2.0 publication, COPR build, and wiki update remain pending until
+  the exact published source and artifacts are read back.
 - KCM manual hardware/accessibility qualification is `NOT RUN`; PAM login,
-  Enforcing-mode SELinux, physical presentation-attack qualification, and
-  independent security review remain `NOT RUN` or `OPEN`.
+  Enforcing-mode SELinux, and physical presentation-attack qualification
+  remain `NOT RUN`. The independent post-patch source review is `PASS`.
 
 ## Findings
 

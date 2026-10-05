@@ -26,10 +26,10 @@ COPR builds, and remains unqualified.
 
 ## Package transition
 
-`kfaceauth` 4.0.0 replaces `plasma-irlume` 3.x:
+The current spec replaces legacy `plasma-irlume` packages below 5.1.0:
 
 ```spec
-Obsoletes: plasma-irlume < 4.0.0
+Obsoletes: plasma-irlume < 5.1.0
 Provides:  plasma-irlume = %{version}-%{release}
 ```
 

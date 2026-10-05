@@ -27,8 +27,8 @@ experiment, which remains unqualified and unsupported for login.
   wiki consistent with the published release.
 - Preserve the automated standard and opt-in build/package checks and record
   their exact release-run evidence in the qualification record.
-- Run the root-only vault ownership and rollback regressions in CI; CI must
-  assert that its Fedora test container runs as root.
+- Preserve the passing root-only vault ownership and rollback regressions in
+  CI; the Fedora test job must assert that its container runs as root.
 - Complete KCM hardware/accessibility, PAM login, SELinux, device/session, and
   consent-based physical qualification only on the documented test system.
 
