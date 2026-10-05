@@ -386,6 +386,14 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
         total_written += (size_t)n;
     }
 
+    if (gr != NULL)
+    {
+        if (fchown(fd, (uid_t)-1, gr->gr_gid) != 0)
+        {
+            // Non-fatal if unprivileged
+        }
+    }
+
     if (fchmod(fd, 0640) != 0 || fsync(fd) != 0)
     {
         close(fd);
@@ -398,18 +406,6 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
     {
         unlink(tmp_path);
         return -1;
-    }
-
-    if (gr != NULL)
-    {
-        if (chown(final_path, (uid_t)-1, gr->gr_gid) != 0)
-        {
-            // Non-fatal if unprivileged
-        }
-    }
-    if (chmod(final_path, 0640) != 0)
-    {
-        // Non-fatal if unprivileged
     }
 
     int dir_fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
