@@ -25,7 +25,7 @@ units, sysusers entry, or SELinux files.
 builds unqualified engineering components only; it does not qualify them,
 install a PAM stack, or make them suitable for a login or lock-screen flow.
 Fedora release packaging must keep it off. See
-[v5.2.0 qualification status](RELEASE-QUALIFICATION-V5.2.md).
+[v5.2.1 qualification status](RELEASE-QUALIFICATION-V5.2.md).
 
 For the opt-in engineering build, install its additional build dependencies:
 

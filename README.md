@@ -6,16 +6,18 @@ features in memory or in the encrypted user-session profile. The normal
 workflow never enables PAM, SDDM, sudo, Polkit, or another system
 authentication service.
 
-Version 5.2.0 is the current stable package release for this explicit local
+Version 5.2.1 is the current stable package release for this explicit local
 workflow. Stable release status describes the published source and package; it
 does not qualify face comparison for login or other security decisions. See
-the [v5.2.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.0)
+the [v5.2.1 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.1)
 and the [release qualification record](docs/RELEASE-QUALIFICATION-V5.2.md).
 
-The v5.2.0 GitHub RPM and release checks passed, but its source package did
-not rebuild in COPR because the standard build omitted `systemd-devel` for
-`libudev`. The v5.2.1 packaging correction is being qualified; the qualification
-record tracks the COPR failure and the remaining release gates.
+The v5.2.0 source package could not rebuild in a clean COPR build because the
+standard spec omitted `systemd-devel` for `libudev`. v5.2.1 adds that standard
+build requirement. The exact published v5.2.1 SRPM rebuilt successfully as
+[COPR build 11075253](https://copr.fedorainfracloud.org/coprs/build/11075253/);
+the Fedora 44 repository publishes `kfaceauth-5.2.1-1.fc44`. Manual
+qualification gates remain open in the qualification record.
 
 ## What you get
 
@@ -33,12 +35,12 @@ The ordinary COPR package is not an authentication factor. It does not unlock
 the desktop, log in to a display manager, approve `sudo`/Polkit requests, or
 provide a PAD or performance qualification claim.
 
-Version 5.2.0 contains a separate, explicit opt-in experimental path for PAM
+The source also contains a separate, explicit opt-in experimental path for PAM
 authentication through SDDM and the KDE Plasma lock screen. The default CMake
 build and COPR RPM omit its PAM module, daemon, service files, and SELinux
 policy. The opt-in path is unqualified and unsupported; a positive face match
 is not evidence of liveness or spoof resistance. Password authentication is
-kept as the PAM fallback. See the [v5.2.0 qualification status](docs/RELEASE-QUALIFICATION-V5.2.md)
+kept as the PAM fallback. See the [current v5.2.1 qualification status](docs/RELEASE-QUALIFICATION-V5.2.md)
 before enabling or describing this experiment.
 
 The historical [v5.0.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0)
