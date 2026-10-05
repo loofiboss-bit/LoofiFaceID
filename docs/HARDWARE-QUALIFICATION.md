@@ -16,7 +16,8 @@ material, report aggregate results, and mark unobserved cases `NOT RUN` or
 - PAM login-path, Enforcing-mode SELinux, and physical presentation-attack
   qualification: `NOT RUN`.
 - User-reported on 2026-10-05: face authentication worked for both SDDM login
-  and Plasma lock-screen unlock. The tested build/device, attempt counts,
+  and Plasma lock-screen unlock on the user's everyday computer. No separate
+  qualification machine is available. The tested build, attempt counts,
   negative cases, and password-fallback behavior were not supplied. This
   limited report is not a complete or independently reviewed qualification;
   the full PAM track remains `NOT RUN`.
