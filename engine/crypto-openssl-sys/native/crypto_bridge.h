@@ -35,6 +35,14 @@ extern "C"
     int kfaceauth_crypto_sha256(const uint8_t *input, size_t input_size, uint8_t *output, size_t output_size);
 
     uint32_t kfaceauth_current_uid(void);
+    uint32_t kfaceauth_effective_uid(void);
+    int kfaceauth_group_id(const char *groupname, uint32_t *gid_out);
+
+    int kfaceauth_open_directory_nofollow(const char *path);
+    int kfaceauth_open_child_directory_nofollow(int parent_fd, const char *name);
+    int kfaceauth_open_child_file_nofollow(int parent_fd, const char *name);
+    int kfaceauth_lock_child_file_nonblocking(int parent_fd, const char *name);
+    int kfaceauth_set_fd_permissions(int fd, uint32_t owner_uid, uint32_t mode, const char *groupname);
 
     int kfaceauth_socket_peer_cred(int socket_fd, uint32_t *uid, uint32_t *gid, int32_t *pid);
 

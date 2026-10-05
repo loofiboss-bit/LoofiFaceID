@@ -15,7 +15,11 @@ material, report aggregate results, and mark unobserved cases `NOT RUN` or
   implementation candidate.
 - PAM login-path, Enforcing-mode SELinux, and physical presentation-attack
   qualification: `NOT RUN`.
-- Independent PAM/security review: `OPEN`.
+- Local source/build regression checks pass, but the root-owned vault metadata
+  and rollback cases require root and were `NOT RUN` on this UID 1000 desktop.
+- Independent post-patch source review: `PASS`; root-only ownership/rollback
+  execution, SELinux Enforcing, real PAM login, and hardware qualification
+  remain `NOT RUN`.
 
 ## A. KCM local-session workflow
 

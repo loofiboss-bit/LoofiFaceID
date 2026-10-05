@@ -21,6 +21,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -187,6 +188,128 @@ int kfaceauth_crypto_sha256(const uint8_t *input, size_t input_size, uint8_t *ou
 uint32_t kfaceauth_current_uid(void)
 {
     return (uint32_t)getuid();
+}
+
+uint32_t kfaceauth_effective_uid(void)
+{
+    return (uint32_t)geteuid();
+}
+
+int kfaceauth_group_id(const char *groupname, uint32_t *gid_out)
+{
+    if (groupname == NULL || groupname[0] == '\0' || gid_out == NULL)
+        return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
+    struct group *group = getgrnam(groupname);
+    if (group == NULL)
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    *gid_out = (uint32_t)group->gr_gid;
+    return KFACEAUTH_CRYPTO_OK;
+}
+
+static int valid_path_component(const char *name)
+{
+    return name != NULL && name[0] != '\0' && strcmp(name, ".") != 0 && strcmp(name, "..") != 0 &&
+           strchr(name, '/') == NULL;
+}
+
+int kfaceauth_open_directory_nofollow(const char *path)
+{
+    if (path == NULL || path[0] != '/')
+        return -1;
+
+    char *copy = strdup(path);
+    if (copy == NULL)
+        return -1;
+
+    int directory_fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (directory_fd < 0)
+    {
+        free(copy);
+        return -1;
+    }
+
+    char *saveptr = NULL;
+    for (char *component = strtok_r(copy, "/", &saveptr); component != NULL;
+         component = strtok_r(NULL, "/", &saveptr))
+    {
+        if (!valid_path_component(component))
+        {
+            close(directory_fd);
+            free(copy);
+            errno = EINVAL;
+            return -1;
+        }
+
+        int next_fd = openat(directory_fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (next_fd < 0)
+        {
+            close(directory_fd);
+            free(copy);
+            return -1;
+        }
+        close(directory_fd);
+        directory_fd = next_fd;
+    }
+
+    free(copy);
+    return directory_fd;
+}
+
+int kfaceauth_open_child_directory_nofollow(int parent_fd, const char *name)
+{
+    if (parent_fd < 0 || !valid_path_component(name))
+        return -1;
+    return openat(parent_fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+}
+
+int kfaceauth_open_child_file_nofollow(int parent_fd, const char *name)
+{
+    if (parent_fd < 0 || !valid_path_component(name))
+        return -1;
+    return openat(parent_fd, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+}
+
+int kfaceauth_lock_child_file_nonblocking(int parent_fd, const char *name)
+{
+    if (parent_fd < 0 || !valid_path_component(name))
+        return -1;
+
+    int fd = openat(parent_fd, name, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0600);
+    if (fd < 0)
+        return -1;
+
+    struct stat st;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1 || st.st_uid != geteuid())
+    {
+        close(fd);
+        errno = EPERM;
+        return -1;
+    }
+
+    if (fchmod(fd, 0600) != 0 || flock(fd, LOCK_EX | LOCK_NB) != 0)
+    {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+int kfaceauth_set_fd_permissions(int fd, uint32_t owner_uid, uint32_t mode, const char *groupname)
+{
+    if (fd < 0 || (mode & ~0777U) != 0 || groupname == NULL || groupname[0] == '\0')
+        return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
+
+    struct stat st;
+    if (fstat(fd, &st) != 0 || (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode)))
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+
+    struct group *group = getgrnam(groupname);
+    if (group == NULL)
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+
+    if (fchown(fd, (uid_t)owner_uid, group->gr_gid) != 0 || fchmod(fd, (mode_t)mode) != 0)
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    return KFACEAUTH_CRYPTO_OK;
 }
 
 int kfaceauth_socket_peer_cred(int socket_fd, uint32_t *uid, uint32_t *gid, int32_t *pid)

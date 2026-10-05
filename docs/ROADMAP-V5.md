@@ -47,7 +47,7 @@ However, forensic profiling of the v4.0.0 release candidate reveals that **98.37
 │                        kfaceauthd (System Daemon)                                │
 │  - Sandboxed via Landlock LSM + Seccomp-BPF                                      │
 │  - System Vaults: /var/lib/kfaceauth/<uid>/identity.vault                        │
-│  - Pre-Login TPM2 / Keyring Session Master Keys                                  │
+│  - Separate KWallet Session and Root-Protected System Login Keys                │
 │  - Zeroize Protected Secret Erasure (Compiler Barrier Enforced)                  │
 └──────────────────────────────────────┬───────────────────────────────────────────┘
                                        │
@@ -470,16 +470,15 @@ v4.0.0 is strictly confined to the logged-in user's desktop session due to hardc
 │                                                                             │
 │  Vault Storage Hierarchy (Least-Privilege DAC):                             │
 │  └── /var/lib/kfaceauth/                     (root:kfaceauth, Mode: 0750)   │
-│      ├── 1000/                               (1000:kfaceauth, Mode: 0750)   │
-│      │   └── identity.vault                  (1000:kfaceauth, Mode: 0640)   │
-│      └── 1001/                               (1001:kfaceauth, Mode: 0750)   │
-│          └── identity.vault                  (1001:kfaceauth, Mode: 0640)   │
+│      ├── 1000/                               (root:kfaceauth, Mode: 0750)  │
+│      │   └── identity.vault                  (root:kfaceauth, Mode: 0640)  │
+│      └── 1001/                               (root:kfaceauth, Mode: 0750)  │
+│          └── identity.vault                  (root:kfaceauth, Mode: 0640)  │
 │                                                                             │
-│  Unified System Master Key Architecture:                                    │
-│  ├── Authoritative Provider: System Daemon TPM 2.0 / Keyring                │
-│  │   ├── TPM 2.0 Sealed Master Keys (TPM2_Create / Unseal bound to PCR 0/7) │
-│  │   └── Fallback: Root-protected Kernel Keyring (/etc/kfaceauth/keys/<uid>)│
-│  └── Desktop KCM: Delegates to kfaceauthd; KWallet acts as local mirror     │
+│  Separate Session and System Login Keys:                                    │
+│  ├── Session profile key: KWallet                                           │
+│  ├── System profile key: /etc/kfaceauth/keys/<uid>.key (root:kfaceauth)     │
+│  └── Daemon reads system key; privileged helper alone writes system vault   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -494,18 +493,16 @@ v4.0.0 is strictly confined to the logged-in user's desktop session due to hardc
    - **Remediation of the Permission Trap**: In the v4.0 design, specifying directory permissions `0700` owned by `<uid>:kfaceauth` leaves group permissions as `---` (0). Consequently, `kfaceauthd` (running as system user `kfaceauth`, UID $\ne$ `<uid>`) is blocked from traversing into the directory (`EACCES`). Relying on `CAP_DAC_OVERRIDE` to bypass this trap destroys privilege separation because Linux capabilities cannot be path-scoped: a compromised daemon with `CAP_DAC_OVERRIDE` could read or write any file on the system (`/etc/shadow`, etc.).
    - **Strict DAC Least-Privilege Hierarchy**:
      - Base directory `/var/lib/kfaceauth`: Owner `root:kfaceauth`, Mode `0750` (`drwxr-x---`).
-     - Per-user directory `/var/lib/kfaceauth/<uid>/`: Owner `<uid>:kfaceauth`, Mode `0750` (`drwxr-x---`) or POSIX ACLs (`setfacl -m g:kfaceauth:r-x`). The user retains full ownership (`rwx`), the `kfaceauth` group has traversal and read access (`r-x`), and others have zero access (`---`).
-     - Vault file `/var/lib/kfaceauth/<uid>/identity.vault`: Owner `<uid>:kfaceauth`, Mode `0640` (`-rw-r-----`). User has read-write, group `kfaceauth` has read-only, others have zero access.
+     - Per-user directory `/var/lib/kfaceauth/<uid>/`: Owner `root:kfaceauth`, Mode `0750` (`drwxr-x---`). Only the privileged synchronization helper can replace profile entries; the `kfaceauth` daemon group has traversal and read access, and other users have no access.
+     - Vault file `/var/lib/kfaceauth/<uid>/identity.vault`: Owner `root:kfaceauth`, Mode `0640` (`-rw-r-----`). The daemon group has read-only access; the target UID cannot replace or restore ciphertext.
      - Atomic transaction guarantees (O_EXCL temporary files created with Mode `0640`, pre-rename self-decryption verification, double fsync) are preserved verbatim from the v4.0.0 engine specification.
 
-3. **Unified Master Key Synchronization Architecture**:
-   - **Remediation of Key Desynchronization**: In v4.0.0, the desktop KCM encrypts the user vault using a key retrieved from KWallet. When SDDM or the lock screen prompts for pre-login facial authentication before user login, KWallet is locked and unavailable. If pre-login PAM attempts to decrypt using a separate TPM 2.0 or system keyring key, decryption fails with an immediate AEAD tag mismatch.
-   - **Single Authoritative Key Custodian**:
-     - `kfaceauthd` serves as the authoritative master key custodian for all system vault operations.
-     - Master keys are sealed via TPM 2.0 (`TPM2_Create` and `TPM2_Unseal` bound to PCR policy 0 and 7). On systems without TPM 2.0 hardware, keys are derived from a root-protected system keyring (`/etc/kfaceauth/keys/<uid>.key`, Mode `0600`, owned by `root:kfaceauth`).
-     - When a user enrolls via the desktop KCM, KCM does **not** generate an independent, diverging KWallet-only key. Instead, KCM connects to `kfaceauthd` over `/run/kfaceauth/kfaceauthd.sock` with `SO_PEERCRED` verification, allowing the daemon to manage vault enrollment using the authoritative system key.
-     - If KWallet integration is enabled, KWallet acts strictly as a secondary user-session cache or key-escrow client, synchronized with the system daemon's TPM/keyring root of trust.
-     - This guarantees that both desktop KCM enrollment and SDDM pre-login PAM (`pam_kfaceauth.so`) use the identical 256-bit AES master key for `<uid>`, guaranteeing 100% pre-login authentication success.
+3. **Separate Session and System-Login Key Architecture**:
+   - **Separate key custody**:
+     - The logged-in-session profile and the opt-in system-login profile use separate 256-bit keys. The user-session key remains in KWallet; the system-login key is stored at `/etc/kfaceauth/keys/<uid>.key`, owned by `root:kfaceauth` with mode `0640`.
+     - On an explicit administrator-approved target activation, the KCM passes the session key to `kfaceauth-sync-vault` over standard input. The helper validates the user-owned XDG source, migrates into a separately encrypted root-owned system vault, verifies ownership and integrity, then activates the selected PAM target transactionally. This migration does not make the system key a mirror of the KWallet key.
+     - `kfaceauthd` reads the system key and vault for pre-session verification. It has no write permission to either; the helper is the only packaged system-profile writer.
+     - This separation prevents a target UID from restoring old ciphertext under the system key. It does not establish login reliability, liveness, or biometric accuracy; those remain qualification gates.
 
 4. **Thin PAM Module (`pam_kfaceauth.so`)**:
    - A lightweight PAM module written in Rust (or C) that links against no GUI or OpenCV libraries.
@@ -767,7 +764,7 @@ also require the named physical hardware and representative vectors.
 ### Milestone 4: Privilege Separation, System Daemon & PAM Decoupling Prerequisites
 
 #### Objectives:
-Architect and implement the multi-user system daemon (`kfaceauthd`); establish system vault hierarchy in `/var/lib/kfaceauth/<uid>/` under least-privilege DAC; design unified pre-login master key access via TPM 2.0 / system keyring; implement the thin PAM conversation module (`pam_kfaceauth.so`).
+Architect and implement the multi-user system daemon (`kfaceauthd`); establish a root-protected system-vault hierarchy in `/var/lib/kfaceauth/<uid>/` under least-privilege DAC; keep session and system-login profile keys separate; implement the thin PAM conversation module (`pam_kfaceauth.so`).
 
 #### Concrete Tasks:
 - [ ] **Task 4.1: Standalone System Daemon (`kfaceauthd`)**:
@@ -776,13 +773,13 @@ Architect and implement the multi-user system daemon (`kfaceauthd`); establish s
   - Enforce peer authentication via `SO_PEERCRED` / `getpeereid()`, isolating requests by calling UID.
 - [ ] **Task 4.2: System Vault Migration (`/var/lib/kfaceauth/<uid>/`)**:
   - Refactor `engine/templates/src/lib.rs` to support `/var/lib/kfaceauth/<uid>/identity.vault`.
-  - Enforce least-privilege DAC ownership and permissions: `/var/lib/kfaceauth` (Mode `0750`, `root:kfaceauth`), `/var/lib/kfaceauth/<uid>` (Mode `0750`, `<uid>:kfaceauth`), and `identity.vault` (Mode `0640`, `<uid>:kfaceauth`).
+- Enforce least-privilege DAC ownership and permissions: `/var/lib/kfaceauth` (Mode `0750`, `root:kfaceauth`), `/var/lib/kfaceauth/<uid>` (Mode `0750`, `root:kfaceauth`), and `identity.vault` (Mode `0640`, `root:kfaceauth`).
   - Eliminate any reliance on `CAP_DAC_OVERRIDE` by allowing `kfaceauthd` to access vault structures strictly through `kfaceauth` group membership.
   - Implement migration tool for converting legacy `$XDG_DATA_HOME/kfaceauth` vaults to the system path.
-- [ ] **Task 4.3: Pre-Login Master Key Architecture & Key Synchronization**:
-  - Implement TPM 2.0 sealed master key provider using `libtss2` / `tss2-esys`, binding keys to PCR 0 (firmware) and PCR 7 (Secure Boot).
-  - Implement fallback system keyring provider using Linux `keyutils` (`keyctl`) for systems lacking hardware TPM 2.0.
-  - Establish `kfaceauthd` as the single authoritative master key custodian; update desktop KCM to delegate vault operations to `kfaceauthd` over Unix domain socket, guaranteeing that pre-login PAM at SDDM decrypts user vaults using the identical master key without AEAD tag desynchronization.
+- [ ] **Task 4.3: Separate Session and System-Login Profile Keys**:
+  - Keep the logged-in-session profile and its KWallet key separate from the opt-in system-login profile and its root-protected `/etc/kfaceauth/keys/<uid>.key` key.
+  - During explicit administrator-approved migration only, pass the session key to `kfaceauth-sync-vault` over standard input; do not expose it in helper arguments or the daemon protocol.
+  - Keep daemon access to system keys and vaults read-only; the privileged helper is the sole system-profile writer.
 - [ ] **Task 4.4: Thin PAM Conversation Module (`pam_kfaceauth.so`)**:
   - Author zero-dependency PAM module in `pam/src/pam_kfaceauth.c` (or Rust `pam` crate).
   - Connect to `kfaceauthd` over Unix domain socket; pass target user identity; enforce strict 2.0-second timeout.
@@ -804,8 +801,9 @@ Gates 4.1–4.3 is withdrawn. Source review found missing enrollment and
 activation flows, broken camera capture, unsafe legacy daemon operations, and
 unqualified PAM integration. The default build and Fedora package exclude
 these components. Current daemon unit tests cover narrow protocol decoding,
-exact-UID checks, and read-only key loading; they do not qualify system
-authentication. See [the current qualification status](RELEASE-QUALIFICATION-V5.1.md).
+peer-UID authorization, bounded ingress, absolute frame and PAM deadlines, and
+read-only system-vault access. They do not qualify system authentication. See
+[the current qualification status](RELEASE-QUALIFICATION-V5.2.md).
 
 #### Measurable Test Criteria:
 - Automated PAM test suite executing against mock PAM environment succeeds in authenticating matching user and rejects non-matching user.

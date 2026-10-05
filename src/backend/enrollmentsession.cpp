@@ -489,17 +489,15 @@ void EnrollmentSession::runAuthTargetOperation(const QString &target, bool enabl
     m_systemAuthBusy = true;
     Q_EMIT systemAuthChanged();
 
-    auto launch = [this, target, enable](QByteArray secret = {}) mutable
+    const QString dataHome = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    auto launch = [this, target, enable, dataHome](QByteArray secret = {}) mutable
     {
         auto *process = new QProcess(this);
-        const uid_t uid = getuid();
         const QString helper = QStringLiteral("/usr/libexec/kfaceauth-sync-vault");
-        const QString legacyRoot =
-            QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/kfaceauth");
-        QStringList args{helper, QStringLiteral("--uid"), QString::number(uid)};
+        QStringList args{helper};
         if (enable)
         {
-            args << QStringLiteral("--legacy-root") << legacyRoot << QStringLiteral("--enable-target") << target;
+            args << QStringLiteral("--enable-target") << target;
             auto secretBuffer = std::shared_ptr<QByteArray>(new QByteArray(std::move(secret)),
                                                             [](QByteArray *buffer)
                                                             {
@@ -507,9 +505,18 @@ void EnrollmentSession::runAuthTargetOperation(const QString &target, bool enabl
                                                                 delete buffer;
                                                             });
             connect(process, &QProcess::started, this,
-                    [process, secretBuffer]()
+                    [process, secretBuffer, dataHome]()
                     {
-                        process->write(*secretBuffer);
+                        const QByteArray dataHomeBytes = dataHome.toUtf8();
+                        QByteArray input;
+                        input.reserve(10 + dataHomeBytes.size() + secretBuffer->size());
+                        input.append("KFAUTH01", 8);
+                        input.append(static_cast<char>((dataHomeBytes.size() >> 8) & 0xff));
+                        input.append(static_cast<char>(dataHomeBytes.size() & 0xff));
+                        input.append(dataHomeBytes);
+                        input.append(*secretBuffer);
+                        process->write(input);
+                        input.fill('\0');
                         secretBuffer->fill('\0');
                         secretBuffer->clear();
                         process->closeWriteChannel();
