@@ -44,7 +44,6 @@ tar \
     --exclude='./LoofiFaceID*' \
     --exclude='./CHATT_LOGG_*' \
     --exclude='./docs/IMPROVEMENT-PLAN.md' \
-    --exclude='./docs/RELEASE-ERRATA-V5.0.0-DRAFT.md' \
     --exclude='./*.rpm' \
     --exclude='./*.src.rpm' \
     --exclude='./*.tar.gz' \

@@ -6,6 +6,12 @@ features in memory or in the encrypted user-session profile. The normal
 workflow never enables PAM, SDDM, sudo, Polkit, or another system
 authentication service.
 
+Version 5.2.0 is the current stable package release for this explicit local
+workflow. Stable release status describes the published source and package; it
+does not qualify face comparison for login or other security decisions. See
+the [v5.2.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.2.0)
+and the [release qualification record](docs/RELEASE-QUALIFICATION-V5.2.md).
+
 ## What you get
 
 - A private camera preview with one-camera auto-selection and clear recovery
@@ -30,12 +36,11 @@ is not evidence of liveness or spoof resistance. Password authentication is
 kept as the PAM fallback. See the [v5.2.0 qualification status](docs/RELEASE-QUALIFICATION-V5.2.md)
 before enabling or describing this experiment.
 
-The published [v5.0.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0)
-advertises production PAM authentication, sudo/Polkit integration, PAD results,
-and performance figures that the current source and qualification evidence do
-not substantiate. Do not use that release as an authentication mechanism. A
-local correction draft has been prepared from a readback of the release page;
-the public release page has not been changed.
+The historical [v5.0.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0)
+has a published correction withdrawing its unsupported authentication, PAD,
+and performance claims. Its original tag and assets remain unchanged for
+provenance and are not suitable as an authentication mechanism. See the
+[correction record](docs/RELEASE-ERRATA-V5.0.0.md).
 
 ## Supported release matrix
 
@@ -137,6 +142,9 @@ privacy boundary are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 The v5 roadmap and older qualification documents contain historical or
 experimental proposals. They are not evidence that system authentication,
 PAD, acceleration, or physical hardware qualification is currently supported.
+
+Current release notes, qualification status, user guides, and the release
+checklist are linked from the [project wiki](https://github.com/loofiboss-bit/LoofiFaceID/wiki).
 
 ## License
 
