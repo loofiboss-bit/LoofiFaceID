@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Dedicated SDDM face-authentication method. The ordinary sddm service remains untouched.
+auth        sufficient    pam_kfaceauth.so
+auth        include       sddm
+account     include       sddm
+password    include       sddm
+session     include       sddm

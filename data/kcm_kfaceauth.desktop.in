@@ -4,4 +4,4 @@ NoDisplay=true
 X-KDE-AliasFor=systemsettings
 Exec=systemsettings @KFACEAUTH_KCM_ID@
 Icon=preferences-desktop-user
-Name=@KFACEAUTH_DISPLAY_NAME@ (Experimental Local Identity Preview)
+Name=@KFACEAUTH_DISPLAY_NAME@

@@ -5,6 +5,7 @@
 #include "camerapreviewsession.h"
 #include "previewprotocol.h"
 
+#include <KLocalizedString>
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QImage>
@@ -48,7 +49,7 @@ constexpr int GuidanceIntervalMs = 250;
 
 QString translate(const char *text)
 {
-    return QCoreApplication::translate("VisionAnalysisSession", text);
+    return i18nd("kcm_kfaceauth", text);
 }
 
 bool isRecoverableVisionError(const QString &errorCode)

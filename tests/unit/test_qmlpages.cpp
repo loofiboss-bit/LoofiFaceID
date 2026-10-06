@@ -193,6 +193,7 @@ void QmlPagesTest::mainSurfaceCreatesAndNavigates()
         {QStringLiteral("homeRefreshButton"), QStringLiteral("homeTab")},
         {QStringLiteral("cameraDeviceSelector"), QStringLiteral("setupTab")},
         {QStringLiteral("verifyButton"), QStringLiteral("testTab")},
+        {QStringLiteral("sddmAuthMode"), QStringLiteral("authIntegrationTab")},
         {QStringLiteral("diagnosticsRefreshButton"), QStringLiteral("diagnosticsTab")},
     };
     auto *tabs = object->findChild<QObject *>(QStringLiteral("navigationTabs"));
@@ -235,7 +236,7 @@ void QmlPagesTest::mainSurfaceHandlesUnavailableBackend()
 
     auto *tabs = object->findChild<QObject *>(QStringLiteral("navigationTabs"));
     QVERIFY(tabs);
-    for (int index = 0; index < 4; ++index)
+    for (int index = 0; index < 5; ++index)
     {
         tabs->setProperty("currentIndex", index);
         QCoreApplication::processEvents();
@@ -283,6 +284,12 @@ void QmlPagesTest::destinationPagesCreateForUnavailableEngine()
                                {QStringLiteral("needsAttention"), true},
                                {QStringLiteral("refreshActive"), false},
                            });
+    auto authIntegration =
+        createPage(engine, QStringLiteral("AuthIntegrationPage.qml"),
+                   {
+                       {QStringLiteral("backendReady"), true},
+                       {QStringLiteral("enrollmentSession"), QVariant::fromValue(&enrollmentSession)},
+                   });
     auto setup = createPage(engine, QStringLiteral("SetupPage.qml"),
                             {
                                 {QStringLiteral("systemState"), QVariant::fromValue(&state)},
@@ -305,11 +312,12 @@ void QmlPagesTest::destinationPagesCreateForUnavailableEngine()
                        {QStringLiteral("refreshActive"), false},
                    });
     QVERIFY(home);
+    QVERIFY(authIntegration);
     QVERIFY(setup);
     QVERIFY(test);
     QVERIFY(diagnostics);
 
-    for (QObject *page : {home.get(), setup.get(), test.get(), diagnostics.get()})
+    for (QObject *page : {home.get(), setup.get(), test.get(), authIntegration.get(), diagnostics.get()})
     {
         auto *item = qobject_cast<QQuickItem *>(page);
         QVERIFY(item);
@@ -325,7 +333,10 @@ void QmlPagesTest::destinationPagesCreateForUnavailableEngine()
              home->findChild<QObject *>(QStringLiteral("homeRefreshButton")),
              home->findChild<QObject *>(QStringLiteral("primaryStatusAction")),
              home->findChild<QObject *>(QStringLiteral("homeSetupButton")),
+             home->findChild<QObject *>(QStringLiteral("homeAuthIntegrationButton")),
              setup->findChild<QObject *>(QStringLiteral("cameraDeviceSelector")),
+             authIntegration->findChild<QObject *>(QStringLiteral("sddmAuthMode")),
+             authIntegration->findChild<QObject *>(QStringLiteral("plasmaLockAuthMode")),
              setup->findChild<QObject *>(QStringLiteral("cameraRefreshButton")),
              setup->findChild<QObject *>(QStringLiteral("cameraPreviewAction")),
              setup->findChild<QObject *>(QStringLiteral("visionAnalyzeAction")),
@@ -349,9 +360,10 @@ void QmlPagesTest::destinationPagesCreateForUnavailableEngine()
     {
         QVERIFY(control);
         QVERIFY(control->property("activeFocusOnTab").toBool());
-        const QString accessibleText = control->property("text").isValid()
-                                           ? control->property("text").toString()
-                                           : control->property("accessibilityLabel").toString();
+        const QString accessibleText = control->property("text").isValid() ? control->property("text").toString()
+                                       : control->property("accessibilityLabel").isValid()
+                                           ? control->property("accessibilityLabel").toString()
+                                           : control->property("currentText").toString();
         QVERIFY(!accessibleText.isEmpty());
     }
 

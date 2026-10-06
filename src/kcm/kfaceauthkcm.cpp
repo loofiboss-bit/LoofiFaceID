@@ -5,6 +5,7 @@
 #include "camerapreviewitem.h"
 #include "nativefaceauthbackend.h"
 
+#include <KLocalizedString>
 #include <KPluginFactory>
 #include <QCoreApplication>
 #include <qqml.h>
@@ -13,7 +14,7 @@ namespace
 {
 QString translate(const char *text)
 {
-    return QCoreApplication::translate("KFaceAuthKcm", text);
+    return i18nd("kcm_kfaceauth", text);
 }
 } // namespace
 

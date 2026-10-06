@@ -4,6 +4,7 @@
 
 #include "previewprotocol.h"
 
+#include <KLocalizedString>
 #include <QBuffer>
 #include <QCamera>
 #include <QCoreApplication>
@@ -26,7 +27,7 @@ namespace
 {
 QString userText(const char *text)
 {
-    return QCoreApplication::translate("CameraProvider", text);
+    return i18nd("kcm_kfaceauth", text);
 }
 } // namespace
 

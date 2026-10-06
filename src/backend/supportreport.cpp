@@ -7,6 +7,7 @@
 #include "systemstate.h"
 #include <QMetaEnum>
 
+#include <KLocalizedString>
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QDateTime>
@@ -26,7 +27,7 @@ namespace
 {
 QString translate(const char *text)
 {
-    return QCoreApplication::translate("SupportReport", text);
+    return i18nd("kcm_kfaceauth", text);
 }
 } // namespace
 

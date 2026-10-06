@@ -43,6 +43,11 @@ is not evidence of liveness or spoof resistance. Password authentication is
 kept as the PAM fallback. See the [current v5.3.0 qualification status](docs/RELEASE-QUALIFICATION-V5.3.md)
 before enabling or describing this experiment.
 
+The downstream integration patch series and isolated build checks are documented
+for [SDDM](integrations/sddm/README.md) and
+[KScreenLocker](integrations/kscreenlocker/README.md). Neither patch is installed
+by the standard package, and neither has passed physical login/unlock qualification.
+
 The historical [v5.0.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0)
 has a published correction withdrawing its unsupported authentication, PAD,
 and performance claims. Its original tag and assets remain unchanged for
@@ -82,6 +87,12 @@ usable camera is discovered.
 ```bash
 sudo dnf upgrade kfaceauth
 ```
+
+If DNF reports that `kfaceauth-experimental-auth` requires an exact older
+`kfaceauth` version, follow the
+[experimental-auth upgrade recovery](docs/TROUBLESHOOTING.md#upgrade-blocked-by-the-experimental-auth-package).
+That opt-in package is not published in COPR and must be disabled and removed
+before the standard package can move to a different version.
 
 ### Uninstall
 

@@ -1,0 +1,1775 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1b8a147a5d13f3e7dc4a6d9f69396b5aaaaf2b55..b2978a31fbd692b75938d1dd58342c1c940dee45 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -20,6 +20,11 @@ option(NO_SYSTEMD "Disable systemd support" OFF)
+ option(USE_ELOGIND "Use elogind instead of logind" OFF)
+ option(BUILD_WITH_QT6 "Build with Qt 6" OFF)
+ option(INSTALL_PAM_CONFIGURATION "Install PAM configuration files" ON)
++option(SDDM_ENABLE_EXPERIMENTAL_FACE_AUTH "Build the opt-in KFaceAuth greeter integration." OFF)
++
++if(SDDM_ENABLE_EXPERIMENTAL_FACE_AUTH)
++    add_definitions(-DSDDM_ENABLE_EXPERIMENTAL_FACE_AUTH=1)
++endif()
+ 
+ set(CMAKE_CXX_STANDARD 17)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+diff --git a/src/auth/Auth.cpp b/src/auth/Auth.cpp
+index 6c9b5c6b47114f317987396cd3f3d03b6995c204..862d66e9cbd90257b49b62ad661f1f2f66230e7b 100644
+--- a/src/auth/Auth.cpp
++++ b/src/auth/Auth.cpp
+@@ -24,6 +24,7 @@
+ #include "SafeDataStream.h"
+ 
+ #include <QtCore/QProcess>
++#include <QtCore/QTimer>
+ #include <QtCore/QUuid>
+ #include <QtNetwork/QLocalServer>
+ #include <QtNetwork/QLocalSocket>
+@@ -68,6 +69,8 @@ namespace SDDM {
+         QByteArray cookie { };
+         bool autologin { false };
+         bool greeter { false };
++        bool faceAuthentication { false };
++        bool cancelRequested { false };
+         QProcessEnvironment environment { };
+         qint64 id { 0 };
+         static qint64 lastId;
+@@ -150,6 +153,11 @@ namespace SDDM {
+     }
+ 
+     void Auth::Private::dataPending() {
++        if (cancelRequested) {
++            if (socket)
++                socket->abort();
++            return;
++        }
+         Auth *auth = qobject_cast<Auth*>(parent());
+         Msg m = MSG_UNKNOWN;
+         SafeDataStream str(socket);
+@@ -218,7 +226,9 @@ namespace SDDM {
+     }
+ 
+     void Auth::Private::childExited(int exitCode, QProcess::ExitStatus exitStatus) {
+-        if (exitStatus != QProcess::NormalExit) {
++        const bool wasCancelled = cancelRequested;
++        cancelRequested = false;
++        if (exitStatus != QProcess::NormalExit && !wasCancelled) {
+             qWarning("Auth: sddm-helper (%s) crashed (exit code %d)",
+                      qPrintable(child->arguments().join(QLatin1Char(' '))),
+                      HelperExitStatus(exitStatus));
+@@ -230,12 +240,14 @@ namespace SDDM {
+         else
+             qWarning("Auth: sddm-helper exited with %d", exitCode);
+ 
+-        Q_EMIT qobject_cast<Auth*>(parent())->finished((Auth::HelperExitStatus)exitCode);
++        const auto status = wasCancelled ? HELPER_AUTH_ERROR : Auth::HelperExitStatus(exitCode);
++        Q_EMIT qobject_cast<Auth*>(parent())->finished(status);
+     }
+ 
+     void Auth::Private::childError(QProcess::ProcessError error) {
+         Q_UNUSED(error);
+-        Q_EMIT qobject_cast<Auth*>(parent())->error(child->errorString(), ERROR_INTERNAL);
++        if (!cancelRequested)
++            Q_EMIT qobject_cast<Auth*>(parent())->error(child->errorString(), ERROR_INTERNAL);
+     }
+ 
+     void Auth::Private::requestFinished() {
+@@ -342,6 +354,11 @@ namespace SDDM {
+         }
+     }
+ 
++    void Auth::setFaceAuthentication(bool on)
++    {
++        d->faceAuthentication = on;
++    }
++
+     void Auth::setDisplayServerCommand(const QString &command)
+     {
+         if (d->displayServerCmd != command) {
+@@ -381,14 +398,38 @@ namespace SDDM {
+             args << QStringLiteral("--display-server") << d->displayServerCmd;
+         if (d->greeter)
+             args << QStringLiteral("--greeter");
++        if (d->faceAuthentication)
++            args << QStringLiteral("--face-auth");
++        d->cancelRequested = false;
+         d->child->start(QStringLiteral("%1/sddm-helper").arg(QStringLiteral(LIBEXEC_INSTALL_DIR)), args);
+     }
+ 
++    void Auth::cancel() {
++        if (d->child->state() == QProcess::NotRunning)
++            return;
++
++        d->cancelRequested = true;
++        if (d->socket)
++            d->socket->abort();
++        d->child->terminate();
++        QProcess *child = d->child;
++        QTimer::singleShot(150, child, [child] {
++            if (child->state() != QProcess::NotRunning)
++                child->kill();
++        });
++    }
++
+     void Auth::stop() {
+         if (d->child->state() == QProcess::NotRunning) {
+             return;
+         }
+ 
++        if (d->cancelRequested) {
++            d->child->kill();
++            d->child->waitForFinished(100);
++            return;
++        }
++
+         d->child->terminate();
+ 
+         // wait for finished
+diff --git a/src/auth/Auth.h b/src/auth/Auth.h
+index c78da55fb2d98860fcb07421a932fff094861d9c..a742c7b52d8bcd1475b94f20737ab079fa6a2cac 100644
+--- a/src/auth/Auth.h
++++ b/src/auth/Auth.h
+@@ -131,6 +131,7 @@ namespace SDDM {
+          * This will bypass authentication checks
+          */
+         void setGreeter(bool on = true);
++        void setFaceAuthentication(bool on = true);
+ 
+         /**
+         * Forwards the output of the underlying authenticator to the current process
+@@ -173,6 +174,11 @@ namespace SDDM {
+          */
+         void stop();
+ 
++        /**
++         * Cancel an authentication helper without blocking the greeter event loop.
++         */
++        void cancel();
++
+     Q_SIGNALS:
+         void autologinChanged();
+         void greeterChanged();
+diff --git a/src/common/Messages.h b/src/common/Messages.h
+index f79a9dbf80d73d2deb197ae46ba16c37ebaba82d..2b8ad76fab12c3e8a87d3010f831e9e9473056b0 100644
+--- a/src/common/Messages.h
++++ b/src/common/Messages.h
+@@ -30,7 +30,11 @@ namespace SDDM {
+         Reboot,
+         Suspend,
+         Hibernate,
+-        HybridSleep
++        HybridSleep,
++        FaceLogin,
++        CancelFaceLogin,
++        FaceAuthenticationUiReady,
++        QueryFaceAuthenticationMode
+     };
+ 
+     enum class DaemonMessages {
+@@ -39,8 +43,29 @@ namespace SDDM {
+         LoginSucceeded,
+         LoginFailed,
+         InformationMessage,
++        FaceAuthenticationAvailable,
++        FaceAuthenticationStatus,
++        FaceAuthenticationUiReady,
++        FaceAuthenticationMode,
+     };
+ 
++    enum class FaceAuthenticationTrigger : quint32 {
++        ExplicitButton = 0,
++        UserActivity = 1
++    };
++
++    enum class FaceAuthenticationState : quint32 {
++        StartingCamera = 1,
++        LookingForFace,
++        Failed,
++        Canceled,
++        TimedOut,
++        Unavailable,
++        Accepted
++    };
++
++    constexpr quint32 FaceAuthenticationApiVersion = 1;
++
+     enum Capability {
+         None = 0x0000,
+         PowerOff = 0x0001,
+diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
+index 4014e0d6d9fe6e7fb6e85fe9d80c9759b9dab103..aad6045c7ed926d4bb64a67e62462847a523d90d 100644
+--- a/src/daemon/Display.cpp
++++ b/src/daemon/Display.cpp
+@@ -33,8 +33,10 @@
+ 
+ #include <QDebug>
+ #include <QFile>
++#include <QFileInfo>
+ #include <QTimer>
+ #include <QLocalSocket>
++#include <QProcess>
+ 
+ #include <pwd.h>
+ #include <unistd.h>
+@@ -42,15 +44,21 @@
+ 
+ #include <sys/ioctl.h>
+ #include <fcntl.h>
++#include <functional>
++#include <memory>
+ 
+ #include <QDBusConnection>
+ #include <QDBusMessage>
++#include <QDBusPendingCallWatcher>
++#include <QDBusPendingReply>
+ #include <QDBusReply>
++#include <QDBusVariant>
+ 
+ #include "Login1Manager.h"
+ #include "Login1Session.h"
+ #include "VirtualTerminal.h"
+ #include "WaylandDisplayServer.h"
++#include "Constants.h"
+ #include "config.h"
+ 
+ static int s_ttyFailures = 0;
+@@ -148,6 +156,15 @@ namespace SDDM {
+ 
+         // connect login signal
+         connect(m_socketServer, &SocketServer::login, this, &Display::login);
++        connect(m_socketServer, &SocketServer::faceLogin, this, &Display::faceLogin);
++        connect(m_socketServer, &SocketServer::cancelFaceLogin, this, &Display::cancelFaceLogin);
++        connect(m_socketServer, &SocketServer::faceAuthenticationModeRequested,
++                this, &Display::faceAuthenticationModeRequested);
++        m_faceAuthDeadline.setSingleShot(true);
++        connect(&m_faceAuthDeadline, &QTimer::timeout, this, [this] {
++            cancelFaceAuthentication(FaceAuthenticationState::TimedOut,
++                                    tr("Face sign-in timed out. Use password or try again."));
++        });
+ 
+         // connect login result signals
+         connect(this, &Display::loginFailed, m_socketServer, &SocketServer::loginFailed);
+@@ -227,6 +244,17 @@ namespace SDDM {
+         return startAuth(mainConfig.Autologin.User.get(), QString(), session);
+     }
+ 
++    static bool faceAuthenticationMarkerMatches() {
++        QFile marker(QStringLiteral(DATA_INSTALL_DIR "/kfaceauth/sddm-face-auth-api-v1.conf"));
++        const QByteArray expected = QByteArrayLiteral(
++            "format=org.loofifaceid.sddm-face-auth\n"
++            "api=1\n"
++            "sddm_version=0.21.0\n"
++            "upstream_commit=63780fcd79f1dbf81a30eef48c28c699ab15aded\n");
++        return marker.open(QIODevice::ReadOnly) && marker.size() == expected.size()
++            && marker.readAll() == expected;
++    }
++
+     void Display::startSocketServerAndGreeter() {
+         // start socket server
+         m_socketServer->start(m_displayServer->display());
+@@ -244,6 +272,15 @@ namespace SDDM {
+ 
+         m_greeter->setSocket(m_socketServer->socketAddress());
+         m_greeter->setTheme(findGreeterTheme());
++#ifdef SDDM_ENABLE_EXPERIMENTAL_FACE_AUTH
++        m_faceAuthenticationAvailable = m_greeter->supportsFaceAuthentication()
++            && faceAuthenticationMarkerMatches()
++            && QFileInfo(QStringLiteral("/etc/pam.d/sddm-kfaceauth")).isFile()
++            && QFileInfo(QStringLiteral("/usr/libexec/kfaceauth-policy")).isExecutable();
++#else
++        m_faceAuthenticationAvailable = false;
++#endif
++        m_socketServer->setFaceAuthenticationAvailable(m_faceAuthenticationAvailable);
+ 
+         // start greeter
+         m_greeter->start();
+@@ -295,10 +332,21 @@ namespace SDDM {
+         if (!m_started)
+             return;
+ 
++        if (m_faceAuthBusy && !m_faceAuthenticationAccepted)
++            cancelFaceAuthentication(FaceAuthenticationState::Canceled,
++                                     tr("Greeter is stopping."));
++
+         // stop the greeter
+         m_greeter->stop();
+ 
+         m_auth->stop();
++        if (m_facePolicyProcess) {
++            m_facePolicyProcess->kill();
++            m_facePolicyProcess->deleteLater();
++            m_facePolicyProcess = nullptr;
++        }
++        if (m_faceAuth)
++            m_faceAuth->stop();
+ 
+         // stop socket server
+         m_socketServer->stop();
+@@ -327,10 +375,459 @@ namespace SDDM {
+             return;
+         }
+ 
+-        // authenticate
++        if (m_faceAuthenticationAccepted)
++            return;
++
++        if (m_faceAuthBusy && !m_faceAuthCancellationRequested) {
++            cancelFaceAuthentication(FaceAuthenticationState::Canceled,
++                                     tr("Password sign-in selected."));
++        }
++
++        // Authenticate through the unchanged password PAM service. A blank
++        // password is an ordinary failed login and never starts face auth.
+         startAuth(user, password, session);
+     }
+ 
++    void Display::faceAuthenticationModeRequested(QLocalSocket *socket, quint64 requestId,
++                                                  const QString &user) {
++        const struct passwd *account = user.isEmpty() || user == QLatin1String("sddm")
++            ? nullptr : getpwnam(qPrintable(user));
++        if (!socket || requestId == 0 || !m_faceAuthenticationAvailable
++            || !m_socketServer->faceAuthenticationUiReady(socket) || !account) {
++            if (socket && requestId != 0)
++                m_socketServer->faceAuthenticationMode(socket, requestId, user, QStringLiteral("unknown"));
++            return;
++        }
++
++        const QPointer<QLocalSocket> clientSocket(socket);
++        queryFaceAuthenticationMode(static_cast<quint64>(account->pw_uid),
++            [this, clientSocket, requestId, user](const QString &mode) {
++            if (clientSocket && m_socketServer)
++                m_socketServer->faceAuthenticationMode(clientSocket, requestId, user, mode);
++        });
++    }
++
++    QProcess *Display::queryFaceAuthenticationMode(
++        quint64 uidValue, std::function<void(const QString &)> callback) {
++        struct CompletionState {
++            bool completed { false };
++        };
++
++        const QString uid = QString::number(uidValue);
++        auto *process = new QProcess(this);
++        auto *timeout = new QTimer(process);
++        auto completed = std::make_shared<CompletionState>();
++        timeout->setSingleShot(true);
++
++        const auto complete = [process, timeout, completed, callback](const QString &mode) {
++            if (completed->completed)
++                return;
++            completed->completed = true;
++            timeout->stop();
++            callback(mode);
++            process->deleteLater();
++        };
++
++        connect(process, &QProcess::finished, this,
++                [process, complete](int exitCode, QProcess::ExitStatus exitStatus) {
++            const QByteArray output = process->readAllStandardOutput();
++            QString mode = QStringLiteral("unknown");
++            if (exitCode == 0 && exitStatus == QProcess::NormalExit) {
++                if (output == QByteArrayLiteral("mode=off\n"))
++                    mode = QStringLiteral("off");
++                else if (output == QByteArrayLiteral("mode=manual\n"))
++                    mode = QStringLiteral("manual");
++                else if (output == QByteArrayLiteral("mode=on-activity\n"))
++                    mode = QStringLiteral("on-activity");
++            }
++            complete(mode);
++        });
++        connect(process, &QProcess::errorOccurred, this,
++                [complete](QProcess::ProcessError error) {
++            if (error == QProcess::FailedToStart)
++                complete(QStringLiteral("unknown"));
++        });
++        connect(timeout, &QTimer::timeout, process, [process, complete] {
++            process->kill();
++            complete(QStringLiteral("unknown"));
++        });
++
++        const QString program = QStringLiteral("/usr/libexec/kfaceauth-policy");
++        const QStringList arguments {QStringLiteral("--get"), QStringLiteral("--uid"), uid,
++                                     QStringLiteral("--target"), QStringLiteral("sddm")};
++        QTimer::singleShot(0, process, [process, timeout, program, arguments] {
++            process->start(program, arguments);
++            timeout->start(400);
++        });
++        return process;
++    }
++
++    void Display::faceLogin(QLocalSocket *socket, quint64 attemptId,
++                            const QString &user, const Session &session,
++                            FaceAuthenticationTrigger trigger) {
++        const struct passwd *account = user.isEmpty() || user == QLatin1String("sddm")
++            ? nullptr : getpwnam(qPrintable(user));
++        if (!socket || attemptId == 0 || !m_faceAuthenticationAvailable
++            || !m_socketServer->faceAuthenticationUiReady(socket)
++            || !account || m_faceAuthBusy || m_faceAuthenticationAccepted) {
++            if (socket && attemptId != 0)
++                m_socketServer->faceAuthenticationStatus(
++                    socket, attemptId, FaceAuthenticationState::Unavailable,
++                    tr("Face sign-in is unavailable. Use your password."));
++            return;
++        }
++
++        m_faceSocket = socket;
++        m_faceAttemptId = attemptId;
++        m_faceUser = user;
++        m_faceUserUid = static_cast<quint64>(account->pw_uid);
++        m_faceAuthTrigger = trigger;
++        m_faceAuthBusy = true;
++        m_faceAuthCancellationRequested = false;
++        m_faceAuthenticationAccepted = false;
++        m_faceReuseSessionId.clear();
++        m_faceAuthDeadline.start(2000);
++        setFaceAuthenticationStatus(FaceAuthenticationState::StartingCamera,
++                                    tr("Preparing face sign-in…"));
++
++        const quint64 expectedAttemptId = attemptId;
++        m_facePolicyProcess = queryFaceAuthenticationMode(m_faceUserUid,
++            [this, expectedAttemptId, user, session](const QString &mode) {
++                if (m_faceAttemptId != expectedAttemptId || !m_faceAuthBusy
++                    || m_faceAuthCancellationRequested)
++                    return;
++                m_facePolicyProcess = nullptr;
++                const bool allowed = m_faceAuthTrigger == FaceAuthenticationTrigger::UserActivity
++                    ? mode == QLatin1String("on-activity")
++                    : mode == QLatin1String("manual") || mode == QLatin1String("on-activity");
++                if (!allowed) {
++                    m_faceAuthDeadline.stop();
++                    m_faceAuthBusy = false;
++                    setFaceAuthenticationStatus(mode == QLatin1String("unknown")
++                                                   ? FaceAuthenticationState::Unavailable
++                                                   : FaceAuthenticationState::Failed,
++                                               tr("Face sign-in is disabled for this user or the policy could not be read."));
++                    return;
++                }
++                if (!startFaceAuth(user, session)) {
++                    m_faceAuthDeadline.stop();
++                    m_faceAuthBusy = false;
++                    setFaceAuthenticationStatus(FaceAuthenticationState::Failed,
++                                                tr("Face sign-in could not start. Use your password or try again."));
++                }
++            });
++    }
++
++    void Display::cancelFaceLogin(QLocalSocket *socket, quint64 attemptId) {
++        if (!m_faceAuthBusy || m_faceAuthenticationAccepted || socket != m_faceSocket
++            || (attemptId != 0 && attemptId != m_faceAttemptId))
++            return;
++        cancelFaceAuthentication(FaceAuthenticationState::Canceled,
++                                 tr("Use password or try again."));
++    }
++
++    void Display::cancelFaceAuthentication(FaceAuthenticationState state, const QString &message) {
++        if (!m_faceAuthBusy || m_faceAuthenticationAccepted || m_faceAuthCancellationRequested)
++            return;
++
++        m_faceAuthCancellationRequested = true;
++        m_faceAuthDeadline.stop();
++        setFaceAuthenticationStatus(state, message);
++        if (m_facePolicyProcess) {
++            QProcess *process = m_facePolicyProcess;
++            m_facePolicyProcess = nullptr;
++            process->kill();
++            process->deleteLater();
++            m_faceAuthBusy = false;
++            m_faceAuthCancellationRequested = false;
++        } else if (m_faceAuth && m_faceAuth->isActive()) {
++            m_faceAuth->cancel();
++        } else {
++            m_faceAuthBusy = false;
++            if (m_faceAuth) {
++                m_faceAuth->deleteLater();
++                m_faceAuth = nullptr;
++            }
++            m_faceAuthCancellationRequested = false;
++        }
++    }
++
++    void Display::setFaceAuthenticationStatus(FaceAuthenticationState state, const QString &message) {
++        m_faceAuthState = state;
++        if (m_faceSocket && m_faceAttemptId != 0)
++            m_socketServer->faceAuthenticationStatus(m_faceSocket, m_faceAttemptId, state, message);
++    }
++
++    bool Display::startFaceAuth(const QString &user, const Session &session) {
++        if (!session.isValid()) {
++            qWarning() << "Invalid face-auth session" << session.fileName();
++            return false;
++        }
++        if (session.xdgSessionType().isEmpty() || session.exec().isEmpty()) {
++            qWarning() << "Face-auth session is missing its type or command" << session.fileName();
++            return false;
++        }
++
++        m_faceAuth = new Auth(this);
++        m_faceAuth->setVerbose(true);
++        connect(m_faceAuth, &Auth::requestChanged, this, &Display::slotFaceAuthRequestChanged);
++        connect(m_faceAuth, &Auth::authentication, this, &Display::slotFaceAuthenticationFinished);
++        connect(m_faceAuth, &Auth::sessionStarted, this, &Display::slotFaceSessionStarted);
++        connect(m_faceAuth, &Auth::finished, this, &Display::slotFaceHelperFinished);
++        connect(m_faceAuth, &Auth::info, this, &Display::slotFaceAuthInfo);
++        connect(m_faceAuth, &Auth::error, this, &Display::slotFaceAuthError);
++
++        if (Logind::isAvailable() && mainConfig.Users.ReuseSession.get()) {
++            const quint64 attemptId = m_faceAttemptId;
++            OrgFreedesktopLogin1ManagerInterface manager(Logind::serviceName(), Logind::managerPath(), QDBusConnection::systemBus());
++            auto reply = manager.ListSessions();
++            auto *watcher = new QDBusPendingCallWatcher(reply, this);
++            connect(watcher, &QDBusPendingCallWatcher::finished, this,
++                    [this, watcher, user, session, attemptId] {
++                const QDBusPendingReply<SessionInfoList> finished = *watcher;
++                watcher->deleteLater();
++                if (!m_faceAuthBusy || m_faceAuthCancellationRequested || !m_faceAuth
++                    || attemptId != m_faceAttemptId)
++                    return;
++                if (!finished.isError()) {
++                    const SessionInfoList candidates = finished.value();
++                    auto tryNextCandidate = std::make_shared<std::function<void(int)>>();
++                    const auto getSessionProperty = [](const QString &path, const QString &property) {
++                        QDBusMessage message = QDBusMessage::createMethodCall(
++                            Logind::serviceName(), path,
++                            QStringLiteral("org.freedesktop.DBus.Properties"), QStringLiteral("Get"));
++                        message << QStringLiteral("org.freedesktop.login1.Session") << property;
++                        return QDBusConnection::systemBus().asyncCall(message);
++                    };
++                    *tryNextCandidate = [this, user, session, candidates, tryNextCandidate,
++                                         getSessionProperty, attemptId](int index) {
++                        if (!m_faceAuthBusy || m_faceAuthCancellationRequested || !m_faceAuth
++                            || attemptId != m_faceAttemptId) {
++                            *tryNextCandidate = std::function<void(int)>();
++                            return;
++                        }
++                        if (index >= candidates.size()) {
++                            *tryNextCandidate = std::function<void(int)>();
++                            prepareFaceAuthSession(user, session);
++                            return;
++                        }
++
++                        const SessionInfo entry = candidates.at(index);
++                        if (entry.userName != user) {
++                            (*tryNextCandidate)(index + 1);
++                            return;
++                        }
++
++                        auto *serviceWatcher = new QDBusPendingCallWatcher(
++                            getSessionProperty(entry.sessionPath.path(), QStringLiteral("Service")), this);
++                        connect(serviceWatcher, &QDBusPendingCallWatcher::finished, this,
++                                [this, serviceWatcher, entry, user, session, getSessionProperty,
++                                 tryNextCandidate, index, attemptId] {
++                            const QDBusPendingReply<QDBusVariant> serviceReply = *serviceWatcher;
++                            serviceWatcher->deleteLater();
++                            if (!m_faceAuthBusy || m_faceAuthCancellationRequested || !m_faceAuth
++                                || attemptId != m_faceAttemptId) {
++                                *tryNextCandidate = std::function<void(int)>();
++                                return;
++                            }
++                            if (serviceReply.isError()
++                                || serviceReply.value().variant().toString() != QLatin1String("sddm")) {
++                                (*tryNextCandidate)(index + 1);
++                                return;
++                            }
++
++                            auto *stateWatcher = new QDBusPendingCallWatcher(
++                                getSessionProperty(entry.sessionPath.path(), QStringLiteral("State")), this);
++                            connect(stateWatcher, &QDBusPendingCallWatcher::finished, this,
++                                    [this, stateWatcher, entry, user, session,
++                                     tryNextCandidate, index, attemptId] {
++                                const QDBusPendingReply<QDBusVariant> stateReply = *stateWatcher;
++                                stateWatcher->deleteLater();
++                                if (!m_faceAuthBusy || m_faceAuthCancellationRequested || !m_faceAuth
++                                    || attemptId != m_faceAttemptId) {
++                                    *tryNextCandidate = std::function<void(int)>();
++                                    return;
++                                }
++                                if (!stateReply.isError()
++                                    && stateReply.value().variant().toString() == QLatin1String("online")) {
++                                    m_faceReuseSessionId = entry.sessionId;
++                                    *tryNextCandidate = std::function<void(int)>();
++                                    prepareFaceAuthSession(user, session);
++                                    return;
++                                }
++                                (*tryNextCandidate)(index + 1);
++                            });
++                        });
++                    };
++                    (*tryNextCandidate)(0);
++                    return;
++                }
++                prepareFaceAuthSession(user, session);
++            });
++            return true;
++        }
++
++        prepareFaceAuthSession(user, session);
++        return true;
++    }
++
++    void Display::prepareFaceAuthSession(const QString &user, const Session &session) {
++        if (!m_faceAuthBusy || m_faceAuthCancellationRequested || !m_faceAuth)
++            return;
++
++        m_faceSessionName = session.fileName();
++        m_faceSessionTerminalId = m_terminalId;
++        if ((session.type() == Session::WaylandSession && m_displayServerType == X11DisplayServerType)
++            || (m_greeter->isRunning() && m_displayServerType != X11DisplayServerType)) {
++            m_faceSessionTerminalId = VirtualTerminal::setUpNewVt();
++        }
++
++        QProcessEnvironment env;
++        env.insert(session.additionalEnv());
++        env.insert(QStringLiteral("PATH"), mainConfig.Users.DefaultPath.get());
++        env.insert(QStringLiteral("XDG_SEAT_PATH"), daemonApp->displayManager()->seatPath(seat()->name()));
++        env.insert(QStringLiteral("XDG_SESSION_PATH"), daemonApp->displayManager()->sessionPath(QStringLiteral("Session%1").arg(daemonApp->newSessionId())));
++        env.insert(QStringLiteral("DESKTOP_SESSION"), session.desktopSession());
++        if (!session.desktopNames().isEmpty())
++            env.insert(QStringLiteral("XDG_CURRENT_DESKTOP"), session.desktopNames());
++        env.insert(QStringLiteral("XDG_SESSION_CLASS"), QStringLiteral("user"));
++        env.insert(QStringLiteral("XDG_SESSION_TYPE"), session.xdgSessionType());
++        env.insert(QStringLiteral("XDG_SEAT"), seat()->name());
++        env.insert(QStringLiteral("XDG_VTNR"), QString::number(m_faceSessionTerminalId));
++#ifdef HAVE_SYSTEMD
++        env.insert(QStringLiteral("XDG_SESSION_DESKTOP"), session.desktopNames());
++#endif
++
++        if (session.xdgSessionType() == QLatin1String("x11")) {
++            if (m_displayServerType == X11DisplayServerType)
++                env.insert(QStringLiteral("DISPLAY"), name());
++            else
++                m_faceAuth->setDisplayServerCommand(XorgUserDisplayServer::command(this));
++        } else {
++            m_faceAuth->setDisplayServerCommand(QStringLiteral());
++        }
++
++        if (m_faceReuseSessionId.isNull())
++            m_faceAuth->setSession(session.exec());
++        m_faceAuth->setUser(user);
++        m_faceAuth->setFaceAuthentication(true);
++        m_faceAuth->insertEnvironment(env);
++        m_faceAuth->start();
++    }
++
++    void Display::slotFaceAuthRequestChanged() {
++        if (!m_faceAuth || !m_faceAuthBusy || m_faceAuthCancellationRequested)
++            return;
++        if (m_faceAuth->request()->prompts().isEmpty())
++            return;
++
++        cancelFaceAuthentication(FaceAuthenticationState::Failed,
++                                 tr("Face sign-in requested a password. Use the password field instead."));
++    }
++
++    void Display::slotFaceAuthenticationFinished(const QString &user, bool success) {
++        if (m_faceAuthCancellationRequested || !m_faceAuthBusy)
++            return;
++        const struct passwd *authenticatedAccount = getpwnam(qPrintable(user));
++        if (success && (user != m_faceUser || !authenticatedAccount
++            || static_cast<quint64>(authenticatedAccount->pw_uid) != m_faceUserUid)) {
++            cancelFaceAuthentication(FaceAuthenticationState::Failed,
++                                     tr("Face authentication returned a different user. Use password or try again."));
++            return;
++        }
++        if (!success) {
++            m_faceAuthDeadline.stop();
++            setFaceAuthenticationStatus(FaceAuthenticationState::Failed,
++                                        tr("Face not recognized. Use password or try again."));
++            return;
++        }
++
++        m_faceAuthDeadline.stop();
++        m_faceAuthenticationAccepted = true;
++        setFaceAuthenticationStatus(FaceAuthenticationState::Accepted,
++                                    tr("Face accepted. Starting session…"));
++
++        if (!m_faceReuseSessionId.isNull()) {
++            OrgFreedesktopLogin1ManagerInterface manager(Logind::serviceName(), Logind::managerPath(), QDBusConnection::systemBus());
++            manager.UnlockSession(m_faceReuseSessionId);
++            manager.ActivateSession(m_faceReuseSessionId);
++            m_started = true;
++        } else if (qobject_cast<XorgDisplayServer *>(m_displayServer)) {
++            m_faceAuth->setCookie(qobject_cast<XorgDisplayServer *>(m_displayServer)->cookie());
++        }
++
++        if (mainConfig.Users.RememberLastUser.get())
++            stateConfig.Last.User.set(user);
++        else
++            stateConfig.Last.User.setDefault();
++        if (mainConfig.Users.RememberLastSession.get())
++            stateConfig.Last.Session.set(m_faceSessionName);
++        else
++            stateConfig.Last.Session.setDefault();
++        stateConfig.save();
++
++        if (m_faceSocket)
++            m_socketServer->loginSucceeded(m_faceSocket);
++        m_faceSocket = nullptr;
++    }
++
++    void Display::slotFaceSessionStarted(bool success) {
++        qDebug() << "Face-auth session started" << success;
++    }
++
++    void Display::slotFaceHelperFinished(Auth::HelperExitStatus status) {
++        const bool authenticationAccepted = m_faceAuthenticationAccepted;
++        m_faceAuthDeadline.stop();
++        if (!m_faceAuthenticationAccepted
++            && m_faceAuthState != FaceAuthenticationState::Failed
++            && m_faceAuthState != FaceAuthenticationState::Canceled
++            && m_faceAuthState != FaceAuthenticationState::TimedOut) {
++            setFaceAuthenticationStatus(FaceAuthenticationState::Failed,
++                                        tr("Face sign-in failed. Use password or try again."));
++        }
++
++        m_faceAuthBusy = false;
++        m_faceAuthCancellationRequested = false;
++        m_faceAuthenticationAccepted = false;
++        m_faceSocket = nullptr;
++        if (m_faceAuth) {
++            m_faceAuth->deleteLater();
++            m_faceAuth = nullptr;
++        }
++
++        if (authenticationAccepted && status != Auth::HELPER_AUTH_ERROR)
++            stop();
++    }
++
++    void Display::slotFaceAuthInfo(const QString &message, Auth::Info info) {
++        Q_UNUSED(info);
++        if (!m_faceAuthBusy || m_faceAuthCancellationRequested)
++            return;
++
++        const QString token = message.trimmed();
++        if (token == QLatin1String("starting-camera")) {
++            setFaceAuthenticationStatus(FaceAuthenticationState::StartingCamera,
++                                        tr("Starting camera…"));
++        } else if (token == QLatin1String("looking-for-face")) {
++            setFaceAuthenticationStatus(FaceAuthenticationState::LookingForFace,
++                                        tr("Look at the camera."));
++        } else if (token == QLatin1String("use-password")) {
++            cancelFaceAuthentication(FaceAuthenticationState::Failed,
++                                     tr("Face not recognized. Use password or try again."));
++        }
++    }
++
++    void Display::slotFaceAuthError(const QString &message, Auth::Error error) {
++        qWarning() << "Face authentication error:" << error << message;
++        if (!m_faceAuthBusy || m_faceAuthCancellationRequested || m_faceAuthenticationAccepted)
++            return;
++        if (error == Auth::ERROR_AUTHENTICATION) {
++            m_faceAuthDeadline.stop();
++            setFaceAuthenticationStatus(FaceAuthenticationState::Failed,
++                                        tr("Face sign-in failed. Use password or try again."));
++        }
++    }
++
+     QString Display::findGreeterTheme() const {
+         QString themeName = mainConfig.Theme.Current.get();
+ 
+diff --git a/src/daemon/Display.h b/src/daemon/Display.h
+index 98ca00665a43f05c9512265219a853731804e2a9..6e3cb5d58db0b32f1be387194ceb5023d24138a6 100644
+--- a/src/daemon/Display.h
++++ b/src/daemon/Display.h
+@@ -24,12 +24,17 @@
+ 
+ #include <QObject>
+ #include <QPointer>
++#include <QProcess>
+ #include <QDir>
++#include <QTimer>
++#include <functional>
+ 
+ #include "Auth.h"
++#include "Messages.h"
+ #include "Session.h"
+ 
+ class QLocalSocket;
++class QProcess;
+ 
+ namespace SDDM {
+     class Authenticator;
+@@ -72,6 +77,12 @@ namespace SDDM {
+         void login(QLocalSocket *socket,
+                    const QString &user, const QString &password,
+                    const Session &session);
++        void faceLogin(QLocalSocket *socket, quint64 attemptId,
++                       const QString &user, const Session &session,
++                       FaceAuthenticationTrigger trigger);
++        void faceAuthenticationModeRequested(QLocalSocket *socket, quint64 requestId,
++                                             const QString &user);
++        void cancelFaceLogin(QLocalSocket *socket, quint64 attemptId);
+         bool attemptAutologin();
+         void displayServerStarted();
+ 
+@@ -88,6 +99,12 @@ namespace SDDM {
+ 
+         bool startAuth(const QString &user, const QString &password,
+                        const Session &session);
++        bool startFaceAuth(const QString &user, const Session &session);
++        void prepareFaceAuthSession(const QString &user, const Session &session);
++        void cancelFaceAuthentication(FaceAuthenticationState state, const QString &message);
++        void setFaceAuthenticationStatus(FaceAuthenticationState state, const QString &message);
++        QProcess *queryFaceAuthenticationMode(
++            quint64 uid, std::function<void(const QString &)> callback);
+ 
+         void startSocketServerAndGreeter();
+         void handleAutologinFailure();
+@@ -105,6 +122,22 @@ namespace SDDM {
+         QString m_reuseSessionId;
+ 
+         Auth *m_auth { nullptr };
++        Auth *m_faceAuth { nullptr };
++        QPointer<QProcess> m_facePolicyProcess;
++        FaceAuthenticationTrigger m_faceAuthTrigger { FaceAuthenticationTrigger::ExplicitButton };
++        QPointer<QLocalSocket> m_faceSocket;
++        QString m_faceReuseSessionId;
++        QString m_faceSessionName;
++        QString m_faceUser;
++        quint64 m_faceUserUid { 0 };
++        quint64 m_faceAttemptId { 0 };
++        int m_faceSessionTerminalId { 0 };
++        bool m_faceAuthenticationAvailable { false };
++        bool m_faceAuthBusy { false };
++        bool m_faceAuthCancellationRequested { false };
++        bool m_faceAuthenticationAccepted { false };
++        FaceAuthenticationState m_faceAuthState { FaceAuthenticationState::Unavailable };
++        QTimer m_faceAuthDeadline;
+         DisplayServer *m_displayServer { nullptr };
+         Seat *m_seat { nullptr };
+         SocketServer *m_socketServer { nullptr };
+@@ -118,6 +151,12 @@ namespace SDDM {
+         void slotHelperFinished(Auth::HelperExitStatus status);
+         void slotAuthInfo(const QString &message, Auth::Info info);
+         void slotAuthError(const QString &message, Auth::Error error);
++        void slotFaceAuthRequestChanged();
++        void slotFaceAuthenticationFinished(const QString &user, bool success);
++        void slotFaceSessionStarted(bool success);
++        void slotFaceHelperFinished(Auth::HelperExitStatus status);
++        void slotFaceAuthInfo(const QString &message, Auth::Info info);
++        void slotFaceAuthError(const QString &message, Auth::Error error);
+     };
+ }
+ 
+diff --git a/src/daemon/Greeter.cpp b/src/daemon/Greeter.cpp
+index 07fccde48cc94c5ba87fb66a54c74f5d9cf84062..fed2f3b209177c493e40146b401e3c02b6b34afc 100644
+--- a/src/daemon/Greeter.cpp
++++ b/src/daemon/Greeter.cpp
+@@ -75,6 +75,18 @@ namespace SDDM {
+         return m_displayServerCmd;
+     }
+ 
++    bool Greeter::supportsFaceAuthentication() const
++    {
++#ifdef SDDM_ENABLE_EXPERIMENTAL_FACE_AUTH
++        if (m_themePath.isEmpty())
++            return true;
++        return m_themeConfig
++            && m_themeConfig->value(QStringLiteral("faceAuthenticationApi")).toInt() == 1;
++#else
++        return false;
++#endif
++    }
++
+     void Greeter::setDisplayServerCommand(const QString &cmd)
+     {
+         m_displayServerCmd = cmd;
+diff --git a/src/daemon/Greeter.h b/src/daemon/Greeter.h
+index 8cc996d7ef931ac7704f27d9a4d6d0397adb6853..12611f0e7b8fee6935ce729f8a277114095bdbae 100644
+--- a/src/daemon/Greeter.h
++++ b/src/daemon/Greeter.h
+@@ -40,6 +40,7 @@ namespace SDDM {
+ 
+         void setSocket(const QString &socket);
+         void setTheme(const QString &theme);
++        bool supportsFaceAuthentication() const;
+ 
+         QString displayServerCommand() const;
+         void setDisplayServerCommand(const QString &cmd);
+diff --git a/src/daemon/SocketServer.cpp b/src/daemon/SocketServer.cpp
+index 488f9a5f20f5ce40d950c0023775a8867c1d136f..84ff12748f47629f1aaf31547cca827e4948ef70 100644
+--- a/src/daemon/SocketServer.cpp
++++ b/src/daemon/SocketServer.cpp
+@@ -38,6 +38,28 @@ namespace SDDM {
+         return QString();
+     }
+ 
++    void SocketServer::setFaceAuthenticationAvailable(bool available) {
++        m_faceAuthenticationAvailable = available;
++    }
++
++    bool SocketServer::faceAuthenticationUiReady(QLocalSocket *socket) const {
++        return socket && m_faceAuthenticationUiReadySockets.contains(socket);
++    }
++
++    void SocketServer::faceAuthenticationStatus(QLocalSocket *socket, quint64 attemptId,
++                                                FaceAuthenticationState state, const QString &message) {
++        if (socket && socket->state() == QLocalSocket::ConnectedState)
++            SocketWriter(socket) << quint32(DaemonMessages::FaceAuthenticationStatus)
++                                 << attemptId << quint32(state) << message;
++    }
++
++    void SocketServer::faceAuthenticationMode(QLocalSocket *socket, quint64 requestId,
++                                              const QString &user, const QString &mode) {
++        if (socket && socket->state() == QLocalSocket::ConnectedState)
++            SocketWriter(socket) << quint32(DaemonMessages::FaceAuthenticationMode)
++                                 << requestId << user << mode;
++    }
++
+     bool SocketServer::start(const QString &displayName) {
+         // check if the server has been created already
+         if (m_server)
+@@ -85,6 +107,7 @@ namespace SDDM {
+         // delete server
+         m_server->deleteLater();
+         m_server = nullptr;
++        m_faceAuthenticationUiReadySockets.clear();
+ 
+         // log message
+         qDebug() << "Socket server stopped.";
+@@ -96,7 +119,11 @@ namespace SDDM {
+ 
+         // connect signals
+         connect(socket, &QLocalSocket::readyRead, this, &SocketServer::readyRead);
+-        connect(socket, &QLocalSocket::disconnected, socket, &QLocalSocket::deleteLater);
++        connect(socket, &QLocalSocket::disconnected, this, [this, socket] {
++            emit cancelFaceLogin(socket, 0);
++            m_faceAuthenticationUiReadySockets.remove(socket);
++            socket->deleteLater();
++        });
+     }
+ 
+     void SocketServer::readyRead() {
+@@ -123,6 +150,8 @@ namespace SDDM {
+ 
+                     // send capabilities
+                     SocketWriter(socket) << quint32(DaemonMessages::Capabilities) << quint32(daemonApp->powerManager()->capabilities());
++                    SocketWriter(socket) << quint32(DaemonMessages::FaceAuthenticationAvailable)
++                                         << m_faceAuthenticationAvailable;
+ 
+                     // send host name
+                     SocketWriter(socket) << quint32(DaemonMessages::HostName) << daemonApp->hostName();
+@@ -144,6 +173,44 @@ namespace SDDM {
+                     emit login(socket, user, password, session);
+                 }
+                 break;
++                case GreeterMessages::FaceLogin: {
++                    quint64 attemptId;
++                    QString user;
++                    Session session;
++                    quint32 trigger = quint32(FaceAuthenticationTrigger::ExplicitButton);
++                    input >> attemptId >> user >> session >> trigger;
++                    if (trigger > quint32(FaceAuthenticationTrigger::UserActivity))
++                        break;
++                    emit faceLogin(socket, attemptId, user, session,
++                                   static_cast<FaceAuthenticationTrigger>(trigger));
++                }
++                break;
++                case GreeterMessages::CancelFaceLogin: {
++                    quint64 attemptId;
++                    input >> attemptId;
++                    emit cancelFaceLogin(socket, attemptId);
++                }
++                break;
++                case GreeterMessages::FaceAuthenticationUiReady: {
++                    quint32 apiVersion = 0;
++                    input >> apiVersion;
++                    const bool ready = m_faceAuthenticationAvailable
++                        && apiVersion == FaceAuthenticationApiVersion;
++                    if (ready)
++                        m_faceAuthenticationUiReadySockets.insert(socket);
++                    SocketWriter(socket) << quint32(DaemonMessages::FaceAuthenticationUiReady)
++                                         << ready;
++                }
++                break;
++                case GreeterMessages::QueryFaceAuthenticationMode: {
++                    quint64 requestId = 0;
++                    QString user;
++                    input >> requestId >> user;
++                    if (requestId == 0 || !faceAuthenticationUiReady(socket))
++                        break;
++                    emit faceAuthenticationModeRequested(socket, requestId, user);
++                }
++                break;
+                 case GreeterMessages::PowerOff: {
+                     // log message
+                     qDebug() << "Message received from greeter: PowerOff";
+diff --git a/src/daemon/SocketServer.h b/src/daemon/SocketServer.h
+index 0552e012d65380185103f6dba32c98f94665c278..6d31a1977cdb2051979b0f8ed092ed472584f7ca 100644
+--- a/src/daemon/SocketServer.h
++++ b/src/daemon/SocketServer.h
+@@ -22,8 +22,10 @@
+ #define SDDM_SOCKETSERVER_H
+ 
+ #include <QObject>
++#include <QSet>
+ #include <QString>
+ 
++#include "Messages.h"
+ #include "Session.h"
+ 
+ class QLocalServer;
+@@ -40,6 +42,12 @@ namespace SDDM {
+         void stop();
+ 
+         QString socketAddress() const;
++        void setFaceAuthenticationAvailable(bool available);
++        bool faceAuthenticationUiReady(QLocalSocket *socket) const;
++        void faceAuthenticationStatus(QLocalSocket *socket, quint64 attemptId,
++                                      FaceAuthenticationState state, const QString &message);
++        void faceAuthenticationMode(QLocalSocket *socket, quint64 requestId,
++                                    const QString &user, const QString &mode);
+ 
+     private slots:
+         void newConnection();
+@@ -54,10 +62,18 @@ namespace SDDM {
+         void login(QLocalSocket *socket,
+                    const QString &user, const QString &password,
+                    const Session &session);
++        void faceLogin(QLocalSocket *socket, quint64 attemptId,
++                       const QString &user, const Session &session,
++                       FaceAuthenticationTrigger trigger);
++        void faceAuthenticationModeRequested(QLocalSocket *socket, quint64 requestId,
++                                             const QString &user);
++        void cancelFaceLogin(QLocalSocket *socket, quint64 attemptId);
+         void connected();
+ 
+     private:
+         QLocalServer *m_server { nullptr };
++        bool m_faceAuthenticationAvailable { false };
++        QSet<QLocalSocket *> m_faceAuthenticationUiReadySockets;
+     };
+ }
+ 
+diff --git a/src/greeter/CMakeLists.txt b/src/greeter/CMakeLists.txt
+index 72769e4d0c2ee83aaada3995de59eed08befb118..65296060f70e4b3e061dd88bd99f3522fd9ccc97 100644
+--- a/src/greeter/CMakeLists.txt
++++ b/src/greeter/CMakeLists.txt
+@@ -53,3 +53,8 @@ endif()
+ add_dependencies(${GREETER_TARGET} components-translation themes-translation)
+ 
+ install(TARGETS ${GREETER_TARGET} DESTINATION "${CMAKE_INSTALL_BINDIR}")
++
++if(SDDM_ENABLE_EXPERIMENTAL_FACE_AUTH)
++    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/kfaceauth-sddm-api-v1.conf"
++            DESTINATION "${DATA_INSTALL_DIR}/kfaceauth")
++endif()
+diff --git a/src/greeter/GreeterApp.cpp b/src/greeter/GreeterApp.cpp
+index 01613cc6693fc8319d2d0f123411fe1c468fb22d..36c108bbbefbd6bf801880d84e565bae6d06312b 100644
+--- a/src/greeter/GreeterApp.cpp
++++ b/src/greeter/GreeterApp.cpp
+@@ -44,6 +44,7 @@
+ #include <QLibraryInfo>
+ #include <QVersionNumber>
+ #include <QSurfaceFormat>
++#include <QKeyEvent>
+ 
+ #include <iostream>
+ 
+@@ -137,6 +138,58 @@ namespace SDDM {
+             QCoreApplication::installTranslator(m_theme_translator);
+     }
+ 
++    bool GreeterApp::eventFilter(QObject *watched, QEvent *event)
++    {
++        if (m_proxy && m_proxy->faceAuthenticationActive()) {
++            QObject *focusObject = qGuiApp->focusObject();
++            const bool editableFocused = focusObject
++                && focusObject->metaObject()->indexOfProperty("echoMode") >= 0;
++            bool cancel = event->type() == QEvent::InputMethod && editableFocused;
++            if (event->type() == QEvent::KeyPress) {
++                const auto *key = static_cast<QKeyEvent *>(event);
++                cancel = key->key() == Qt::Key_Escape
++                    || (editableFocused && (!key->text().isEmpty()
++                        || key->key() == Qt::Key_Backspace || key->key() == Qt::Key_Delete));
++            }
++            if (cancel)
++                m_proxy->cancelFaceAuthentication();
++        }
++
++        if (m_proxy) {
++            bool activity = event->type() == QEvent::MouseButtonPress
++                || event->type() == QEvent::MouseMove || event->type() == QEvent::Wheel;
++            if (event->type() == QEvent::KeyPress) {
++                const auto *key = static_cast<QKeyEvent *>(event);
++                const bool editableFocused = qGuiApp->focusObject()
++                    && qGuiApp->focusObject()->metaObject()->indexOfProperty("echoMode") >= 0;
++                const bool passwordInput = editableFocused
++                    && (!key->text().isEmpty() || key->key() == Qt::Key_Backspace
++                        || key->key() == Qt::Key_Delete);
++                activity = !editableFocused && !key->text().isEmpty()
++                    && key->key() != Qt::Key_Return && key->key() != Qt::Key_Enter
++                    && key->key() != Qt::Key_Escape;
++                if (passwordInput)
++                    activity = false;
++            }
++
++            const bool selectingUser = watched
++                && watched->metaObject()->indexOfProperty("userName") >= 0;
++            if (activity && !selectingUser) {
++                const quint64 generation = m_proxy->faceActivityGeneration();
++                const quint64 eventSerial = ++m_faceActivityEventSerial;
++                QTimer::singleShot(100, m_proxy, [this, proxy = m_proxy, generation, eventSerial] {
++                    QObject *focusObject = qGuiApp->focusObject();
++                    const bool editableFocused = focusObject
++                        && focusObject->metaObject()->indexOfProperty("echoMode") >= 0;
++                    if (proxy && eventSerial == m_faceActivityEventSerial
++                        && proxy->faceActivityGeneration() == generation && !editableFocused)
++                        proxy->notifyFaceAuthenticationActivity();
++                });
++            }
++        }
++        return QObject::eventFilter(watched, event);
++    }
++
+     void GreeterApp::customEvent(QEvent *event)
+     {
+         if (event->type() == StartupEventType)
+@@ -166,6 +219,15 @@ namespace SDDM {
+         connect(screen, &QScreen::geometryChanged, this, [view](const QRect &r) {
+             view->setGeometry(r);
+         });
++        connect(view, &QWindow::visibleChanged, this, [this](bool visible) {
++            if (visible || !m_proxy || !m_proxy->faceAuthenticationActive())
++                return;
++            for (const QQuickView *candidate : qAsConst(m_views)) {
++                if (candidate->isVisible())
++                    return;
++            }
++            m_proxy->cancelFaceAuthentication();
++        });
+ 
+         view->engine()->addImportPath(QStringLiteral(IMPORTS_INSTALL_DIR));
+ 
+@@ -273,6 +335,7 @@ namespace SDDM {
+ 
+         // If the socket ends, bail. There is not much we can do.
+         connect(m_proxy, &GreeterProxy::socketDisconnected, qGuiApp, &QCoreApplication::quit);
++        qGuiApp->installEventFilter(this);
+ 
+         // Create views
+         const QList<QScreen *> screens = qGuiApp->primaryScreen()->virtualSiblings();
+diff --git a/src/greeter/GreeterApp.h b/src/greeter/GreeterApp.h
+index ed63595e668c7fbc6bec394c0db79ed2f90e31bd..032de398ebfc0584c198f8c32901dbb7d81397f3 100644
+--- a/src/greeter/GreeterApp.h
++++ b/src/greeter/GreeterApp.h
+@@ -56,6 +56,7 @@ namespace SDDM {
+ 
+     protected:
+         void customEvent(QEvent *event) override;
++        bool eventFilter(QObject *watched, QEvent *event) override;
+ 
+     private slots:
+         void addViewForScreen(QScreen *screen);
+@@ -76,6 +77,7 @@ namespace SDDM {
+         UserModel *m_userModel { nullptr };
+         GreeterProxy *m_proxy { nullptr };
+         KeyboardModel *m_keyboard { nullptr };
++        quint64 m_faceActivityEventSerial { 0 };
+ 
+         void startup();
+         void activatePrimary();
+diff --git a/src/greeter/GreeterProxy.cpp b/src/greeter/GreeterProxy.cpp
+index d9a8e68c7900032b87fc92b5e2412b10eab8bb69..c8ed9a86a97308da60d6876b5c8dec830700e0ec 100644
+--- a/src/greeter/GreeterProxy.cpp
++++ b/src/greeter/GreeterProxy.cpp
+@@ -38,6 +38,18 @@ namespace SDDM {
+         bool canSuspend { false };
+         bool canHibernate { false };
+         bool canHybridSleep { false };
++        bool faceAuthenticationAvailable { false };
++        bool faceAuthenticationUiReady { false };
++        bool faceAuthenticationUiRegistrationPending { false };
++        quint32 requestedFaceAuthenticationApiVersion { 0 };
++        bool faceAuthenticationActive { false };
++        GreeterProxy::FaceAuthenticationState faceAuthenticationState { GreeterProxy::FaceAuthenticationIdle };
++        QString faceAuthenticationMessage;
++        QString faceAuthenticationUser;
++        quint64 faceAuthenticationAttemptId { 0 };
++        QString faceAuthenticationSelectedUser;
++        bool faceAuthenticationAutoAttempted { false };
++        quint64 faceActivityGeneration { 0 };
+     };
+ 
+     GreeterProxy::GreeterProxy(const QString &socket, QObject *parent) : QObject(parent), d(new GreeterProxyPrivate()) {
+@@ -88,6 +100,30 @@ namespace SDDM {
+         return d->socket->state() == QLocalSocket::ConnectedState;
+     }
+ 
++    bool GreeterProxy::faceAuthenticationAvailable() const {
++        return d->faceAuthenticationAvailable;
++    }
++
++    bool GreeterProxy::faceAuthenticationUiReady() const {
++        return d->faceAuthenticationUiReady;
++    }
++
++    bool GreeterProxy::faceAuthenticationActive() const {
++        return d->faceAuthenticationActive;
++    }
++
++    GreeterProxy::FaceAuthenticationState GreeterProxy::faceAuthenticationState() const {
++        return d->faceAuthenticationState;
++    }
++
++    const QString &GreeterProxy::faceAuthenticationMessage() const {
++        return d->faceAuthenticationMessage;
++    }
++
++    const QString &GreeterProxy::faceAuthenticationUser() const {
++        return d->faceAuthenticationUser;
++    }
++
+     void GreeterProxy::powerOff() {
+         SocketWriter(d->socket) << quint32(GreeterMessages::PowerOff);
+     }
+@@ -109,6 +145,9 @@ namespace SDDM {
+     }
+ 
+     void GreeterProxy::login(const QString &user, const QString &password, const int sessionIndex) const {
++        const_cast<GreeterProxy *>(this)->suppressFaceAuthenticationActivity();
++        if (d->faceAuthenticationActive)
++            const_cast<GreeterProxy *>(this)->cancelFaceAuthentication();
+         if (!d->sessionModel) {
+             // log error
+             qCritical() << "Session model is not set.";
+@@ -127,6 +166,95 @@ namespace SDDM {
+         SocketWriter(d->socket) << quint32(GreeterMessages::Login) << user << password << session;
+     }
+ 
++    void GreeterProxy::registerFaceAuthenticationUi(int apiVersion) {
++        d->requestedFaceAuthenticationApiVersion = apiVersion > 0 ? quint32(apiVersion) : 0;
++        if (!d->faceAuthenticationAvailable || d->requestedFaceAuthenticationApiVersion == 0
++            || d->faceAuthenticationUiRegistrationPending || d->faceAuthenticationUiReady)
++            return;
++
++        d->faceAuthenticationUiRegistrationPending = true;
++        SocketWriter(d->socket) << quint32(GreeterMessages::FaceAuthenticationUiReady)
++                                << d->requestedFaceAuthenticationApiVersion;
++    }
++
++    void GreeterProxy::requestFaceAuthenticationMode(const QString &user, quint64 requestId) {
++        if (!d->faceAuthenticationAvailable || !d->faceAuthenticationUiReady
++            || user.isEmpty() || user == QLatin1String("sddm") || requestId == 0)
++            return;
++        SocketWriter(d->socket) << quint32(GreeterMessages::QueryFaceAuthenticationMode)
++                                << requestId << user;
++    }
++
++    void GreeterProxy::setFaceAuthenticationSelectedUser(const QString &user) {
++        if (d->faceAuthenticationSelectedUser == user)
++            return;
++        ++d->faceActivityGeneration;
++        d->faceAuthenticationSelectedUser = user;
++        d->faceAuthenticationAutoAttempted = false;
++        if (d->faceAuthenticationActive && d->faceAuthenticationUser != user)
++            cancelFaceAuthentication();
++    }
++
++    quint64 GreeterProxy::faceActivityGeneration() const {
++        return d->faceActivityGeneration;
++    }
++
++    void GreeterProxy::notifyFaceAuthenticationActivity() {
++        emit faceAuthenticationActivity();
++    }
++
++    bool GreeterProxy::startFaceAuthentication(const QString &user, const int sessionIndex, int trigger) {
++        if (!d->faceAuthenticationAvailable || !d->faceAuthenticationUiReady
++            || d->faceAuthenticationActive || !d->sessionModel
++            || user.isEmpty() || user == QLatin1String("sddm")
++            || user != d->faceAuthenticationSelectedUser
++            || (trigger != FaceAuthenticationExplicitButton
++                && trigger != FaceAuthenticationUserActivity)
++            || (trigger == FaceAuthenticationUserActivity && d->faceAuthenticationAutoAttempted))
++            return false;
++
++        const QModelIndex index = d->sessionModel->index(sessionIndex, 0);
++        const Session::Type type = static_cast<Session::Type>(d->sessionModel->data(index, SessionModel::TypeRole).toInt());
++        const QString name = d->sessionModel->data(index, SessionModel::FileRole).toString();
++        const Session session(type, name);
++        if (!session.isValid())
++            return false;
++
++        d->faceAuthenticationAutoAttempted = true;
++        ++d->faceAuthenticationAttemptId;
++        if (d->faceAuthenticationAttemptId == 0)
++            ++d->faceAuthenticationAttemptId;
++        d->faceAuthenticationActive = true;
++        d->faceAuthenticationState = FaceAuthenticationStartingCamera;
++        d->faceAuthenticationUser = user;
++        d->faceAuthenticationMessage = tr("Preparing face sign-in…");
++        emit faceAuthenticationChanged();
++        SocketWriter(d->socket) << quint32(GreeterMessages::FaceLogin)
++                                << d->faceAuthenticationAttemptId << user << session
++                                << quint32(trigger);
++        return true;
++    }
++
++    void GreeterProxy::suppressFaceAuthenticationActivity() {
++        ++d->faceActivityGeneration;
++    }
++
++    void GreeterProxy::cancelFaceAuthentication() {
++        suppressFaceAuthenticationActivity();
++        if (!d->faceAuthenticationActive)
++            return;
++
++        const quint64 attemptId = d->faceAuthenticationAttemptId;
++        d->faceAuthenticationActive = false;
++        d->faceAuthenticationState = FaceAuthenticationCanceled;
++        d->faceAuthenticationMessage = tr("Use password or try again.");
++        ++d->faceAuthenticationAttemptId;
++        if (d->faceAuthenticationAttemptId == 0)
++            ++d->faceAuthenticationAttemptId;
++        emit faceAuthenticationChanged();
++        SocketWriter(d->socket) << quint32(GreeterMessages::CancelFaceLogin) << attemptId;
++    }
++
+     void GreeterProxy::connected() {
+         // log connection
+         qDebug() << "Connected to the daemon.";
+@@ -179,6 +307,64 @@ namespace SDDM {
+                     emit canHybridSleepChanged(d->canHybridSleep);
+                 }
+                 break;
++                case DaemonMessages::FaceAuthenticationAvailable: {
++                    bool available = false;
++                    input >> available;
++                    if (available != d->faceAuthenticationAvailable) {
++                        d->faceAuthenticationAvailable = available;
++                        emit faceAuthenticationAvailableChanged(available);
++                        if (!available && d->faceAuthenticationUiReady) {
++                            d->faceAuthenticationUiReady = false;
++                            emit faceAuthenticationUiReadyChanged(false);
++                        }
++                    }
++                    if (available)
++                        registerFaceAuthenticationUi(static_cast<int>(d->requestedFaceAuthenticationApiVersion));
++                }
++                break;
++                case DaemonMessages::FaceAuthenticationUiReady: {
++                    bool ready = false;
++                    input >> ready;
++                    d->faceAuthenticationUiRegistrationPending = false;
++                    if (ready != d->faceAuthenticationUiReady) {
++                        d->faceAuthenticationUiReady = ready;
++                        emit faceAuthenticationUiReadyChanged(ready);
++                    }
++                }
++                break;
++                case DaemonMessages::FaceAuthenticationMode: {
++                    quint64 requestId = 0;
++                    QString user;
++                    QString mode;
++                    input >> requestId >> user >> mode;
++                    if (requestId != 0 && (mode == QLatin1String("off")
++                        || mode == QLatin1String("manual") || mode == QLatin1String("on-activity")
++                        || mode == QLatin1String("unknown")))
++                        emit faceAuthenticationModeChanged(user, requestId, mode);
++                }
++                break;
++                case DaemonMessages::FaceAuthenticationStatus: {
++                    quint64 attemptId;
++                    quint32 state;
++                    QString message;
++                    input >> attemptId >> state >> message;
++                    if (attemptId != d->faceAuthenticationAttemptId)
++                        break;
++                    if (state < quint32(FaceAuthenticationStartingCamera)
++                        || state > quint32(FaceAuthenticationAccepted))
++                        break;
++                    d->faceAuthenticationState = static_cast<FaceAuthenticationState>(state);
++                    d->faceAuthenticationActive = state == quint32(FaceAuthenticationStartingCamera)
++                        || state == quint32(FaceAuthenticationLookingForFace);
++                    d->faceAuthenticationMessage = message;
++                    emit faceAuthenticationChanged();
++                    if (!d->faceAuthenticationActive) {
++                        ++d->faceAuthenticationAttemptId;
++                        if (d->faceAuthenticationAttemptId == 0)
++                            ++d->faceAuthenticationAttemptId;
++                    }
++                }
++                break;
+                 case DaemonMessages::HostName: {
+                     // log message
+                     qDebug() << "Message received from daemon: HostName";
+diff --git a/src/greeter/GreeterProxy.h b/src/greeter/GreeterProxy.h
+index 5ccdbb24cda902e500dcb9455b74930529291a48..9c75667824f87bdcae4b05bc37a19225afe1fdcf 100644
+--- a/src/greeter/GreeterProxy.h
++++ b/src/greeter/GreeterProxy.h
+@@ -22,6 +22,8 @@
+ 
+ #include <QObject>
+ 
++#include "Messages.h"
++
+ class QLocalSocket;
+ 
+ namespace SDDM {
+@@ -38,8 +40,32 @@ namespace SDDM {
+         Q_PROPERTY(bool     canSuspend      READ canSuspend     NOTIFY canSuspendChanged)
+         Q_PROPERTY(bool     canHibernate    READ canHibernate   NOTIFY canHibernateChanged)
+         Q_PROPERTY(bool     canHybridSleep  READ canHybridSleep NOTIFY canHybridSleepChanged)
++        Q_PROPERTY(bool faceAuthenticationAvailable READ faceAuthenticationAvailable NOTIFY faceAuthenticationAvailableChanged)
++        Q_PROPERTY(bool faceAuthenticationUiReady READ faceAuthenticationUiReady NOTIFY faceAuthenticationUiReadyChanged)
++        Q_PROPERTY(bool faceAuthenticationActive READ faceAuthenticationActive NOTIFY faceAuthenticationChanged)
++        Q_PROPERTY(FaceAuthenticationState faceAuthenticationState READ faceAuthenticationState NOTIFY faceAuthenticationChanged)
++        Q_PROPERTY(QString faceAuthenticationMessage READ faceAuthenticationMessage NOTIFY faceAuthenticationChanged)
++        Q_PROPERTY(QString faceAuthenticationUser READ faceAuthenticationUser NOTIFY faceAuthenticationChanged)
+ 
+     public:
++        enum FaceAuthenticationState {
++            FaceAuthenticationIdle = 0,
++            FaceAuthenticationStartingCamera,
++            FaceAuthenticationLookingForFace,
++            FaceAuthenticationFailed,
++            FaceAuthenticationCanceled,
++            FaceAuthenticationTimedOut,
++            FaceAuthenticationUnavailable,
++            FaceAuthenticationAccepted
++        };
++        Q_ENUM(FaceAuthenticationState)
++
++        enum FaceAuthenticationTrigger {
++            FaceAuthenticationExplicitButton = 0,
++            FaceAuthenticationUserActivity = 1
++        };
++        Q_ENUM(FaceAuthenticationTrigger)
++
+         explicit GreeterProxy(const QString &socket, QObject *parent = 0);
+         ~GreeterProxy();
+ 
+@@ -52,6 +78,12 @@ namespace SDDM {
+         bool canHybridSleep() const;
+ 
+         bool isConnected() const;
++        bool faceAuthenticationAvailable() const;
++        bool faceAuthenticationUiReady() const;
++        bool faceAuthenticationActive() const;
++        FaceAuthenticationState faceAuthenticationState() const;
++        const QString &faceAuthenticationMessage() const;
++        const QString &faceAuthenticationUser() const;
+ 
+         void setSessionModel(SessionModel *model);
+ 
+@@ -63,6 +95,14 @@ namespace SDDM {
+         void hybridSleep();
+ 
+         void login(const QString &user, const QString &password, const int sessionIndex) const;
++        Q_INVOKABLE void registerFaceAuthenticationUi(int apiVersion);
++        Q_INVOKABLE void requestFaceAuthenticationMode(const QString &user, quint64 requestId);
++        Q_INVOKABLE void setFaceAuthenticationSelectedUser(const QString &user);
++        Q_INVOKABLE bool startFaceAuthentication(const QString &user, const int sessionIndex, int trigger);
++        Q_INVOKABLE void cancelFaceAuthentication();
++        Q_INVOKABLE void suppressFaceAuthenticationActivity();
++        quint64 faceActivityGeneration() const;
++        void notifyFaceAuthenticationActivity();
+ 
+     private slots:
+         void connected();
+@@ -78,6 +118,11 @@ namespace SDDM {
+         void canSuspendChanged(bool canSuspend);
+         void canHibernateChanged(bool canHibernate);
+         void canHybridSleepChanged(bool canHybridSleep);
++        void faceAuthenticationAvailableChanged(bool available);
++        void faceAuthenticationUiReadyChanged(bool ready);
++        void faceAuthenticationChanged();
++        void faceAuthenticationModeChanged(const QString &user, quint64 requestId, const QString &mode);
++        void faceAuthenticationActivity();
+ 
+         void socketDisconnected();
+         void loginFailed();
+diff --git a/src/greeter/kfaceauth-sddm-api-v1.conf b/src/greeter/kfaceauth-sddm-api-v1.conf
+new file mode 100644
+index 0000000000000000000000000000000000000000..691c253e23237013c772062d8f7968127cb34d87
+--- /dev/null
++++ b/src/greeter/kfaceauth-sddm-api-v1.conf
+@@ -0,0 +1,4 @@
++format=org.loofifaceid.sddm-face-auth
++api=1
++sddm_version=0.21.0
++upstream_commit=63780fcd79f1dbf81a30eef48c28c699ab15aded
+diff --git a/src/greeter/theme.qrc b/src/greeter/theme.qrc
+index efed011799a320f283f11142efed7f6dd2bd0ff7..6dcc0855b32484c0b06b08305ede8be5569442e2 100644
+--- a/src/greeter/theme.qrc
++++ b/src/greeter/theme.qrc
+@@ -5,6 +5,7 @@
+     <file alias="angle-right.png">${CMAKE_CURRENT_SOURCE_DIR}/theme/angle-right.png</file>
+     <file alias="background.png">${CMAKE_CURRENT_SOURCE_DIR}/theme/background.png</file>
+     <file alias="Main.qml">${CMAKE_CURRENT_SOURCE_DIR}/theme/Main.qml</file>
++    <file alias="FaceAuthenticationControl.qml">${CMAKE_CURRENT_SOURCE_DIR}/theme/FaceAuthenticationControl.qml</file>
+     <file alias="reboot.png">${CMAKE_CURRENT_SOURCE_DIR}/theme/reboot.png</file>
+     <file alias="shutdown.png">${CMAKE_CURRENT_SOURCE_DIR}/theme/shutdown.png</file>
+     <file alias="metadata.desktop">${CMAKE_CURRENT_SOURCE_DIR}/theme/metadata.desktop</file>
+diff --git a/src/greeter/theme/FaceAuthenticationControl.qml b/src/greeter/theme/FaceAuthenticationControl.qml
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b8a2435a2a9a3e8795660a2125d0ab9644382cd
+--- /dev/null
++++ b/src/greeter/theme/FaceAuthenticationControl.qml
+@@ -0,0 +1,143 @@
++import QtQuick 2.0
++
++Item {
++    id: control
++
++    property bool isPrimaryScreen: primaryScreen
++    property string selectedUser: ""
++    property int sessionIndex: 0
++    property string authenticationMode: "unknown"
++    property int modeRequestId: 0
++    property bool faceActivityPending: false
++
++    width: Math.min(parent ? parent.width - 60 : 280, 280)
++    height: visible ? (status.visible ? 82 : 46) : 0
++    visible: isPrimaryScreen && sddm.faceAuthenticationAvailable && sddm.faceAuthenticationUiReady
++        && (authenticationMode === "manual" || authenticationMode === "on-activity")
++
++    function refreshMode() {
++        authenticationMode = "unknown"
++        if (!isPrimaryScreen || selectedUser.length === 0
++                || !sddm.faceAuthenticationAvailable || !sddm.faceAuthenticationUiReady)
++            return
++        modeRequestId += 1
++        sddm.requestFaceAuthenticationMode(selectedUser, modeRequestId)
++    }
++
++    Component.onCompleted: {
++        sddm.registerFaceAuthenticationUi(1)
++        if (isPrimaryScreen)
++            sddm.setFaceAuthenticationSelectedUser(selectedUser)
++        refreshMode()
++    }
++
++    onSelectedUserChanged: {
++        faceActivityPending = false
++        authenticationMode = "unknown"
++        if (isPrimaryScreen)
++            sddm.setFaceAuthenticationSelectedUser(selectedUser)
++        refreshMode()
++    }
++
++    onSessionIndexChanged: {
++        faceActivityPending = false
++        sddm.suppressFaceAuthenticationActivity()
++        if (sddm.faceAuthenticationActive)
++            sddm.cancelFaceAuthentication()
++    }
++
++    Connections {
++        target: sddm
++        function onFaceAuthenticationModeChanged(user, requestId, mode) {
++            if (control.isPrimaryScreen && user === control.selectedUser
++                    && requestId === control.modeRequestId) {
++                control.authenticationMode = mode
++                if (mode !== "on-activity")
++                    control.faceActivityPending = false
++                else if (control.faceActivityPending && !sddm.faceAuthenticationActive) {
++                    control.faceActivityPending = false
++                    sddm.startFaceAuthentication(control.selectedUser, control.sessionIndex,
++                        sddm.FaceAuthenticationUserActivity)
++                }
++            }
++        }
++        function onFaceAuthenticationActivity() {
++            if (!control.isPrimaryScreen || control.selectedUser.length === 0
++                    || sddm.faceAuthenticationActive)
++                return
++            if (control.authenticationMode === "on-activity")
++                sddm.startFaceAuthentication(control.selectedUser, control.sessionIndex,
++                    sddm.FaceAuthenticationUserActivity)
++            else if (control.authenticationMode === "unknown")
++                control.faceActivityPending = true
++        }
++        function onFaceAuthenticationAvailableChanged(available) {
++            control.refreshMode()
++        }
++        function onFaceAuthenticationUiReadyChanged(ready) {
++            control.refreshMode()
++        }
++    }
++
++    Rectangle {
++        id: button
++        anchors.top: parent.top
++        anchors.horizontalCenter: parent.horizontalCenter
++        width: parent.width
++        height: 46
++        radius: 4
++        color: buttonMouseArea.pressed ? "#666666" : "#444444"
++        activeFocusOnTab: control.visible
++        Accessible.role: Accessible.Button
++        Accessible.name: buttonLabel.text
++        Accessible.description: sddm.faceAuthenticationMessage
++
++        function activate() {
++            sddm.suppressFaceAuthenticationActivity()
++            if (sddm.faceAuthenticationActive) {
++                sddm.cancelFaceAuthentication()
++            } else if (control.selectedUser.length > 0) {
++                sddm.startFaceAuthentication(control.selectedUser, control.sessionIndex,
++                    sddm.FaceAuthenticationExplicitButton)
++            }
++        }
++
++        // Space activates this explicit control. Return stays on password login.
++        Keys.onSpacePressed: activate()
++
++        Text {
++            id: buttonLabel
++            anchors.fill: parent
++            verticalAlignment: Text.AlignVCenter
++            horizontalAlignment: Text.AlignHCenter
++            color: "white"
++            wrapMode: Text.WordWrap
++            text: sddm.faceAuthenticationActive
++                ? qsTr("Use password")
++                : (sddm.faceAuthenticationState === sddm.FaceAuthenticationFailed
++                   || sddm.faceAuthenticationState === sddm.FaceAuthenticationTimedOut
++                   || sddm.faceAuthenticationState === sddm.FaceAuthenticationCanceled
++                   ? qsTr("Try face again") : qsTr("Sign in with face"))
++        }
++
++        MouseArea {
++            id: buttonMouseArea
++            anchors.fill: parent
++            onClicked: button.activate()
++        }
++    }
++
++    Text {
++        id: status
++        anchors.top: button.bottom
++        anchors.topMargin: 8
++        anchors.horizontalCenter: parent.horizontalCenter
++        width: parent.width
++        color: "white"
++        wrapMode: Text.WordWrap
++        text: sddm.faceAuthenticationMessage
++        visible: control.visible && text.length > 0
++        Accessible.role: Accessible.StaticText
++        Accessible.name: text
++    }
++}
+diff --git a/src/greeter/theme/Main.qml b/src/greeter/theme/Main.qml
+index 0a2ab9c84f0dd272d83ab078b8e0c9d512660d31..93d4ec8f92afdb847ef22fed5dd438d62b6eb483 100644
+--- a/src/greeter/theme/Main.qml
++++ b/src/greeter/theme/Main.qml
+@@ -87,6 +87,7 @@ Rectangle {
+ 
+                 focus: (listView.currentIndex === index) ? true : false
+                 state: (listView.currentIndex === index) ? "active" : ""
++                property string userName: model.name
+ 
+                 onLogin: sddm.login(model.name, password, sessionIndex);
+ 
+@@ -153,6 +154,11 @@ Rectangle {
+                         delegate: userDelegate
+                         orientation: ListView.Horizontal
+                         currentIndex: userModel.lastIndex
++                        onCurrentIndexChanged: {
++                            if (sddm.faceAuthenticationActive && (!currentItem
++                                    || currentItem.userName !== sddm.faceAuthenticationUser))
++                                sddm.cancelFaceAuthentication()
++                        }
+ 
+                         KeyNavigation.backtab: prevUser; KeyNavigation.tab: nextUser
+                     }
+@@ -180,9 +186,18 @@ Rectangle {
+                     font.pixelSize: 20
+                 }
+ 
++                FaceAuthenticationControl {
++                    id: faceAuthenticationControl
++                    anchors.top: txtMessage.bottom
++                    anchors.topMargin: 18
++                    anchors.horizontalCenter: parent.horizontalCenter
++                    selectedUser: listView.currentItem ? listView.currentItem.userName : ""
++                    sessionIndex: container.sessionIndex
++                }
++
+                 Text {
+                     id: errMessage
+-                    anchors.top: txtMessage.bottom
++                    anchors.top: faceAuthenticationControl.bottom
+                     anchors.margins: 20
+                     anchors.horizontalCenter: parent.horizontalCenter
+                     color: "red"
+diff --git a/src/greeter/theme/theme.conf b/src/greeter/theme/theme.conf
+index 4aff79f5fab1bd0fe084721458309f9a7e47bd18..f878e8389cc794ab86375f91bdd96c9cae6fa31d 100644
+--- a/src/greeter/theme/theme.conf
++++ b/src/greeter/theme/theme.conf
+@@ -1,2 +1,3 @@
+ [General]
+ background=qrc:/theme/background.png
++faceAuthenticationApi=1
+diff --git a/src/helper/Backend.cpp b/src/helper/Backend.cpp
+index 5a1dd60762d750f088bfbc5492ed8ed5c950cb93..8a9dfacd83e9bc3c8b2dea3a8737911c8586b02e 100644
+--- a/src/helper/Backend.cpp
++++ b/src/helper/Backend.cpp
+@@ -58,6 +58,10 @@ namespace SDDM {
+         m_greeter = on;
+     }
+ 
++    void Backend::setFaceAuthentication(bool on) {
++        m_faceAuthentication = on;
++    }
++
+     bool Backend::openSession() {
+         QProcessEnvironment env = m_app->session()->processEnvironment();
+         struct passwd *pw;
+diff --git a/src/helper/Backend.h b/src/helper/Backend.h
+index 915d09ca85e59917ce409807c7d2827253855e97..fcba3183f656ac2f07b19d5a992c0cbfff6ffa07 100644
+--- a/src/helper/Backend.h
++++ b/src/helper/Backend.h
+@@ -38,6 +38,7 @@ namespace SDDM {
+         void setAutologin(bool on = true);
+         void setDisplayServer(bool on = true);
+         void setGreeter(bool on = true);
++        void setFaceAuthentication(bool on = true);
+ 
+     public slots:
+         virtual bool start(const QString &user = QString()) = 0;
+@@ -53,6 +54,7 @@ namespace SDDM {
+         bool m_autologin { false };
+         bool m_displayServer = false;
+         bool m_greeter { false };
++        bool m_faceAuthentication { false };
+     };
+ }
+ 
+diff --git a/src/helper/HelperApp.cpp b/src/helper/HelperApp.cpp
+index 32da42df31b5e963403e0e19ea6c0dfb97c9742d..2cec7270e0b046dccd9f364e0049d032a5cf1a02 100644
+--- a/src/helper/HelperApp.cpp
++++ b/src/helper/HelperApp.cpp
+@@ -119,6 +119,10 @@ namespace SDDM {
+             m_backend->setGreeter(true);
+         }
+ 
++        if ((pos = args.indexOf(QStringLiteral("--face-auth"))) >= 0) {
++            m_backend->setFaceAuthentication(true);
++        }
++
+         if (server.isEmpty() || m_id <= 0) {
+             qCritical() << "This application is not supposed to be executed manually";
+             exit(Auth::HELPER_OTHER_ERROR);
+diff --git a/src/helper/backend/PamBackend.cpp b/src/helper/backend/PamBackend.cpp
+index 8ffa24ab603a4ea275836119ed6d2481e69c6585..466809ffd3c74507ee90e493c4097d48a32ce738 100644
+--- a/src/helper/backend/PamBackend.cpp
++++ b/src/helper/backend/PamBackend.cpp
+@@ -219,9 +219,13 @@ namespace SDDM {
+ 
+         QString service = QStringLiteral("sddm");
+ 
+-        if (user == QStringLiteral("sddm") && m_greeter)
++#ifdef SDDM_ENABLE_EXPERIMENTAL_FACE_AUTH
++        if (m_faceAuthentication && user != QLatin1String("sddm") && !m_greeter && !m_autologin)
++            service = QStringLiteral("sddm-kfaceauth");
++#endif
++        if (service == QLatin1String("sddm") && user == QStringLiteral("sddm") && m_greeter)
+             service = QStringLiteral("sddm-greeter");
+-        else if (m_autologin)
++        else if (service == QLatin1String("sddm") && m_autologin)
+             service = QStringLiteral("sddm-autologin");
+         result = m_pam->start(service, user);
+ 

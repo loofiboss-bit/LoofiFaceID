@@ -20,6 +20,7 @@ target_link_libraries(camera_provider
         Qt6::Core
         Qt6::Gui
         Qt6::Multimedia
+        KF6::I18n
         PkgConfig::UDev
 )
 target_include_directories(camera_provider PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

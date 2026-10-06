@@ -7,6 +7,7 @@
 #include "identityworkerclient.h"
 #include "kwalletkeyprovider.h"
 
+#include <KLocalizedString>
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QImage>
@@ -15,7 +16,7 @@ namespace
 {
 QString translate(const char *text)
 {
-    return QCoreApplication::translate("LocalVerificationSession", text);
+    return i18nd("kcm_kfaceauth", text);
 }
 
 constexpr qint64 MinimumIntervalMs = 2000;

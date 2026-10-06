@@ -16,6 +16,7 @@ use kfaceauth_crypto_openssl_sys::{
     open_child_directory_nofollow, open_child_file_nofollow, open_directory_nofollow,
     seal_master_key, set_fd_permissions,
 };
+use kfaceauth_templates::auth_policy::{AuthPolicy, AuthPolicyMode, AuthTarget};
 use kfaceauth_templates::{MasterKey, Vault, migrate_legacy_vault_with_separate_key};
 use zeroize::Zeroize;
 
@@ -102,9 +103,10 @@ fn read_user_session_input(target_uid: u32) -> Result<(File, MasterKey), ()> {
 }
 
 fn usage() -> &'static str {
-    "Usage: kfaceauth-sync-vault --enable-target sddm|plasma-lock | --disable-target sddm|plasma-lock"
+    "Usage: kfaceauth-sync-vault --enable-target sddm|plasma-lock [--mode off|on-activity|manual] | --disable-target sddm|plasma-lock | --delete-profile --uid UID"
 }
 
+#[cfg(test)]
 fn success_message(enabled: bool) -> &'static str {
     if enabled {
         "result=ok state=enabled"
@@ -115,11 +117,21 @@ fn success_message(enabled: bool) -> &'static str {
 
 struct Options {
     target_uid: u32,
-    target: String,
-    enable: bool,
+    operation: Operation,
 }
 
-fn parse_pkexec_uid(value: Option<&str>) -> Result<u32, ()> {
+enum Operation {
+    Enable {
+        target: AuthTarget,
+        mode: AuthPolicyMode,
+    },
+    Disable {
+        target: AuthTarget,
+    },
+    DeleteProfile,
+}
+
+fn parse_pkexec_uid(value: Option<&str>, requested_uid: Option<&str>) -> Result<u32, ()> {
     let Some(value) = value else {
         eprintln!("PKEXEC_UID is required");
         return Err(());
@@ -128,9 +140,20 @@ fn parse_pkexec_uid(value: Option<&str>) -> Result<u32, ()> {
         eprintln!("PKEXEC_UID must be a numeric UID");
         return Err(());
     }
-    value.parse::<u32>().map_err(|_| {
+    let pkexec_uid = value.parse::<u32>().map_err(|_| {
         eprintln!("PKEXEC_UID is outside the supported range");
-    })
+    })?;
+    if pkexec_uid == 0 || pkexec_uid.to_string() != value {
+        eprintln!("PKEXEC_UID must be a canonical, non-root UID");
+        return Err(());
+    }
+    if let Some(requested) = requested_uid {
+        if requested.parse::<u32>() != Ok(pkexec_uid) || requested != pkexec_uid.to_string() {
+            eprintln!("Requested UID does not match the authorizing user");
+            return Err(());
+        }
+    }
+    Ok(pkexec_uid)
 }
 
 fn parse_args<I>(arguments: I, pkexec_uid: Option<&str>) -> Result<Option<Options>, ()>
@@ -139,23 +162,41 @@ where
 {
     let mut enable_target: Option<String> = None;
     let mut disable_target: Option<String> = None;
+    let mut delete_profile = false;
+    let mut requested_mode: Option<String> = None;
+    let mut requested_uid: Option<String> = None;
 
     let mut args = arguments.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--enable-target" => {
+            "--enable-target" if enable_target.is_none() => {
                 let Some(value) = args.next() else {
                     eprintln!("Missing value for --enable-target");
                     return Err(());
                 };
                 enable_target = Some(value);
             }
-            "--disable-target" => {
+            "--disable-target" if disable_target.is_none() => {
                 let Some(value) = args.next() else {
                     eprintln!("Missing value for --disable-target");
                     return Err(());
                 };
                 disable_target = Some(value);
+            }
+            "--delete-profile" if !delete_profile => delete_profile = true,
+            "--mode" if requested_mode.is_none() => {
+                let Some(value) = args.next() else {
+                    eprintln!("Missing value for --mode");
+                    return Err(());
+                };
+                requested_mode = Some(value);
+            }
+            "--uid" if requested_uid.is_none() => {
+                let Some(value) = args.next() else {
+                    eprintln!("Missing value for --uid");
+                    return Err(());
+                };
+                requested_uid = Some(value);
             }
             "--help" | "-h" => {
                 println!("{}", usage());
@@ -168,41 +209,75 @@ where
         }
     }
 
-    if enable_target.is_some() == disable_target.is_some() {
+    let operations = usize::from(enable_target.is_some())
+        + usize::from(disable_target.is_some())
+        + usize::from(delete_profile);
+    if operations != 1 {
         eprintln!("Choose exactly one target operation. {}", usage());
         return Err(());
     }
-    let enable = enable_target.is_some();
-    let target = enable_target.or(disable_target).unwrap_or_default();
-    if !matches!(target.as_str(), "sddm" | "plasma-lock") {
-        eprintln!("Target must be sddm or plasma-lock");
-        return Err(());
-    }
-    let target_uid = parse_pkexec_uid(pkexec_uid)?;
+    let operation = if let Some(target) = enable_target {
+        let target = parse_target(&target)?;
+        let mode = match requested_mode.as_deref().unwrap_or("on-activity") {
+            "off" => AuthPolicyMode::Off,
+            "on-activity" => AuthPolicyMode::OnActivity,
+            "manual" => AuthPolicyMode::Manual,
+            _ => {
+                eprintln!("Enable mode must be off, on-activity, or manual");
+                return Err(());
+            }
+        };
+        Operation::Enable { target, mode }
+    } else if let Some(target) = disable_target {
+        if requested_mode.is_some() {
+            eprintln!("--mode is valid only with --enable-target");
+            return Err(());
+        }
+        Operation::Disable {
+            target: parse_target(&target)?,
+        }
+    } else {
+        if requested_mode.is_some() {
+            eprintln!("--mode is invalid with --delete-profile");
+            return Err(());
+        }
+        if requested_uid.is_none() {
+            eprintln!("--uid is required with --delete-profile");
+            return Err(());
+        }
+        Operation::DeleteProfile
+    };
+    let target_uid = parse_pkexec_uid(pkexec_uid, requested_uid.as_deref())?;
 
     Ok(Some(Options {
         target_uid,
-        target,
-        enable,
+        operation,
     }))
 }
 
-fn run_setup(target: &str, target_uid: u32, enable: bool) -> bool {
+fn parse_target(value: &str) -> Result<AuthTarget, ()> {
+    match value {
+        "sddm" => Ok(AuthTarget::Sddm),
+        "plasma-lock" => Ok(AuthTarget::PlasmaLock),
+        _ => {
+            eprintln!("Target must be sddm or plasma-lock");
+            Err(())
+        }
+    }
+}
+
+fn run_setup(target: AuthTarget, target_uid: u32) -> bool {
     let candidates = [
         "/usr/bin/kfaceauth-pam-setup",
         "/usr/local/bin/kfaceauth-pam-setup",
     ];
     for executable in candidates {
         let mut command = std::process::Command::new(executable);
-        if enable {
-            command
-                .arg("--enable-target")
-                .arg(target)
-                .arg("--uid")
-                .arg(target_uid.to_string());
-        } else {
-            command.arg("--disable-target").arg(target);
-        }
+        command
+            .arg("--prepare-target")
+            .arg(target.key())
+            .arg("--uid")
+            .arg(target_uid.to_string());
         if let Ok(status) = command.status() {
             return status.success();
         }
@@ -212,6 +287,7 @@ fn run_setup(target: &str, target_uid: u32, enable: bool) -> bool {
 
 struct AnchoredDirectories {
     system_root: File,
+    config_dir: File,
     keys_dir: File,
 }
 
@@ -229,6 +305,7 @@ impl AnchoredDirectories {
         let keys_dir = ensure_child_directory(&config_dir, "keys", 0o750, SYSTEM_GROUP)?;
         Ok(Self {
             system_root,
+            config_dir,
             keys_dir,
         })
     }
@@ -240,6 +317,33 @@ impl AnchoredDirectories {
     fn keys_dir_path(&self) -> PathBuf {
         descriptor_path(&self.keys_dir)
     }
+}
+
+fn load_policy(paths: &AnchoredDirectories) -> Result<AuthPolicy, ()> {
+    AuthPolicy::load_from_directory(&paths.config_dir).map_err(|error| {
+        eprintln!("{error}");
+    })
+}
+
+fn write_policy(paths: &AnchoredDirectories, policy: &AuthPolicy) -> Result<(), ()> {
+    policy.write_atomic(&paths.config_dir).map_err(|error| {
+        eprintln!("{error}");
+    })
+}
+
+fn acquire_policy_lock(paths: &AnchoredDirectories) -> Result<File, ()> {
+    lock_child_file_nonblocking(&paths.config_dir, ".policy.lock").map_err(|_| {
+        eprintln!("Another authentication-policy transaction is active or the lock is unsafe");
+    })
+}
+
+fn revoke_user_targets(policy: &mut AuthPolicy, uid: u32) -> Result<(), ()> {
+    policy
+        .set_mode(uid, AuthTarget::Sddm, AuthPolicyMode::Off)
+        .and_then(|()| policy.set_mode(uid, AuthTarget::PlasmaLock, AuthPolicyMode::Off))
+        .map_err(|_| {
+            eprintln!("Could not revoke the user's authentication targets");
+        })
 }
 
 fn descriptor_path(directory: &File) -> PathBuf {
@@ -527,6 +631,66 @@ fn install_staged_profile(
     })
 }
 
+fn commit_verified_profile(
+    target_uid: u32,
+    target: AuthTarget,
+    requested_mode: AuthPolicyMode,
+    paths: &AnchoredDirectories,
+    system_key: &MasterKey,
+    staging: &StagingDirectory,
+) -> Result<(), ()> {
+    if !run_setup(target, target_uid) {
+        eprintln!("Target preparation failed; the existing system profile was preserved");
+        return Err(());
+    }
+    let _policy_lock = acquire_policy_lock(paths)?;
+    let previous_policy = load_policy(paths)?;
+    let mut revoked_policy = previous_policy.clone();
+    revoke_user_targets(&mut revoked_policy, target_uid)?;
+    if write_policy(paths, &revoked_policy).is_err() {
+        eprintln!("Could not revoke the current system profile before replacement");
+        if write_policy(paths, &previous_policy).is_err() {
+            eprintln!("Prior policy restoration failed; authentication remains revoked");
+        }
+        return Err(());
+    }
+
+    let Ok(mut swap) = install_staged_profile(target_uid, &paths.system_root, staging) else {
+        if write_policy(paths, &previous_policy).is_err() {
+            eprintln!(
+                "Profile replacement failed and prior policy restoration failed; authentication remains revoked"
+            );
+        }
+        return Err(());
+    };
+    let installed_vault = Vault::system_with_root(&paths.system_root_path(), target_uid);
+    if installed_vault.validate_integrity(system_key).is_err() {
+        eprintln!("The installed system profile failed integrity verification");
+        let rollback_ok = swap.rollback().is_ok();
+        if rollback_ok && write_policy(paths, &previous_policy).is_err() {
+            eprintln!("Prior policy restoration failed; authentication remains revoked");
+        }
+        return Err(());
+    }
+
+    let mut enabled_policy = previous_policy.clone();
+    if enabled_policy
+        .set_mode(target_uid, target, requested_mode)
+        .is_err()
+        || write_policy(paths, &enabled_policy).is_err()
+    {
+        eprintln!("Target policy activation failed; restoring the previous system profile");
+        let rollback_ok = swap.rollback().is_ok();
+        if rollback_ok && write_policy(paths, &previous_policy).is_err() {
+            eprintln!("Prior policy restoration failed; authentication remains revoked");
+        }
+        return Err(());
+    }
+
+    swap.commit();
+    Ok(())
+}
+
 struct NewKeyGuard {
     path: Option<PathBuf>,
 }
@@ -539,9 +703,12 @@ impl Drop for NewKeyGuard {
     }
 }
 
-fn enable_target(options: Options, paths: &AnchoredDirectories) -> ExitCode {
-    let target_uid = options.target_uid;
-    let target = options.target;
+fn enable_target(
+    target_uid: u32,
+    target: AuthTarget,
+    requested_mode: AuthPolicyMode,
+    paths: &AnchoredDirectories,
+) -> ExitCode {
     let Ok((data_home, user_key)) = read_user_session_input(target_uid) else {
         return ExitCode::FAILURE;
     };
@@ -621,24 +788,195 @@ fn enable_target(options: Options, paths: &AnchoredDirectories) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let Ok(mut swap) = install_staged_profile(target_uid, &paths.system_root, &staging) else {
-        return ExitCode::FAILURE;
-    };
-    let installed_vault = Vault::system_with_root(&system_root, target_uid);
-    if installed_vault.validate_integrity(&system_key).is_err() {
-        eprintln!("The installed system profile failed integrity verification");
-        let _ = swap.rollback();
+    if commit_verified_profile(
+        target_uid,
+        target,
+        requested_mode,
+        paths,
+        &system_key,
+        &staging,
+    )
+    .is_err()
+    {
         return ExitCode::FAILURE;
     }
-    if !run_setup(&target, target_uid, true) {
-        eprintln!("Target activation failed; restoring the previous system profile");
-        let _ = swap.rollback();
+    new_key_guard.path = None;
+    println!(
+        "result=ok state={} mode={}",
+        if requested_mode == AuthPolicyMode::Off {
+            "disabled"
+        } else {
+            "enabled"
+        },
+        requested_mode.as_str()
+    );
+    ExitCode::SUCCESS
+}
+
+fn disable_target(uid: u32, target: AuthTarget, paths: &AnchoredDirectories) -> ExitCode {
+    let Ok(_policy_lock) = acquire_policy_lock(paths) else {
+        return ExitCode::FAILURE;
+    };
+    let Ok(mut policy) = load_policy(paths) else {
+        return ExitCode::FAILURE;
+    };
+    if policy.set_mode(uid, target, AuthPolicyMode::Off).is_err()
+        || write_policy(paths, &policy).is_err()
+    {
+        eprintln!("Could not disable the selected user's authentication target");
+        return ExitCode::FAILURE;
+    }
+    println!("result=ok state=disabled");
+    ExitCode::SUCCESS
+}
+
+fn validate_system_key_for_deletion(keys_dir: &File, uid: u32) -> Result<bool, ()> {
+    let key_name = format!("{uid}.key");
+    let key_path = descriptor_path(keys_dir).join(&key_name);
+    match fs::symlink_metadata(&key_path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(_) => Err(()),
+        Ok(entry) if !entry.is_file() || entry.file_type().is_symlink() => Err(()),
+        Ok(_) => {
+            let key = open_child_file_nofollow(keys_dir, &key_name).map_err(|_| ())?;
+            let metadata = key.metadata().map_err(|_| ())?;
+            let group = kfaceauth_crypto_openssl_sys::group_id(SYSTEM_GROUP).map_err(|_| ())?;
+            if !metadata.is_file()
+                || metadata.uid() != 0
+                || metadata.gid() != group
+                || metadata.mode() & 0o777 != 0o640
+                || metadata.nlink() != 1
+                || metadata.len() != u64::try_from(KEY_BYTES).unwrap_or(u64::MAX)
+            {
+                return Err(());
+            }
+            Ok(true)
+        }
+    }
+}
+
+fn clear_revoked_copies(uid: u32, paths: &AnchoredDirectories) -> Result<(), ()> {
+    let revoked_prefix = format!(".revoked-{uid}-");
+    let expected_group = kfaceauth_crypto_openssl_sys::group_id(SYSTEM_GROUP).map_err(|_| ())?;
+    for entry in fs::read_dir(descriptor_path(&paths.system_root)).map_err(|_| ())? {
+        let entry = entry.map_err(|_| ())?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !name.starts_with(&revoked_prefix) {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|_| ())?;
+        if !metadata.is_dir()
+            || metadata.file_type().is_symlink()
+            || metadata.uid() != 0
+            || metadata.gid() != expected_group
+            || metadata.mode() & 0o777 != 0o750
+        {
+            return Err(());
+        }
+        fs::remove_dir_all(entry.path()).map_err(|_| ())?;
+    }
+    for entry in fs::read_dir(descriptor_path(&paths.keys_dir)).map_err(|_| ())? {
+        let entry = entry.map_err(|_| ())?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !name.starts_with(&revoked_prefix)
+            || Path::new(&name)
+                .extension()
+                .is_none_or(|extension| extension != "key")
+        {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(entry.path()).map_err(|_| ())?;
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.uid() != 0
+            || metadata.gid() != expected_group
+            || metadata.mode() & 0o777 != 0o640
+            || metadata.nlink() != 1
+            || metadata.len() != u64::try_from(KEY_BYTES).unwrap_or(u64::MAX)
+        {
+            return Err(());
+        }
+        fs::remove_file(entry.path()).map_err(|_| ())?;
+    }
+    Ok(())
+}
+
+fn delete_system_profile(uid: u32, paths: &AnchoredDirectories) -> ExitCode {
+    let Ok(profile_exists) = validate_and_harden_existing_profile(&paths.system_root, uid) else {
+        eprintln!("The existing system profile is unsafe; it was preserved");
+        return ExitCode::FAILURE;
+    };
+    let Ok(key_exists) = validate_system_key_for_deletion(&paths.keys_dir, uid) else {
+        eprintln!("The existing system key is unsafe; it was preserved");
+        return ExitCode::FAILURE;
+    };
+    let Ok(_policy_lock) = acquire_policy_lock(paths) else {
+        return ExitCode::FAILURE;
+    };
+    let Ok(previous_policy) = load_policy(paths) else {
+        return ExitCode::FAILURE;
+    };
+    let mut revoked_policy = previous_policy.clone();
+    if revoke_user_targets(&mut revoked_policy, uid).is_err()
+        || write_policy(paths, &revoked_policy).is_err()
+    {
+        eprintln!("System authentication could not be revoked; no profile data was removed");
         return ExitCode::FAILURE;
     }
 
-    swap.commit();
-    new_key_guard.path = None;
-    println!("{}", success_message(true));
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    let system_root_path = descriptor_path(&paths.system_root);
+    let keys_dir_path = descriptor_path(&paths.keys_dir);
+    let profile_path = system_root_path.join(uid.to_string());
+    let key_path = keys_dir_path.join(format!("{uid}.key"));
+    let profile_backup = system_root_path.join(format!(".revoked-{uid}-{nonce}"));
+    let key_backup = keys_dir_path.join(format!(".revoked-{uid}-{nonce}.key"));
+
+    if profile_exists && fs::rename(&profile_path, &profile_backup).is_err() {
+        let _ = write_policy(paths, &previous_policy);
+        eprintln!("Could not revoke the system profile; it was preserved");
+        return ExitCode::FAILURE;
+    }
+    if key_exists && fs::rename(&key_path, &key_backup).is_err() {
+        let profile_restored =
+            !profile_exists || fs::rename(&profile_backup, &profile_path).is_ok();
+        if profile_restored && write_policy(paths, &previous_policy).is_err() {
+            eprintln!(
+                "The system profile was restored but prior policy restoration failed; authentication remains revoked"
+            );
+        }
+        eprintln!("Could not revoke the system key; profile data was preserved");
+        return ExitCode::FAILURE;
+    }
+    let sync_ok = paths.system_root.sync_all().is_ok() && paths.keys_dir.sync_all().is_ok();
+    if !sync_ok {
+        // At this point paths have been renamed out of service. Keep policy Off
+        // and refuse local deletion until this operation can be retried.
+        eprintln!(
+            "System profile revocation could not be made durable; authentication remains off"
+        );
+        return ExitCode::FAILURE;
+    }
+
+    if clear_revoked_copies(uid, paths).is_err() {
+        eprintln!(
+            "System profile was revoked but cleanup is incomplete; local profile deletion is not complete"
+        );
+        return ExitCode::FAILURE;
+    }
+    if paths.system_root.sync_all().is_err() || paths.keys_dir.sync_all().is_err() {
+        eprintln!(
+            "System profile deletion could not be made durable; retry before deleting the local profile"
+        );
+        return ExitCode::FAILURE;
+    }
+    println!("result=ok state=deleted");
     ExitCode::SUCCESS
 }
 
@@ -660,15 +998,13 @@ fn main() -> ExitCode {
         eprintln!("Another system-profile operation is active or the lock is unsafe");
         return ExitCode::FAILURE;
     };
-    if !options.enable {
-        if run_setup(&options.target, options.target_uid, false) {
-            println!("{}", success_message(false));
-            return ExitCode::SUCCESS;
+    match options.operation {
+        Operation::Enable { target, mode } => {
+            enable_target(options.target_uid, target, mode, &paths)
         }
-        eprintln!("Could not disable the selected authentication target");
-        return ExitCode::FAILURE;
+        Operation::Disable { target } => disable_target(options.target_uid, target, &paths),
+        Operation::DeleteProfile => delete_system_profile(options.target_uid, &paths),
     }
-    enable_target(options, &paths)
 }
 
 #[cfg(test)]
@@ -690,6 +1026,63 @@ mod tests {
         ))
     }
 
+    fn deletion_fixture(uid: u32) -> Option<(PathBuf, AnchoredDirectories)> {
+        if effective_uid() != 0 {
+            return None;
+        }
+        let group = kfaceauth_crypto_openssl_sys::group_id(SYSTEM_GROUP).ok()?;
+        let root = temporary_root();
+        let system_root_path = root.join("system");
+        let config_dir_path = root.join("config");
+        let keys_dir_path = config_dir_path.join("keys");
+        fs::create_dir_all(&system_root_path).ok()?;
+        fs::create_dir_all(&keys_dir_path).ok()?;
+
+        let system_root = open_directory_nofollow(&system_root_path).ok()?;
+        let config_dir = open_directory_nofollow(&config_dir_path).ok()?;
+        let keys_dir = open_directory_nofollow(&keys_dir_path).ok()?;
+        set_fd_permissions(&system_root, 0, 0o750, SYSTEM_GROUP).ok()?;
+        set_fd_permissions(&config_dir, 0, 0o755, "root").ok()?;
+        set_fd_permissions(&keys_dir, 0, 0o750, SYSTEM_GROUP).ok()?;
+
+        let profile_path = system_root_path.join(uid.to_string());
+        fs::create_dir(&profile_path).ok()?;
+        fs::write(
+            profile_path.join("identity.vault"),
+            b"encrypted profile fixture",
+        )
+        .ok()?;
+        apply_system_profile_permissions(uid, &system_root).ok()?;
+
+        let key_path = keys_dir_path.join(format!("{uid}.key"));
+        fs::write(&key_path, vec![0_u8; KEY_BYTES]).ok()?;
+        let key_file = open_child_file_nofollow(&keys_dir, &format!("{uid}.key")).ok()?;
+        set_fd_permissions(&key_file, 0, 0o640, SYSTEM_GROUP).ok()?;
+        let key_metadata = key_file.metadata().ok()?;
+        if key_metadata.uid() != 0
+            || key_metadata.gid() != group
+            || key_metadata.mode() & 0o777 != 0o640
+            || key_metadata.len() != u64::try_from(KEY_BYTES).ok()?
+        {
+            return None;
+        }
+
+        let paths = AnchoredDirectories {
+            system_root,
+            config_dir,
+            keys_dir,
+        };
+        let mut policy = AuthPolicy::default();
+        policy
+            .set_mode(uid, AuthTarget::Sddm, AuthPolicyMode::OnActivity)
+            .ok()?;
+        policy
+            .set_mode(uid, AuthTarget::PlasmaLock, AuthPolicyMode::Manual)
+            .ok()?;
+        policy.write_atomic(&paths.config_dir).ok()?;
+        Some((root, paths))
+    }
+
     #[test]
     fn success_messages_are_static_and_operation_specific() {
         assert_eq!(success_message(true), "result=ok state=enabled");
@@ -706,6 +1099,42 @@ mod tests {
             .expect("valid helper arguments")
             .expect("operation is present");
         assert_eq!(options.target_uid, 1000);
+        assert!(matches!(
+            options.operation,
+            Operation::Enable {
+                target: AuthTarget::Sddm,
+                mode: AuthPolicyMode::OnActivity
+            }
+        ));
+
+        let manual = parse_args(
+            arguments(&[
+                "--enable-target",
+                "plasma-lock",
+                "--mode",
+                "manual",
+                "--uid",
+                "1000",
+            ]),
+            Some("1000"),
+        )
+        .expect("valid manual configuration")
+        .expect("operation is present");
+        assert!(matches!(
+            manual.operation,
+            Operation::Enable {
+                target: AuthTarget::PlasmaLock,
+                mode: AuthPolicyMode::Manual
+            }
+        ));
+
+        let delete = parse_args(
+            arguments(&["--delete-profile", "--uid", "1000"]),
+            Some("1000"),
+        )
+        .expect("valid profile deletion")
+        .expect("operation is present");
+        assert!(matches!(delete.operation, Operation::DeleteProfile));
 
         for override_args in [
             &["--uid", "1001", "--enable-target", "sddm"][..],
@@ -722,6 +1151,34 @@ mod tests {
         assert!(parse_args(arguments(&["--disable-target", "sddm"]), None).is_err());
         assert!(parse_args(arguments(&["--disable-target", "sddm"]), Some("1000x")).is_err());
         assert!(parse_args(arguments(&["--disable-target", "sddm"]), Some("4294967296")).is_err());
+        assert!(
+            parse_args(
+                arguments(&["--disable-target", "sddm", "--uid", "1001"]),
+                Some("1000")
+            )
+            .is_err()
+        );
+        assert!(
+            parse_args(
+                arguments(&["--enable-target", "sddm", "--mode", "off"]),
+                Some("1000")
+            )
+            .is_ok()
+        );
+        assert!(
+            parse_args(
+                arguments(&["--enable-target", "sddm", "--mode", "invalid"]),
+                Some("1000")
+            )
+            .is_err()
+        );
+        assert!(
+            parse_args(
+                arguments(&["--delete-profile", "--uid", "1000"]),
+                Some("1001")
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -846,6 +1303,57 @@ mod tests {
             b"previous profile"
         );
         drop(staging);
+        fs::remove_dir_all(root).expect("remove test fixture");
+    }
+
+    #[test]
+    fn profile_delete_revokes_both_targets_before_removing_system_copies() {
+        let Some((root, paths)) = deletion_fixture(1000) else {
+            return;
+        };
+        assert_eq!(delete_system_profile(1000, &paths), ExitCode::SUCCESS);
+        assert!(!root.join("system/1000").exists());
+        assert!(!root.join("config/keys/1000.key").exists());
+        let policy = AuthPolicy::load_from_directory(&paths.config_dir)
+            .expect("read policy after completed deletion");
+        assert_eq!(policy.mode_for(1000, AuthTarget::Sddm), AuthPolicyMode::Off);
+        assert_eq!(
+            policy.mode_for(1000, AuthTarget::PlasmaLock),
+            AuthPolicyMode::Off
+        );
+        fs::remove_dir_all(root).expect("remove test fixture");
+    }
+
+    #[test]
+    fn profile_delete_keeps_local_data_eligible_when_system_revoke_fails() {
+        let Some((root, paths)) = deletion_fixture(1000) else {
+            return;
+        };
+        let vault_path = root.join("system/1000/identity.vault");
+        fs::remove_file(&vault_path).expect("remove vault fixture");
+        let outside_path = root.join("outside.vault");
+        fs::write(&outside_path, b"must not be followed").expect("write outside fixture");
+        std::os::unix::fs::symlink(&outside_path, &vault_path).expect("symlink vault fixture");
+
+        assert_eq!(delete_system_profile(1000, &paths), ExitCode::FAILURE);
+        assert!(
+            vault_path
+                .symlink_metadata()
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(root.join("config/keys/1000.key").exists());
+        let policy = AuthPolicy::load_from_directory(&paths.config_dir)
+            .expect("read policy after failed revoke");
+        assert_eq!(
+            policy.mode_for(1000, AuthTarget::Sddm),
+            AuthPolicyMode::OnActivity
+        );
+        assert_eq!(
+            policy.mode_for(1000, AuthTarget::PlasmaLock),
+            AuthPolicyMode::Manual
+        );
         fs::remove_dir_all(root).expect("remove test fixture");
     }
 }

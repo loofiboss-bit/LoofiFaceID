@@ -163,10 +163,14 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_libexecdir}/kfaceauth-auth-worker
 %{_libexecdir}/kfaceauthd
 %{_libexecdir}/kfaceauth-sync-vault
+%{_libexecdir}/kfaceauth-policy
 %{_unitdir}/kfaceauth.service
 %{_unitdir}/kfaceauth.socket
 %{_sysusersdir}/kfaceauth.conf
 %{_datadir}/polkit-1/actions/org.kde.kfaceauth.policy
+%dir %{_datadir}/kfaceauth/pam
+%{_datadir}/kfaceauth/pam/sddm-kfaceauth
+%{_datadir}/kfaceauth/pam/kde-kfaceauth
 %dir %{_datadir}/kfaceauth/selinux
 %{_datadir}/kfaceauth/selinux/kfaceauth.fc
 %{_datadir}/kfaceauth/selinux/kfaceauth.te

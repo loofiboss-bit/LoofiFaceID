@@ -1,5 +1,41 @@
 # Troubleshooting
 
+## Upgrade blocked by the experimental-auth package
+
+The opt-in `kfaceauth-experimental-auth` package requires the exact same
+version of `kfaceauth`. COPR publishes the standard local-profile package, not
+the opt-in authentication package, so DNF cannot upgrade the base while an
+older experimental package is installed.
+
+To return to the standard package, first disable every authentication target
+that you enabled. These commands restore the normal password-based PAM path;
+they do not delete the local face profile or its KWallet key:
+
+```bash
+sudo kfaceauth-pam-setup --disable-target sddm
+sudo kfaceauth-pam-setup --disable-target plasma-lock
+```
+
+Then preview the package removal and check that DNF lists only
+`kfaceauth-experimental-auth`:
+
+```bash
+sudo dnf5 remove --assumeno kfaceauth-experimental-auth
+```
+
+If the preview is as expected, remove that package and upgrade the standard
+one:
+
+```bash
+sudo dnf5 remove kfaceauth-experimental-auth
+sudo dnf5 upgrade kfaceauth
+```
+
+Do not continue if either target cannot be disabled or the removal preview
+includes another package. The experimental package is unqualified and is not
+available as a matching COPR upgrade; keeping it installed pins the base
+package to its exact version.
+
 ## Unsupported system
 
 LoofiFace-ID is qualified only on Fedora 44 with KDE Plasma. If Diagnostics
@@ -69,9 +105,52 @@ stops, transient samples are cleared and registration must be restarted.
 
 The opt-in auth worker automatically selects a camera only when exactly one
 V4L2 streaming capture node supports GREY or YUYV. With multiple compatible
-nodes, an administrator must configure `KFACEAUTH_CAMERA_DEVICE` in the service
-configuration. The KCM preview selection is separate. Formats or names alone
-are not liveness evidence. Generic vendor emitter controls are not sent.
+nodes, an administrator must select the intended node. The experimental
+`kfaceauth.service` reads an optional root-owned environment file at
+`/etc/kfaceauth/kfaceauth.conf`; it is not installed by the package and is
+ignored when absent. The KCM preview selection is separate.
+
+Inspect the camera identity and supported capture formats without saving
+frames, then choose a stable symlink from `/dev/v4l/by-path` or
+`/dev/v4l/by-id`. With `v4l-utils` installed, these read-only commands list
+device identities, stable paths, and the formats each capture node advertises:
+
+```bash
+v4l2-ctl --list-devices
+ls -l /dev/v4l/by-path
+udevadm info --query=property --name=/dev/videoN | grep '^ID_V4L_PRODUCT='
+v4l2-ctl --device=/dev/videoN --list-formats-ext
+```
+
+Select the node by its camera identity, not by GREY or YUYV format alone; a
+grayscale stream does not establish that a camera is infrared or provides
+liveness detection. Add the selected path to the administrator configuration:
+
+```bash
+sudo install -d -o root -g root -m 0755 /etc/kfaceauth
+sudoedit /etc/kfaceauth/kfaceauth.conf
+```
+
+Add one line, replacing `REPLACE_WITH_CAMERA_LINK` with the complete stable
+symlink name for the selected capture node:
+
+```ini
+KFACEAUTH_CAMERA_DEVICE=/dev/v4l/by-path/REPLACE_WITH_CAMERA_LINK
+```
+
+Then ensure the file is root-owned and restart the daemon to reload its
+environment:
+
+```bash
+sudo chown root:root /etc/kfaceauth/kfaceauth.conf
+sudo chmod 0644 /etc/kfaceauth/kfaceauth.conf
+sudo systemctl daemon-reload
+sudo systemctl restart kfaceauth.service
+```
+
+If the setting is absent, unique-camera auto-selection remains available; when
+multiple compatible nodes remain, authentication fails closed and PAM keeps
+the password fallback. Generic vendor emitter controls are not sent.
 
 A timed-out native attempt is terminated in a separate confined process. A
 kernel-stuck process may remain busy until it actually exits; password fallback

@@ -34,6 +34,10 @@ add_executable(test_systemauthprotocol test_systemauthprotocol.cpp)
 target_link_libraries(test_systemauthprotocol kfaceauth_core Qt6::Core Qt6::Test)
 add_test(NAME systemauthprotocol COMMAND test_systemauthprotocol)
 
+add_executable(test_sddmthemeconfig test_sddmthemeconfig.cpp)
+target_link_libraries(test_sddmthemeconfig kfaceauth_core Qt6::Core Qt6::Test)
+add_test(NAME sddmthemeconfig COMMAND test_sddmthemeconfig)
+
 add_executable(test_identityworkerclient test_identityworkerclient.cpp)
 target_compile_definitions(test_identityworkerclient PRIVATE
     KFACEAUTH_FAKE_IDENTITY_WORKER_PATH="$<TARGET_FILE:fake_identity_worker>"

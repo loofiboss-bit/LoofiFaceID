@@ -6,7 +6,7 @@
 
 namespace
 {
-constexpr quint16 Version = 1;
+constexpr quint16 Version = 2;
 constexpr quint8 StatusSuccess = 0;
 constexpr quint8 StatusAccessDenied = 2;
 constexpr quint8 StatusNoProfile = 3;
@@ -15,6 +15,7 @@ constexpr quint8 StatusDeviceBusy = 5;
 constexpr quint8 StatusInternalError = 6;
 constexpr quint8 StatusSpoofDetected = 7;
 constexpr quint8 StatusRateLimited = 8;
+constexpr quint8 StatusCancelled = 9;
 constexpr quint8 MaximumSamples = 8;
 constexpr qsizetype RequestPayloadSize = 8;
 constexpr qsizetype ResponseHeaderSize = 4;
@@ -24,7 +25,7 @@ bool isKnownFailureStatus(quint8 status)
 {
     return status == StatusAccessDenied || status == StatusNoProfile || status == StatusTimeout ||
            status == StatusDeviceBusy || status == StatusInternalError || status == StatusSpoofDetected ||
-           status == StatusRateLimited;
+           status == StatusRateLimited || status == StatusCancelled;
 }
 } // namespace
 

@@ -113,6 +113,8 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         vault = (ROOT / "engine/templates/src/lib.rs").read_text(encoding="utf-8")
         pam_source = (ROOT / "pam/src/pam_kfaceauth.c").read_text(encoding="utf-8")
         setup = (ROOT / "data/pam/kfaceauth-pam-setup.sh").read_text(encoding="utf-8")
+        sddm_service = (ROOT / "data/pam/sddm-kfaceauth").read_text(encoding="utf-8")
+        plasma_service = (ROOT / "data/pam/kde-kfaceauth").read_text(encoding="utf-8")
 
         self.assertIn("read_exact(&mut key)", helper)
         self.assertIn("migrate_legacy_vault_with_separate_key", helper)
@@ -120,20 +122,23 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertNotIn("--hex-key", helper)
         self.assertNotIn("KFACEAUTH_MASTER_KEY", helper)
         self.assertIn("pre_session_migration_reencrypts_under_a_distinct_key", vault)
-        self.assertIn("resp_len != 4", pam_source)
+        self.assertIn("resp_len != sizeof(resp_body)", pam_source)
         self.assertIn("resp_code == STATUS_SUCCESS", pam_source)
         self.assertIn("continuing with password stack", pam_source)
-        self.assertIn("auth        sufficient    pam_kfaceauth.so", setup)
-        self.assertIn("BEGIN kfaceauth experimental authentication", setup)
+        self.assertIn("migrate_legacy_global_rules", setup)
+        self.assertIn("auth        sufficient    pam_kfaceauth.so", sddm_service)
+        self.assertIn("auth        sufficient    pam_kfaceauth.so", plasma_service)
+        self.assertIn("--prepare-target", setup)
 
     def test_blocked_configured_target_remains_disableable(self) -> None:
         header = (ROOT / "src/backend/enrollmentsession.h").read_text(encoding="utf-8")
-        setup_page = (ROOT / "src/kcm/ui/SetupPage.qml").read_text(encoding="utf-8")
+        auth_page = (ROOT / "src/kcm/ui/AuthIntegrationPage.qml").read_text(encoding="utf-8")
 
         for target in ("sddm", "plasmaLock"):
             with self.subTest(target=target):
                 self.assertIn(f"{target}AuthConfigured", header)
-                self.assertIn(f"{target}AuthConfigured ||", setup_page)
+                self.assertIn(f'objectName: "{target}AuthMode"', auth_page)
+                self.assertIn('"off", "on-activity", "manual"', auth_page)
 
 
 if __name__ == "__main__":

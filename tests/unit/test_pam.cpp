@@ -6,6 +6,7 @@
 
 #include <security/pam_modules.h>
 
+#include <cstring>
 #include <endian.h>
 #include <errno.h>
 #include <pwd.h>
@@ -14,6 +15,8 @@
 #include <thread>
 #include <unistd.h>
 
+static int g_lookingForFaceStatusCount = 0;
+
 extern "C"
 {
     // Mock pam_get_user implementation to link with pam_kfaceauth
@@ -21,6 +24,27 @@ extern "C"
     {
         (void)prompt;
         *user = reinterpret_cast<const char *>(pamh);
+        return PAM_SUCCESS;
+    }
+
+    int pam_get_item(const pam_handle_t *pamh, int item, const void **value)
+    {
+        (void)pamh;
+        if (item != PAM_SERVICE || value == nullptr)
+            return PAM_SYSTEM_ERR;
+        const char *service = std::getenv("KFACEAUTH_PAM_SERVICE");
+        *value = service == nullptr ? "sddm-kfaceauth" : service;
+        return PAM_SUCCESS;
+    }
+
+    int pam_prompt(const pam_handle_t *pamh, int style, char **response, const char *fmt, ...)
+    {
+        (void)pamh;
+        (void)response;
+        if (style != PAM_TEXT_INFO)
+            return PAM_SYSTEM_ERR;
+        if (fmt != nullptr && std::strcmp(fmt, "KFACEAUTH_STATUS=looking-for-face") == 0)
+            ++g_lookingForFaceStatusCount;
         return PAM_SUCCESS;
     }
 
@@ -36,6 +60,7 @@ class TestPam : public QObject
   private Q_SLOTS:
     void testUnknownUserFallsBackToPassword();
     void testMissingSocketFailsClosedImmediately();
+    void testPasswordServicesNeverStartFaceAuthentication();
     void testHungServerAbortsWithinTwoSeconds();
     void testSlowDripResponseUsesOneAbsoluteDeadline();
     void testMockServerSuccess();
@@ -63,6 +88,26 @@ void TestPam::testMissingSocketFailsClosedImmediately()
     int res = pam_sm_authenticate(reinterpret_cast<pam_handle_t *>(pw->pw_name), 0, 0, nullptr);
     QCOMPARE(res, PAM_AUTH_ERR);
     QVERIFY(timer.elapsed() < 500); // Must fail closed immediately
+}
+
+void TestPam::testPasswordServicesNeverStartFaceAuthentication()
+{
+    struct passwd *pw = getpwuid(getuid());
+    QVERIFY(pw != nullptr);
+
+    const char *sock_path = "/tmp/kfaceauth_unexpected_auth_test.sock";
+    unlink(sock_path);
+    setenv("KFACEAUTH_SOCKET_PATH", sock_path, 1);
+    setenv("KFACEAUTH_PAM_SERVICE", "sddm", 1);
+
+    QElapsedTimer timer;
+    timer.start();
+    const int result = pam_sm_authenticate(reinterpret_cast<pam_handle_t *>(pw->pw_name), 0, 0, nullptr);
+
+    QCOMPARE(result, PAM_AUTH_ERR);
+    QVERIFY(timer.elapsed() < 100);
+    QVERIFY(access(sock_path, F_OK) != 0);
+    unsetenv("KFACEAUTH_PAM_SERVICE");
 }
 
 void TestPam::testHungServerAbortsWithinTwoSeconds()
@@ -194,14 +239,17 @@ void TestPam::testMockServerSuccess()
                 ssize_t n = read(cfd, req, sizeof(req));
                 if (n > 4)
                 {
-                    // Send framed SUCCESS response: len = 4, ver = 1, status = 0, reserved = 0
+                    // Send one fixed progress event followed by the only success-bearing final response.
                     uint32_t len_be = htobe32(4);
-                    uint16_t ver_be = htobe16(1);
-                    uint8_t resp[8];
-                    memcpy(resp, &len_be, 4);
-                    memcpy(resp + 4, &ver_be, 2);
-                    resp[6] = 0; // STATUS_SUCCESS
-                    resp[7] = 0;
+                    uint16_t ver_be = htobe16(2);
+                    uint8_t resp[16];
+                    for (int frame = 0; frame < 2; ++frame)
+                    {
+                        memcpy(resp + frame * 8, &len_be, 4);
+                        memcpy(resp + frame * 8 + 4, &ver_be, 2);
+                        resp[frame * 8 + 6] = frame == 0 ? 0x80 : 0;
+                        resp[frame * 8 + 7] = 0;
+                    }
                     write(cfd, resp, sizeof(resp));
                 }
                 close(cfd);
@@ -217,6 +265,7 @@ void TestPam::testMockServerSuccess()
     unlink(sock_path);
 
     QCOMPARE(res, PAM_SUCCESS);
+    QCOMPARE(g_lookingForFaceStatusCount, 1);
 }
 
 void TestPam::testMockServerFailure()
@@ -249,7 +298,7 @@ void TestPam::testMockServerFailure()
                 {
                     // Send framed DEVICE_BUSY response (status = 5)
                     uint32_t len_be = htobe32(4);
-                    uint16_t ver_be = htobe16(1);
+                    uint16_t ver_be = htobe16(2);
                     uint8_t resp[8];
                     memcpy(resp, &len_be, 4);
                     memcpy(resp + 4, &ver_be, 2);

@@ -2,6 +2,7 @@
 
 #include "systemprobe.h"
 
+#include <KLocalizedString>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -16,7 +17,7 @@ constexpr qsizetype MaximumProbeOutput = 256 * 1024;
 
 QString translate(const char *text)
 {
-    return QCoreApplication::translate("SystemProbe", text);
+    return i18nd("kcm_kfaceauth", text);
 }
 
 QByteArray readBoundedFile(const QString &path, qsizetype maximumBytes = MaximumProbeOutput)

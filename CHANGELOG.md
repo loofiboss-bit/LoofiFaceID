@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased (v5.3 series)
+
+- Replace global, password-triggered face PAM with independent root-owned
+  per-user SDDM and Plasma modes: Off, on activity, or button only. Ordinary
+  password PAM remains unchanged, and the experimental default stays Off.
+- Add dedicated face-auth PAM services and a recoverable migration away from
+  LoofiFaceID's former global `auth sufficient` rules. System-profile sync,
+  revoke, replacement, and deletion now update per-user policy transactionally.
+- Bound each face request to two seconds and stop/reap its isolated worker when
+  the greeter disconnects or cancels. Fixed progress messages never authorize;
+  only the current successful PAM transaction can do so.
+- Add version-pinned opt-in integration patch series and build instructions for
+  SDDM 0.21.0 and KScreenLocker 6.7.5. Theme/API handshakes keep unsupported
+  themes on the password path.
+- Automated integration checks do not qualify physical camera, SELinux,
+  accessibility, SDDM login, or Plasma unlock behavior.
+- Load an optional administrator-owned camera selection file for the
+  experimental authentication daemon, so systems with multiple compatible
+  V4L2 nodes can select one stable device path without changing PAM rules.
+
 ## 5.3.0 — Reliable local enrollment and release delivery
 
 - Give explicit enrollment one shared five-minute camera/session deadline while

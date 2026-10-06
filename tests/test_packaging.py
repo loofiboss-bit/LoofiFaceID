@@ -46,9 +46,10 @@ class PackagingContractTests(unittest.TestCase):
             cmake,
         )
         self.assertIn(
-            '"Name": "@KFACEAUTH_DISPLAY_NAME@ (Experimental Local Identity Preview)"',
+            '"Name": "@KFACEAUTH_DISPLAY_NAME@"',
             metadata,
         )
+        self.assertIn("Name=@KFACEAUTH_DISPLAY_NAME@", desktop)
         self.assertIn('"Version": "@PROJECT_VERSION@"', metadata)
         self.assertIn("Exec=systemsettings @KFACEAUTH_KCM_ID@", desktop)
         self.assertRegex(spec, r"(?m)^Name:\s+kfaceauth$")
@@ -139,6 +140,7 @@ class PackagingContractTests(unittest.TestCase):
         for artifact in (
             "kfaceauthd",
             "kfaceauth-sync-vault",
+            "kfaceauth-policy",
             "pam_kfaceauth",
             "kfaceauth.service",
             "kfaceauth.socket",
