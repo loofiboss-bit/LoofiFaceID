@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (v5.3 series)
+
+- Load an optional administrator-owned camera selection file for the
+  experimental authentication daemon, so systems with multiple compatible
+  V4L2 nodes can select one stable device path without changing PAM rules.
+
 ## 5.3.0 — Reliable local enrollment and release delivery
 
 - Give explicit enrollment one shared five-minute camera/session deadline while
