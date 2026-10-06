@@ -59,6 +59,8 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         self.assertNotIn("video_device_t", main_policy)
         self.assertIn("/usr/libexec/kfaceauth-auth-worker", file_contexts)
         self.assertIn("allow kfaceauth_t self:process { fork sigkill sigchld };", main_policy)
+        self.assertIn("allow kfaceauth_t self:process setrlimit;", main_policy)
+        self.assertNotIn("allow kfaceauth_t domain:process setrlimit;", main_policy)
         self.assertNotIn("allow kfaceauth_t domain:process", main_policy)
 
     def test_socket_activated_daemon_does_not_mount_runtime_directory_writable(self) -> None:
