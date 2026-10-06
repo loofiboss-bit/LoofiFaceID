@@ -57,9 +57,12 @@ themes must instantiate
 `faceAuthenticator` context object. The greeter counts these live component
 instances and rejects starts if none has reported interface version 1. Themes
 that do not do this continue to use password authentication and do not trigger
-face recognition. Breeze and NoxForge theme integration is not included or
-qualified by this patch; their support must remain unreported until their QML
-loads this component and runtime testing confirms it.
+face recognition. NoxForge 15's Graphite and Obsidian lock screens load this
+component behind the API-v1 guard in the [companion NoxForge PR](https://github.com/loofiboss-bit/NoxForge/pull/43).
+That theme change has offscreen and password-fallback checks only; physical
+unlock, camera cancellation, and assistive-technology behavior remain
+unverified. Breeze and other themes remain password-only until they load the
+component and complete their own runtime qualification.
 
 ## Apply and verify
 

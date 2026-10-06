@@ -1376,11 +1376,12 @@ diff --git a/greeter/greeterapp.cpp b/greeter/greeterapp.cpp
 index 5322831..f1e98dc 100644
 --- a/greeter/greeterapp.cpp
 +++ b/greeter/greeterapp.cpp
-@@ -13,6 +13,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
+@@ -13,6 +13,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
  #include "../logind.h"
  
  #include <config-kscreenlocker.h>
 +#include <algorithm>
++#include <QKeyEvent>
  #include <iostream>
  #include <unistd.h>
  #include <kscreenlocker_greet_logging.h>
@@ -1484,15 +1485,21 @@ index 5322831..f1e98dc 100644
  void UnlockApp::graceLockEnded()
  {
      m_authenticators->setGraceLocked(false);
-@@ -568,9 +608,20 @@ bool UnlockApp::eventFilter(QObject *obj, QEvent *event)
+@@ -568,9 +608,26 @@ bool UnlockApp::eventFilter(QObject *obj, QEvent *event)
          return false;
      }
  
 -    if (event->type() == QEvent::MouseButtonPress && KWindowSystem::isPlatformX11()) {
 -        if (getActiveScreen()) {
 -            getActiveScreen()->requestActivate();
++    bool keyActivity = false;
++    if (event->type() == QEvent::KeyPress) {
++        const auto *key = static_cast<QKeyEvent *>(event);
++        keyActivity = key->key() != Qt::Key_Return && key->key() != Qt::Key_Enter
++            && key->key() != Qt::Key_Escape;
++    }
 +    const bool userActivity = event->type() == QEvent::MouseButtonPress || event->type() == QEvent::TouchBegin || event->type() == QEvent::TabletPress
-+        || event->type() == QEvent::KeyPress;
++        || keyActivity;
 +    const bool unlockViewVisible = std::any_of(m_views.cbegin(), m_views.cend(), [](const PlasmaQuick::QuickViewSharedEngine *view) {
 +        return view && view->isVisible();
 +    });
