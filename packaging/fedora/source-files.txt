@@ -1,5 +1,6 @@
 .cargo/config.toml
 .clang-format
+.gitattributes
 .github/ISSUE_TEMPLATE/bug_report.md
 .github/dependabot.yml
 .github/workflows/ci.yml
