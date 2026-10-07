@@ -9,6 +9,25 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class CameraSelectionTests(unittest.TestCase):
+    def test_experimental_service_loads_optional_admin_camera_config(self):
+        service = (ROOT / "data/systemd/kfaceauth.service").read_text(
+            encoding="utf-8"
+        )
+        troubleshooting = (ROOT / "docs/TROUBLESHOOTING.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertRegex(
+            service,
+            r"(?m)^EnvironmentFile=-/etc/kfaceauth/kfaceauth\.conf$",
+        )
+        self.assertIn(
+            "KFACEAUTH_CAMERA_DEVICE=/dev/v4l/by-path/REPLACE_WITH_CAMERA_LINK",
+            troubleshooting,
+        )
+        self.assertIn("systemctl restart kfaceauth.service", troubleshooting)
+        self.assertIn("grayscale stream does not establish", troubleshooting)
+
     def test_bounded_native_metadata_policy(self):
         source = r"""
 #include "camera_selection.h"

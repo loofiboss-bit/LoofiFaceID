@@ -7,6 +7,7 @@ After=kfaceauth.socket local-fs.target systemd-udevd.service
 [Service]
 Type=exec
 ExecStart=/usr/libexec/kfaceauthd
+EnvironmentFile=-/etc/kfaceauth/kfaceauth.conf
 User=kfaceauth
 Group=kfaceauth
 SupplementaryGroups=video

@@ -1,8 +1,25 @@
 # LoofiFaceID Improvement Plan
 
-**Updated:** 2026-10-05
-**Review baseline:** `v5.2.1`
+**Updated:** 2026-10-06
+**Review baseline:** initial plan `v5.2.1`; published baseline `v5.3.0`
 **Delivery:** v5.3.0 is published on GitHub and available from the Fedora 44 COPR repository; release artifacts and repository metadata were read back. PAM remains an unqualified experiment.
+
+The repository follow-up below targets a future v5.3-series build. It does not
+change the already-published v5.3.0 tag or artifacts.
+
+## 2026-10-06 repository follow-up
+
+The experimental daemon now reads an optional root-owned
+`/etc/kfaceauth/kfaceauth.conf` through its packaged systemd unit. Administrators
+can set `KFACEAUTH_CAMERA_DEVICE` to a stable V4L2 device path when automatic
+selection correctly refuses multiple compatible cameras. The standard package
+still excludes all authentication components, and no device-specific path is
+shipped.
+
+Verification passed: all 75 Python tests, systemd unit validation, canonical
+project identity, and staged standard/experimental package-boundary checks. No
+new camera capture or lock-screen authentication attempt was run for this
+source-only change; hardware behavior remains unverified.
 
 ## Product boundary
 
@@ -33,8 +50,10 @@ unqualified. Existing password fallback and active-session preservation apply.
 - Camera buffers are zeroizing; protocol requests have exact lengths, valid
   UTF-8/reserved fields and a 269-byte maximum.
 - Camera discovery considers actual video nodes, capture/streaming capabilities
-  and GREY/YUYV support. Auto-selection requires one compatible node. Generic
-  vendor emitter writes have been removed.
+  and GREY/YUYV support. Auto-selection requires one compatible node; the
+  experimental service now reads an optional root-owned config file so an
+  administrator can select a stable path when multiple compatible nodes exist.
+  Generic vendor emitter writes have been removed.
 - Evaluation uses separated enrollment/probe inputs and the production 3–8
   sample median policy, with aggregate results and bounded biometric memory.
 - Source archives use a reviewed explicit file list, portable to unpacked SRPMs;
