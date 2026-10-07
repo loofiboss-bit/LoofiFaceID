@@ -24,6 +24,7 @@ Kirigami.ScrollablePage {
     required property bool refreshActive
     property var startOnboarding: () => {}
     property var openSetup: () => {}
+    property var openAuthIntegration: () => {}
     property var openTest: () => {}
     property var openDiagnostics: () => {}
     property var refresh: () => {}
@@ -115,6 +116,16 @@ Kirigami.ScrollablePage {
                 activeFocusOnTab: true
                 Accessible.name: text
                 onClicked: root.openSetup()
+            }
+
+            QQC2.Button {
+                objectName: "homeAuthIntegrationButton"
+                text: i18n("Login and unlock settings")
+                icon.name: "system-lock-screen"
+                flat: true
+                activeFocusOnTab: true
+                Accessible.name: text
+                onClicked: root.openAuthIntegration()
             }
 
             QQC2.Button {

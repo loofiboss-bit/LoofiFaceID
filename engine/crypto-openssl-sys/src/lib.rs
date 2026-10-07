@@ -600,6 +600,59 @@ mod tests {
     use std::os::unix::net::UnixStream;
 
     #[test]
+    fn concurrent_group_resolution_keeps_each_gid_private() {
+        let root = group_id("root").unwrap();
+        let bin = group_id("bin").unwrap();
+        assert_ne!(root, bin);
+        std::thread::scope(|scope| {
+            for index in 0..16 {
+                scope.spawn(move || {
+                    let (name, expected) = if index % 2 == 0 {
+                        ("root", root)
+                    } else {
+                        ("bin", bin)
+                    };
+                    for _ in 0..1000 {
+                        assert_eq!(group_id(name).unwrap(), expected);
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn child_file_open_does_not_wait_for_a_fifo_writer() {
+        use std::os::unix::fs::FileTypeExt;
+        use std::sync::mpsc;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("kfaceauth-fifo-{nonce}"));
+        std::fs::create_dir(&root).unwrap();
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg("--")
+                .arg(root.join("fifo"))
+                .status()
+                .unwrap()
+                .success()
+        );
+        let directory = open_directory_nofollow(&root).unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let file = open_child_file_nofollow(&directory, "fifo").unwrap();
+            sender
+                .send(file.metadata().unwrap().file_type().is_fifo())
+                .unwrap();
+        });
+        assert!(receiver.recv_timeout(Duration::from_secs(2)).unwrap());
+        worker.join().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn round_trip_and_tamper_rejection() {
         let key = random::<KEY_BYTES>().unwrap();
         let nonce = random::<NONCE_BYTES>().unwrap();

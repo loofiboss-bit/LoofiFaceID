@@ -51,3 +51,67 @@ authentication qualification.
   manifest entries; no physical FAR/FRR or PAD result is implied.
 - Source allowlist, deterministic gitless archive rebuild, version disagreement,
   tag/archive lineage and identical/missing/conflicting remote-asset fixtures.
+
+## Reliability/recovery candidate regressions
+
+- Real validated policy snapshots plus synthetic delayed workers: Off/restore,
+  identical-content replacement, other-user policy changes and revocation do
+  not allow a prior positive result or clear its retry count.
+- Root-owned resync transactions: all independent mode pairs, all-Off/no-profile,
+  another user's choices, corrupt staging/rollback data and exclusive policy
+  locking. No host PAM/service/camera mutation is needed for these fixtures.
+- KCM injected status/runner and synthetic identity worker: same-mode resync,
+  wallet failure, authorization cancellation, duplicate clicks, missing/unknown
+  readback, different target mode, timeout and discarded late results. Pending
+  policy reads before enrollment commit cover completion, cancellation, unknown
+  status and bounded timeout. Theme metadata reads reject non-regular files
+  without blocking.
+- QML: three real mode choices, Unknown display, saved-mode restoration,
+  busy/last-error feedback, narrow-window geometry and keyboard focus.
+- Reports: fixed per-target readiness/modes/issues and no untrusted mode text,
+  identifiers, paths, credentials or biometric material.
+- PAM and upstream Qt: allowlisted terminal categories, malformed positive
+  responses, raw-text rejection and terminal failures that defeat late success.
+- Native bridge: concurrent group lookups keep their own GIDs; child-file opens
+  do not wait for FIFO writers. Root metadata suites also run in parallel.
+- Integration workflow: exact pinned patches, default-OFF/opt-in builds, actual
+  Qt tests, DESTDIR marker/worker paths and standard omission; pinned NoxForge
+  source contracts remain distinct from runtime qualification.
+
+## Local reliability verification, 2026-10-07
+
+These results apply to the local reliability/recovery candidate working tree,
+not to an installed package or published release.
+
+| Gate | Result |
+|---|---|
+| LoofiFaceID Debug builds, standard / experimental auth | Passed, native sanitizers enabled |
+| Isolated offscreen CTest, standard / experimental auth | 18/18 and 19/19 suites passed |
+| Python repository tests | 73/73 passed |
+| Rust workspace tests, offline and locked | Passed |
+| Isolated root metadata/transaction suites | Templates 25/25, sync helper 14/14, policy CLI 2/2, daemon 20/20 passed |
+| Parallel root helper stress | Five additional runs of 14/14 passed with 16 test threads |
+| Pinned SDDM builds, standard / experimental | Both passed; 4/4 CTest each; 10 patch contracts passed |
+| Pinned KScreenLocker builds, standard / experimental | Both passed; focused Qt suite passed; 12 patch contracts passed |
+| Integration staged payloads | All four boundaries and six verifier regressions passed |
+| LoofiFaceID staged payloads | Standard and experimental boundaries passed |
+| Formatting, Clippy, QML lint, Swedish translations | Passed |
+| Model supply chain, project identity, final diff whitespace | Passed |
+
+The Qt fixtures cover enrollment waiting for policy completion, cancellation,
+timeout, unknown status and ignored late callbacks. The filesystem fixtures
+also reject FIFO configuration/child files without waiting for a writer.
+
+All privileged transaction tests used disposable state; offscreen application
+tests ran in containers without host PAM configuration, runtime sockets or
+camera devices. Staged installs used temporary DESTDIR roots. No package was
+installed on the host, no authentication target was activated, and no commit,
+push or publication was performed. The GitHub workflow is prepared and locally
+replayed; it has not run remotely for this working tree.
+
+Physical SDDM login, Plasma unlock, password fallback, SELinux Enforcing,
+suspend/resume, camera release and accessibility remain unqualified. Pinned
+NoxForge checks establish source adapter contracts only; runtime theme
+qualification remains open. SDDM theme test mode provides UI evidence and does
+not execute login actions, as documented in the upstream
+[theme guide](https://github.com/sddm/sddm/blob/v0.21.0/docs/THEMING.md).

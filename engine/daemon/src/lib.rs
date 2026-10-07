@@ -21,13 +21,15 @@ use zeroize::{Zeroize, Zeroizing};
 
 use kfaceauth_crypto_openssl_sys::{PeerCredentials, peer_credentials};
 use kfaceauth_protocol::{read_frame, write_frame};
+use kfaceauth_templates::auth_policy::{AuthPolicyMode, AuthPolicySnapshot, AuthTarget};
 use kfaceauth_templates::{MasterKey, ProfileSummary, Vault, VaultStatus, VerificationResult};
 use kfaceauth_vision::identity::{ExtractionPurpose, IdentityProvider};
 use kfaceauth_vision::{
     CancellationToken, ImageView, MAX_FRAME_BYTES, PixelFormat, ProcessingControl,
 };
 
-pub const DAEMON_PROTOCOL_VERSION: u16 = 1;
+pub const DAEMON_PROTOCOL_VERSION: u16 = 2;
+pub const AUTH_POLICY_PATH: &str = "/etc/kfaceauth/policy.json";
 pub const DEFAULT_SOCKET_PATH: &str = "/run/kfaceauth/kfaceauthd.sock";
 pub const DEFAULT_DAEMON_USER: &str = "kfaceauth";
 pub const DEFAULT_DAEMON_GROUP: &str = "kfaceauth";
@@ -35,7 +37,7 @@ pub const SOCKET_FILE_MODE: u32 = 0o666;
 
 pub const MAX_DAEMON_REQUEST_BYTES: usize = 14 + 255;
 const AUTH_WORKER_PATH: &str = "/usr/libexec/kfaceauth-auth-worker";
-const AUTH_WORKER_REQUEST_BYTES: usize = 8;
+const AUTH_WORKER_REQUEST_BYTES: usize = 9;
 pub const MAX_DAEMON_RESPONSE_BYTES: usize = 64 * 1024;
 pub const DEFAULT_PAM_TIMEOUT_MS: u32 = 2000;
 pub const MAX_ACTIVE_CONNECTIONS: usize = 4;
@@ -48,6 +50,9 @@ pub const PAM_ATTEMPTS_PER_WINDOW: usize = 3;
 pub const OP_PAM_AUTH: u8 = 0x10;
 pub const OP_STATUS: u8 = 0x11;
 
+pub const AUTH_TARGET_SDDM: u8 = 1;
+pub const AUTH_TARGET_PLASMA_LOCK: u8 = 2;
+
 pub const STATUS_SUCCESS: u8 = 0x00;
 pub const STATUS_AUTH_FAILED: u8 = 0x01;
 pub const STATUS_ACCESS_DENIED: u8 = 0x02;
@@ -57,6 +62,8 @@ pub const STATUS_DEVICE_BUSY: u8 = 0x05;
 pub const STATUS_INTERNAL_ERROR: u8 = 0x06;
 pub const STATUS_SPOOF_DETECTED: u8 = 0x07;
 pub const STATUS_RATE_LIMITED: u8 = 0x08;
+pub const STATUS_CANCELLED: u8 = 0x09;
+pub const STATUS_PROGRESS_LOOKING_FOR_FACE: u8 = 0x80;
 
 #[derive(Debug, Default)]
 pub struct AuthRateLimiter {
@@ -103,6 +110,10 @@ pub struct DaemonConfig {
     auth_child: Arc<Mutex<Option<Child>>>,
     #[cfg(test)]
     worker_path: Option<PathBuf>,
+    #[cfg(test)]
+    policy_directory: Option<Arc<fs::File>>,
+    #[cfg(test)]
+    synthetic_policy: bool,
 }
 
 impl Default for DaemonConfig {
@@ -133,6 +144,10 @@ impl DaemonConfig {
             auth_child: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             worker_path: None,
+            #[cfg(test)]
+            policy_directory: None,
+            #[cfg(test)]
+            synthetic_policy: false,
         }
     }
 }
@@ -150,6 +165,7 @@ pub const fn is_authorized(peer_uid: u32, target_uid: u32) -> bool {
 pub enum DaemonRequest {
     PamAuth {
         target_uid: u32,
+        auth_target: u8,
         timeout_ms: u32,
         username: String,
     },
@@ -180,9 +196,6 @@ pub fn decode_daemon_request(payload: &[u8]) -> Result<DaemonRequest, &'static s
     if version != DAEMON_PROTOCOL_VERSION {
         return Err("unsupported protocol version");
     }
-    if payload[3] != 0 {
-        return Err("nonzero reserved field");
-    }
     let opcode = payload[2];
     let target_uid = u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]);
 
@@ -190,6 +203,10 @@ pub fn decode_daemon_request(payload: &[u8]) -> Result<DaemonRequest, &'static s
         OP_PAM_AUTH => {
             if payload.len() < 14 {
                 return Err("malformed PAM request payload");
+            }
+            let auth_target = payload[3];
+            if !matches!(auth_target, AUTH_TARGET_SDDM | AUTH_TARGET_PLASMA_LOCK) {
+                return Err("invalid authentication target");
             }
             let timeout_ms = u32::from_be_bytes([payload[8], payload[9], payload[10], payload[11]]);
             let user_len = usize::from(u16::from_be_bytes([payload[12], payload[13]]));
@@ -207,11 +224,14 @@ pub fn decode_daemon_request(payload: &[u8]) -> Result<DaemonRequest, &'static s
             let username = username.to_owned();
             Ok(DaemonRequest::PamAuth {
                 target_uid,
+                auth_target,
                 timeout_ms,
                 username,
             })
         }
-        OP_STATUS if payload.len() == 8 => Ok(DaemonRequest::Status { target_uid }),
+        OP_STATUS if payload.len() == 8 && payload[3] == 0 => {
+            Ok(DaemonRequest::Status { target_uid })
+        }
         _ => Err("unknown opcode"),
     }
 }
@@ -234,6 +254,64 @@ fn open_vault_for_uid(target_uid: u32, config: &DaemonConfig) -> Result<Vault, u
         Some(root) => Ok(Vault::system_with_root(root, target_uid)),
         None => Vault::system(target_uid).map_err(|_| STATUS_INTERNAL_ERROR),
     }
+}
+
+fn authentication_target(auth_target: u8) -> Option<AuthTarget> {
+    match auth_target {
+        AUTH_TARGET_SDDM => Some(AuthTarget::Sddm),
+        AUTH_TARGET_PLASMA_LOCK => Some(AuthTarget::PlasmaLock),
+        _ => None,
+    }
+}
+
+enum AttemptPolicy {
+    Verified(AuthPolicySnapshot),
+    #[cfg(test)]
+    Synthetic,
+}
+
+impl AttemptPolicy {
+    fn mode_for(&self, uid: u32, target: AuthTarget) -> AuthPolicyMode {
+        match self {
+            Self::Verified(snapshot) => snapshot.policy().mode_for(uid, target),
+            #[cfg(test)]
+            Self::Synthetic => AuthPolicyMode::OnActivity,
+        }
+    }
+
+    fn is_current(&self, current: &Self) -> bool {
+        match (self, current) {
+            (Self::Verified(start), Self::Verified(end)) => start.same_file_as(end),
+            #[cfg(test)]
+            (Self::Synthetic, Self::Synthetic) => true,
+            #[cfg(test)]
+            _ => false,
+        }
+    }
+}
+
+fn authentication_policy(config: &DaemonConfig) -> Option<AttemptPolicy> {
+    #[cfg(test)]
+    if let Some(directory) = &config.policy_directory {
+        return AuthPolicySnapshot::load_from_directory(directory)
+            .ok()
+            .map(AttemptPolicy::Verified);
+    }
+    #[cfg(test)]
+    if config.synthetic_policy {
+        return Some(AttemptPolicy::Synthetic);
+    }
+    #[cfg(not(test))]
+    let _ = config;
+    AuthPolicySnapshot::load_system()
+        .ok()
+        .map(AttemptPolicy::Verified)
+}
+
+fn authentication_target_enabled(target_uid: u32, auth_target: u8, config: &DaemonConfig) -> bool {
+    authentication_target(auth_target)
+        .zip(authentication_policy(config))
+        .is_some_and(|(target, policy)| policy.mode_for(target_uid, target) != AuthPolicyMode::Off)
 }
 
 type CapturedFrame = (u32, u32, u32, u8, Zeroizing<Vec<u8>>);
@@ -353,9 +431,11 @@ fn verify_frame_against_vault(
 
 fn handle_pam_request(
     target_uid: u32,
+    auth_target: u8,
     timeout_ms: u32,
     connection_deadline: Instant,
     config: &DaemonConfig,
+    mut looking_for_face: impl FnMut() -> bool,
 ) -> (u8, Vec<u8>) {
     let timeout_ms = timeout_ms
         .min(config.max_timeout_ms)
@@ -367,6 +447,9 @@ fn handle_pam_request(
         });
     if remaining_timeout_ms(request_deadline).is_none() {
         return (STATUS_TIMEOUT, Vec::new());
+    }
+    if !authentication_target_enabled(target_uid, auth_target, config) {
+        return (STATUS_ACCESS_DENIED, Vec::new());
     }
     let keys_dir = config.keys_dir.as_deref();
 
@@ -407,6 +490,9 @@ fn handle_pam_request(
         Ok(frame) => frame,
         Err(status) => return (status, Vec::new()),
     };
+    if !looking_for_face() {
+        return (STATUS_INTERNAL_ERROR, Vec::new());
+    }
     if remaining_timeout_ms(request_deadline).is_none() {
         return (STATUS_TIMEOUT, Vec::new());
     }
@@ -450,6 +536,16 @@ fn dispatch_request_until(
     config: &DaemonConfig,
     deadline: Instant,
 ) -> Vec<u8> {
+    dispatch_request_until_with_client(request, peer, config, deadline, None)
+}
+
+fn dispatch_request_until_with_client(
+    request: &DaemonRequest,
+    peer: &PeerCredentials,
+    config: &DaemonConfig,
+    deadline: Instant,
+    cancel_client: Option<&UnixStream>,
+) -> Vec<u8> {
     let target_uid = request.target_uid();
     // Deny requests that attempt to target a UID other than the socket peer.
     if !is_authorized(peer.uid, target_uid) {
@@ -459,9 +555,17 @@ fn dispatch_request_until(
     let (status, extra) = match request {
         DaemonRequest::PamAuth {
             target_uid,
+            auth_target,
             timeout_ms,
             ..
         } => {
+            let Some(start_policy) = authentication_policy(config).filter(|policy| {
+                authentication_target(*auth_target).is_some_and(|target| {
+                    policy.mode_for(*target_uid, target) != AuthPolicyMode::Off
+                })
+            }) else {
+                return encode_daemon_response(STATUS_ACCESS_DENIED, &[]);
+            };
             let timeout_ms = (*timeout_ms)
                 .min(config.max_timeout_ms)
                 .min(DEFAULT_PAM_TIMEOUT_MS);
@@ -472,8 +576,26 @@ fn dispatch_request_until(
             else {
                 return encode_daemon_response(STATUS_TIMEOUT, &[]);
             };
-            let status =
-                supervise_auth_worker(*target_uid, timeout_ms, processing_deadline, config);
+            let status = supervise_auth_worker(
+                *target_uid,
+                *auth_target,
+                timeout_ms,
+                processing_deadline,
+                config,
+                cancel_client,
+            );
+            // Compare the attempt-scoped descriptor identity after the worker
+            // exits. A replacement invalidates the attempt even if rollback
+            // restores identical policy contents and mode.
+            if status == STATUS_SUCCESS
+                && !authentication_policy(config)
+                    .is_some_and(|current| start_policy.is_current(&current))
+            {
+                return encode_daemon_response(STATUS_ACCESS_DENIED, &[]);
+            }
+            if status == STATUS_SUCCESS {
+                config.rate_limiter.clear(*target_uid);
+            }
             (status, Vec::new())
         }
         DaemonRequest::Status { target_uid } => {
@@ -518,15 +640,32 @@ pub fn serve_auth_worker<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> i
     }
     let uid = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
     let timeout_ms = u32::from_be_bytes([input[4], input[5], input[6], input[7]]);
+    let auth_target = input[8];
     input.zeroize();
-    if !(1..=DEFAULT_PAM_TIMEOUT_MS).contains(&timeout_ms) {
+    if !(1..=DEFAULT_PAM_TIMEOUT_MS).contains(&timeout_ms)
+        || !matches!(auth_target, AUTH_TARGET_SDDM | AUTH_TARGET_PLASMA_LOCK)
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "invalid private deadline",
         ));
     }
     let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
-    let (status, _) = handle_pam_request(uid, timeout_ms, deadline, &DaemonConfig::from_env());
+    let (status, _) = handle_pam_request(
+        uid,
+        auth_target,
+        timeout_ms,
+        deadline,
+        &DaemonConfig::from_env(),
+        || {
+            writer
+                .write_all(&encode_daemon_response(
+                    STATUS_PROGRESS_LOOKING_FOR_FACE,
+                    &[],
+                ))
+                .is_ok()
+        },
+    );
     writer.write_all(&encode_daemon_response(status, &[]))
 }
 
@@ -574,11 +713,14 @@ fn spawn_auth_worker(config: &DaemonConfig) -> io::Result<(Child, UnixStream)> {
     Ok((child, response_socket))
 }
 
+#[allow(clippy::too_many_lines)]
 fn supervise_auth_worker(
     uid: u32,
+    auth_target: u8,
     timeout_ms: u32,
     deadline: Instant,
     config: &DaemonConfig,
+    cancel_client: Option<&UnixStream>,
 ) -> u8 {
     let Ok(mut slot) = config.auth_child.try_lock() else {
         return STATUS_DEVICE_BUSY;
@@ -598,7 +740,10 @@ fn supervise_auth_worker(
     let Ok((mut child, mut response_socket)) = spawn_auth_worker(config) else {
         return STATUS_INTERNAL_ERROR;
     };
-    let request = Zeroizing::new([uid.to_be_bytes(), timeout_ms.to_be_bytes()].concat());
+    let mut request = Zeroizing::new(Vec::with_capacity(AUTH_WORKER_REQUEST_BYTES));
+    request.extend_from_slice(&uid.to_be_bytes());
+    request.extend_from_slice(&timeout_ms.to_be_bytes());
+    request.push(auth_target);
     let write_result = child.stdin.take().map_or_else(
         || Err(io::Error::other("worker input missing")),
         |mut input| input.write_all(&request),
@@ -608,48 +753,78 @@ fn supervise_auth_worker(
         let _ = slot.as_mut().expect("child registered").kill();
         return STATUS_INTERNAL_ERROR;
     }
+    if response_socket.set_nonblocking(true).is_err() {
+        let _ = slot.as_mut().expect("child registered").kill();
+        return STATUS_INTERNAL_ERROR;
+    }
+    let mut worker_response = Vec::with_capacity(8);
+    let mut final_status = None;
     loop {
         let child = slot.as_mut().expect("child registered");
+        if cancel_client.is_some_and(client_disconnected) {
+            let _ = child.kill();
+            return STATUS_CANCELLED;
+        }
         if remaining_timeout_ms(deadline).is_none() {
             let _ = child.kill();
             // Keep ownership until the accept-loop's nonblocking reap succeeds.
             // In particular, SIGKILL cannot force immediate exit from kernel D-state.
             return STATUS_TIMEOUT;
         }
+        let mut chunk = [0_u8; 32];
+        loop {
+            match response_socket.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(count) => worker_response.extend_from_slice(&chunk[..count]),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => {
+                    let _ = child.kill();
+                    return STATUS_INTERNAL_ERROR;
+                }
+            }
+        }
+        while worker_response.len() >= 4 {
+            let frame: Vec<u8> = worker_response.drain(..4).collect();
+            if frame[..2] != DAEMON_PROTOCOL_VERSION.to_be_bytes() || frame[3] != 0 {
+                let _ = child.kill();
+                return STATUS_INTERNAL_ERROR;
+            }
+            let status = frame[2];
+            if status == STATUS_PROGRESS_LOOKING_FOR_FACE {
+                if final_status.is_some() {
+                    let _ = child.kill();
+                    return STATUS_INTERNAL_ERROR;
+                }
+                if let Some(client) = cancel_client
+                    && write_client_progress(client, &frame, deadline).is_err()
+                {
+                    let _ = child.kill();
+                    return STATUS_CANCELLED;
+                }
+            } else if status <= STATUS_CANCELLED && final_status.is_none() {
+                final_status = Some(status);
+            } else {
+                let _ = child.kill();
+                return STATUS_INTERNAL_ERROR;
+            }
+        }
         match child.try_wait() {
             Ok(Some(exit)) => {
                 *slot = None;
-                if !exit.success() {
-                    return STATUS_INTERNAL_ERROR;
+                if cancel_client.is_some_and(client_disconnected) {
+                    return STATUS_CANCELLED;
                 }
-                let Ok(remaining) = remaining_duration(deadline) else {
-                    return STATUS_TIMEOUT;
-                };
-                if response_socket.set_read_timeout(Some(remaining)).is_err() {
-                    return STATUS_INTERNAL_ERROR;
-                }
-                let mut response = Vec::with_capacity(5);
-                if Read::by_ref(&mut response_socket)
-                    .take(5)
-                    .read_to_end(&mut response)
-                    .is_err()
-                {
+                if !exit.success() || !worker_response.is_empty() {
                     return STATUS_INTERNAL_ERROR;
                 }
                 if remaining_timeout_ms(deadline).is_none() {
                     return STATUS_TIMEOUT;
                 }
-                if response.len() != 4
-                    || response[..2] != DAEMON_PROTOCOL_VERSION.to_be_bytes()
-                    || response[3] != 0
-                    || response[2] > STATUS_RATE_LIMITED
-                {
+                let Some(status) = final_status else {
                     return STATUS_INTERNAL_ERROR;
-                }
-                if response[2] == STATUS_SUCCESS {
-                    config.rate_limiter.clear(uid);
-                }
-                return response[2];
+                };
+                return status;
             }
             Ok(None) => thread::sleep(Duration::from_millis(2)),
             Err(_) => {
@@ -658,6 +833,38 @@ fn supervise_auth_worker(
             }
         }
     }
+}
+
+fn write_client_progress(stream: &UnixStream, payload: &[u8], deadline: Instant) -> io::Result<()> {
+    let length = u32::try_from(payload.len())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "progress frame too large"))?;
+    let mut frame = Vec::with_capacity(4 + payload.len());
+    frame.extend_from_slice(&length.to_be_bytes());
+    frame.extend_from_slice(payload);
+    let mut sent = 0;
+    while sent < frame.len() {
+        if remaining_timeout_ms(deadline).is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "progress deadline expired",
+            ));
+        }
+        match (&*stream).write(&frame[sent..]) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "progress write failed",
+                ));
+            }
+            Ok(count) => sent += count,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 fn remaining_duration(deadline: Instant) -> io::Result<Duration> {
@@ -733,10 +940,24 @@ fn handle_client_stream_with_peer(
         })?
     };
 
-    let response = match decode_daemon_request(&payload) {
-        Ok(request) => dispatch_request_until(&request, &peer, config, deadline),
+    let request = decode_daemon_request(&payload);
+    let monitor_disconnect = matches!(&request, Ok(DaemonRequest::PamAuth { .. }));
+    if monitor_disconnect {
+        stream.set_nonblocking(true)?;
+    }
+    let response = match request {
+        Ok(request) => dispatch_request_until_with_client(
+            &request,
+            &peer,
+            config,
+            deadline,
+            monitor_disconnect.then_some(&stream),
+        ),
         Err(_) => encode_daemon_response(STATUS_INTERNAL_ERROR, &[]),
     };
+    if monitor_disconnect {
+        stream.set_nonblocking(false)?;
+    }
 
     let mut deadline_stream = DeadlineStream {
         stream: &mut stream,
@@ -748,6 +969,18 @@ fn handle_client_stream_with_peer(
             format!("response write failed before deadline: {error}"),
         )
     })
+}
+
+fn client_disconnected(stream: &UnixStream) -> bool {
+    let mut probe = [0_u8; 1];
+    !matches!(
+        (&*stream).read(&mut probe),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+            )
+    )
 }
 
 #[derive(Default)]
@@ -977,7 +1210,7 @@ mod tests {
         let mut req_bytes = Vec::new();
         req_bytes.extend_from_slice(&DAEMON_PROTOCOL_VERSION.to_be_bytes());
         req_bytes.push(OP_PAM_AUTH);
-        req_bytes.push(0);
+        req_bytes.push(AUTH_TARGET_SDDM);
         req_bytes.extend_from_slice(&1000_u32.to_be_bytes());
         req_bytes.extend_from_slice(&2000_u32.to_be_bytes());
         req_bytes.extend_from_slice(&4_u16.to_be_bytes());
@@ -986,12 +1219,14 @@ mod tests {
         let parsed = decode_daemon_request(&req_bytes).unwrap();
         assert_eq!(parsed.target_uid(), 1000);
         if let DaemonRequest::PamAuth {
+            auth_target,
             timeout_ms,
             username,
             ..
         } = parsed
         {
             assert_eq!(timeout_ms, 2000);
+            assert_eq!(auth_target, AUTH_TARGET_SDDM);
             assert_eq!(username, "test");
         } else {
             panic!("unexpected variant");
@@ -1027,6 +1262,7 @@ mod tests {
         let reqs = vec![
             DaemonRequest::PamAuth {
                 target_uid: 1000,
+                auth_target: AUTH_TARGET_SDDM,
                 timeout_ms: 2000,
                 username: "victim".to_string(),
             },
@@ -1156,7 +1392,7 @@ mod tests {
     fn decoder_rejects_malformed_requests() {
         let valid = [
             DAEMON_PROTOCOL_VERSION.to_be_bytes().as_slice(),
-            &[OP_PAM_AUTH, 0],
+            &[OP_PAM_AUTH, AUTH_TARGET_SDDM],
             &1000_u32.to_be_bytes(),
             &2000_u32.to_be_bytes(),
             &4_u16.to_be_bytes(),
@@ -1183,6 +1419,7 @@ mod tests {
         assert!(decode_daemon_request(&nul).is_err());
         let mut status = valid[..8].to_vec();
         status[2] = OP_STATUS;
+        status[3] = 0;
         assert!(decode_daemon_request(&status).is_ok());
         status.push(0);
         assert!(decode_daemon_request(&status).is_err());
@@ -1224,6 +1461,7 @@ mod tests {
             let config = DaemonConfig {
                 keys_dir: Some(root.clone()),
                 worker_path: Some(script),
+                synthetic_policy: true,
                 camera_device: Some(mode.to_owned()),
                 ..DaemonConfig::default()
             };
@@ -1233,6 +1471,7 @@ mod tests {
         fn request(&self, timeout_ms: u32) -> u8 {
             let request = DaemonRequest::PamAuth {
                 target_uid: 1000,
+                auth_target: AUTH_TARGET_SDDM,
                 timeout_ms,
                 username: "test".to_owned(),
             };
@@ -1267,6 +1506,91 @@ mod tests {
             }
             self.wait_reaped();
             fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+
+    #[test]
+    fn replacement_with_restored_mode_rejects_late_positive_worker() {
+        if kfaceauth_crypto_openssl_sys::effective_uid() != 0 {
+            return;
+        }
+        for change in ["restore", "same", "other-user", "missing", "unsafe"] {
+            let mut fixture = WorkerFixture::new("controlled");
+            let directory = fs::File::open(&fixture.root).unwrap();
+            kfaceauth_crypto_openssl_sys::set_fd_permissions(&directory, 0, 0o755, "root").unwrap();
+            let directory = Arc::new(directory);
+            let mut policy = kfaceauth_templates::auth_policy::AuthPolicy::default();
+            policy
+                .set_mode(1000, AuthTarget::Sddm, AuthPolicyMode::Manual)
+                .unwrap();
+            policy.write_atomic(&directory).unwrap();
+            fixture.config.policy_directory = Some(directory.clone());
+            let script = fixture.root.join("fake-auth-worker");
+            fs::write(&script, "#!/usr/bin/python3\nimport os, pathlib, sys, time\nsys.stdin.buffer.read()\np = pathlib.Path(os.environ['KFACEAUTH_KEYS_DIR'])\n(p / 'started').touch()\nwhile not (p / 'release').exists(): time.sleep(0.002)\nsys.stdout.buffer.write(bytes([0,2,0,0]))\n").unwrap();
+            thread::scope(|scope| {
+                let attempt = scope.spawn(|| fixture.request(3000));
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while !fixture.root.join("started").exists() {
+                    assert!(Instant::now() < deadline);
+                    thread::sleep(Duration::from_millis(2));
+                }
+                match change {
+                    "restore" => {
+                        policy
+                            .set_mode(1000, AuthTarget::Sddm, AuthPolicyMode::Off)
+                            .unwrap();
+                        policy.write_atomic(&directory).unwrap();
+                        policy
+                            .set_mode(1000, AuthTarget::Sddm, AuthPolicyMode::Manual)
+                            .unwrap();
+                        policy.write_atomic(&directory).unwrap();
+                    }
+                    "same" => policy.write_atomic(&directory).unwrap(),
+                    "other-user" => {
+                        policy
+                            .set_mode(1001, AuthTarget::PlasmaLock, AuthPolicyMode::Manual)
+                            .unwrap();
+                        policy.write_atomic(&directory).unwrap();
+                    }
+                    "missing" => fs::remove_file(fixture.root.join("policy.json")).unwrap(),
+                    "unsafe" => {
+                        use std::os::unix::fs::PermissionsExt;
+                        fs::set_permissions(
+                            fixture.root.join("policy.json"),
+                            fs::Permissions::from_mode(0o666),
+                        )
+                        .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+                fs::write(fixture.root.join("release"), b"").unwrap();
+                assert_eq!(attempt.join().unwrap(), STATUS_ACCESS_DENIED);
+                assert_eq!(
+                    fixture
+                        .config
+                        .rate_limiter
+                        .attempts
+                        .lock()
+                        .unwrap()
+                        .get(&1000)
+                        .unwrap()
+                        .len(),
+                    1
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn worker_path_alone_does_not_bypass_policy() {
+        let mut fixture = WorkerFixture::new("progress");
+        fixture.config.synthetic_policy = false;
+        if kfaceauth_crypto_openssl_sys::effective_uid() == 0 {
+            let directory = fs::File::open(&fixture.root).unwrap();
+            kfaceauth_crypto_openssl_sys::set_fd_permissions(&directory, 0, 0o755, "root").unwrap();
+            fixture.config.policy_directory = Some(Arc::new(directory));
+            assert_eq!(fixture.request(2000), STATUS_ACCESS_DENIED);
+            assert!(fixture.config.auth_child.lock().unwrap().is_none());
         }
     }
 
@@ -1312,9 +1636,11 @@ mod tests {
         let first = thread::spawn(move || {
             supervise_auth_worker(
                 1000,
+                AUTH_TARGET_SDDM,
                 2000,
                 Instant::now() + Duration::from_millis(350),
                 &config,
+                None,
             )
         });
         let deadline = Instant::now() + Duration::from_millis(300);
@@ -1326,6 +1652,82 @@ mod tests {
         assert_eq!(first.join().unwrap(), STATUS_TIMEOUT);
         fixture.wait_reaped();
         assert_eq!(fixture.request(2000), STATUS_SUCCESS);
+    }
+
+    #[test]
+    fn worker_progress_is_forwarded_without_becoming_an_authentication_result() {
+        let fixture = WorkerFixture::new("progress");
+        let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+        let peer = PeerCredentials {
+            uid: 1000,
+            gid: 1000,
+            pid: 12345,
+        };
+        let config = fixture.config.clone();
+        let server = thread::spawn(move || {
+            handle_client_stream_with_peer(
+                server_stream,
+                peer,
+                &config,
+                connection_deadline(&config),
+            )
+        });
+        let mut request = Vec::new();
+        request.extend_from_slice(&DAEMON_PROTOCOL_VERSION.to_be_bytes());
+        request.extend_from_slice(&[OP_PAM_AUTH, AUTH_TARGET_SDDM]);
+        request.extend_from_slice(&1000_u32.to_be_bytes());
+        request.extend_from_slice(&2000_u32.to_be_bytes());
+        request.extend_from_slice(&4_u16.to_be_bytes());
+        request.extend_from_slice(b"test");
+        write_frame(&mut client_stream, &request, MAX_DAEMON_REQUEST_BYTES).unwrap();
+
+        let progress = read_frame(&mut client_stream, MAX_DAEMON_RESPONSE_BYTES).unwrap();
+        assert_eq!(progress[2], STATUS_PROGRESS_LOOKING_FOR_FACE);
+        let final_response = read_frame(&mut client_stream, MAX_DAEMON_RESPONSE_BYTES).unwrap();
+        assert_eq!(final_response[2], STATUS_SUCCESS);
+        server.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn client_disconnect_kills_the_active_auth_worker() {
+        let fixture = WorkerFixture::new("hang-once");
+        let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+        let peer = PeerCredentials {
+            uid: 1000,
+            gid: 1000,
+            pid: 12345,
+        };
+        let config = fixture.config.clone();
+        let server = thread::spawn(move || {
+            handle_client_stream_with_peer(
+                server_stream,
+                peer,
+                &config,
+                connection_deadline(&config),
+            )
+        });
+        let mut request = Vec::new();
+        request.extend_from_slice(&DAEMON_PROTOCOL_VERSION.to_be_bytes());
+        request.extend_from_slice(&[OP_PAM_AUTH, AUTH_TARGET_SDDM]);
+        request.extend_from_slice(&1000_u32.to_be_bytes());
+        request.extend_from_slice(&2000_u32.to_be_bytes());
+        request.extend_from_slice(&4_u16.to_be_bytes());
+        request.extend_from_slice(b"test");
+        write_frame(&mut client_stream, &request, MAX_DAEMON_REQUEST_BYTES).unwrap();
+
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while !fixture.root.join("started").exists() {
+            assert!(
+                Instant::now() < deadline,
+                "authentication worker did not start"
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
+        let cancelled_at = Instant::now();
+        drop(client_stream);
+        let _ = server.join().unwrap();
+        assert!(cancelled_at.elapsed() < Duration::from_millis(250));
+        fixture.wait_reaped();
     }
 
     #[test]

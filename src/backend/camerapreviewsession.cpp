@@ -2,6 +2,7 @@
 
 #include "camerapreviewsession.h"
 
+#include <KLocalizedString>
 #include <QCborArray>
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -19,7 +20,7 @@ namespace
 {
 QString translate(const char *text)
 {
-    return QCoreApplication::translate("CameraPreviewSession", text);
+    return i18nd("kcm_kfaceauth", text);
 }
 } // namespace
 

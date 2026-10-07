@@ -86,3 +86,34 @@ Raw landmarks, detector values, scores, frames, and embeddings stay inside the
 private worker/backend boundary. They are not exposed to QML, normal logs, or
 support reports. This version has no reproducible PAD, performance, bias, or
 authentication qualification.
+
+## Experimental login and unlock recovery
+
+The optional authentication experiment is unsupported and off by default.
+The standard package does not contain its PAM module, daemon or privileged
+helpers. Face sign-in does not unlock KWallet or encrypted storage.
+
+Open **Login and unlock** to review the separate SDDM and Plasma requirements.
+Each selector contains only Off, On activity and Button only. An unreadable
+saved policy is shown as Unknown; it is never silently interpreted as Off.
+**Refresh status** runs bounded probes without starting camera capture.
+An installed API marker or SDDM theme declaration is distinct from a theme
+registering its control in the real login or unlock process.
+
+If the local profile is missing, choose **Register profile** and finish the
+existing explicit enrollment. If the system copy is missing or needs replacing,
+choose **Sync system profile** and approve KWallet/administrative access.
+The helper preserves each target's saved choice, and the page waits for policy
+and system-profile readback before reporting success. Freshness remains Unknown
+across refreshes; this version does not compare persistent profile generations.
+A cancelled, failed or unverified change remains visible after refresh.
+
+In a compatible greeter, camera-busy, timeout, unavailable-service and retry-later
+messages describe recovery rather than a match score. Use the normal password
+path immediately, or choose an explicit face retry when available. Errors never
+create an automatic retry loop or turn a progress message into authorization.
+Diagnostics exports fixed categories only; it includes no username, UID,
+camera path, frame, biometric feature or credential.
+
+Actual camera/login/unlock and failure recovery must be tested only on the
+separate qualification system described in `HARDWARE-QUALIFICATION.md`.

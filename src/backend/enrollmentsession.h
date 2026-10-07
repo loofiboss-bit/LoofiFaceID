@@ -7,6 +7,9 @@
 #include <QProcess>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
+
+#include <functional>
 
 class CameraPreviewSession;
 class IdentityWorkerClient;
@@ -42,15 +45,28 @@ class EnrollmentSession final : public QObject
     Q_PROPERTY(bool sddmAuthConfigured READ sddmAuthConfigured NOTIFY systemAuthChanged)
     Q_PROPERTY(bool sddmAuthEnabled READ sddmAuthEnabled NOTIFY systemAuthChanged)
     Q_PROPERTY(bool sddmAuthCanEnable READ sddmAuthCanEnable NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString sddmAuthMode READ sddmAuthMode NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString sddmIntegrationStatusText READ sddmIntegrationStatusText NOTIFY systemAuthChanged)
     Q_PROPERTY(QString sddmAuthStatusText READ sddmAuthStatusText NOTIFY systemAuthChanged)
     Q_PROPERTY(QString sddmAuthErrorCode READ sddmAuthErrorCode NOTIFY systemAuthChanged)
     Q_PROPERTY(AuthTargetStatus plasmaLockAuthStatus READ plasmaLockAuthStatus NOTIFY systemAuthChanged)
     Q_PROPERTY(bool plasmaLockAuthConfigured READ plasmaLockAuthConfigured NOTIFY systemAuthChanged)
     Q_PROPERTY(bool plasmaLockAuthEnabled READ plasmaLockAuthEnabled NOTIFY systemAuthChanged)
     Q_PROPERTY(bool plasmaLockAuthCanEnable READ plasmaLockAuthCanEnable NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString plasmaLockAuthMode READ plasmaLockAuthMode NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString plasmaLockIntegrationStatusText READ plasmaLockIntegrationStatusText NOTIFY systemAuthChanged)
     Q_PROPERTY(QString plasmaLockAuthStatusText READ plasmaLockAuthStatusText NOTIFY systemAuthChanged)
     Q_PROPERTY(QString plasmaLockAuthErrorCode READ plasmaLockAuthErrorCode NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString systemProfileFreshnessText READ systemProfileFreshnessText NOTIFY systemAuthChanged)
     Q_PROPERTY(bool systemAuthBusy READ systemAuthBusy NOTIFY systemAuthChanged)
+    Q_PROPERTY(bool systemProfileCanSync READ systemProfileCanSync NOTIFY systemAuthChanged)
+    Q_PROPERTY(QVariantList sddmReadiness READ sddmReadiness NOTIFY systemAuthChanged)
+    Q_PROPERTY(QVariantList plasmaLockReadiness READ plasmaLockReadiness NOTIFY systemAuthChanged)
+    Q_PROPERTY(AuthOperationState authOperationState READ authOperationState NOTIFY systemAuthChanged)
+    Q_PROPERTY(AuthOperationResult authOperationResult READ authOperationResult NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString authOperationTarget READ authOperationTarget NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString authOperationText READ authOperationText NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString authOperationErrorCode READ authOperationErrorCode NOTIFY systemAuthChanged)
 
   public:
     enum class State
@@ -105,8 +121,56 @@ class EnrollmentSession final : public QObject
     };
     Q_ENUM(AuthTargetStatus)
 
+    enum class Readiness
+    {
+        Unknown,
+        Missing,
+        Available,
+        Incompatible
+    };
+    Q_ENUM(Readiness)
+    enum class AuthOperationState
+    {
+        Idle,
+        OpeningWallet,
+        Updating,
+        Checking
+    };
+    Q_ENUM(AuthOperationState)
+    enum class AuthOperationResult
+    {
+        None,
+        Success,
+        Cancelled,
+        WalletUnavailable,
+        NotReady,
+        Failed,
+        ReadbackFailed
+    };
+    Q_ENUM(AuthOperationResult)
+
+    struct AuthStatusSnapshot
+    {
+        Readiness components = Readiness::Unknown;
+        Readiness sddmApi = Readiness::Unknown;
+        Readiness sddmTheme = Readiness::Unknown;
+        Readiness sddmPam = Readiness::Unknown;
+        Readiness plasmaApi = Readiness::Unknown;
+        Readiness plasmaPam = Readiness::Unknown;
+        Readiness daemon = Readiness::Unknown;
+        Readiness systemProfile = Readiness::Unknown;
+        QString sddmMode = QStringLiteral("unknown");
+        QString plasmaMode = QStringLiteral("unknown");
+    };
+    using AuthStatusCompletion = std::function<void(AuthStatusSnapshot)>;
+    using AuthStatusProbe = std::function<void(AuthStatusCompletion)>;
+    using AuthOperationCompletion = std::function<void(int exitCode, bool normalExit)>;
+    using AuthOperationRunner = std::function<void(QStringList arguments, QByteArray input, AuthOperationCompletion)>;
+
     EnrollmentSession(CameraPreviewSession *preview, IdentityWorkerClient *worker, KWalletKeyProvider *keyProvider,
                       QObject *parent = nullptr);
+    EnrollmentSession(CameraPreviewSession *preview, IdentityWorkerClient *worker, KWalletKeyProvider *keyProvider,
+                      AuthStatusProbe statusProbe, AuthOperationRunner operationRunner, QObject *parent = nullptr);
     ~EnrollmentSession() override;
 
     [[nodiscard]] State state() const;
@@ -135,22 +199,38 @@ class EnrollmentSession final : public QObject
     [[nodiscard]] bool sddmAuthConfigured() const;
     [[nodiscard]] bool sddmAuthEnabled() const;
     [[nodiscard]] bool sddmAuthCanEnable() const;
+    [[nodiscard]] QString sddmAuthMode() const;
+    [[nodiscard]] QString sddmIntegrationStatusText() const;
     [[nodiscard]] QString sddmAuthStatusText() const;
     [[nodiscard]] QString sddmAuthErrorCode() const;
     [[nodiscard]] AuthTargetStatus plasmaLockAuthStatus() const;
     [[nodiscard]] bool plasmaLockAuthConfigured() const;
     [[nodiscard]] bool plasmaLockAuthEnabled() const;
     [[nodiscard]] bool plasmaLockAuthCanEnable() const;
+    [[nodiscard]] QString plasmaLockAuthMode() const;
+    [[nodiscard]] QString plasmaLockIntegrationStatusText() const;
     [[nodiscard]] QString plasmaLockAuthStatusText() const;
     [[nodiscard]] QString plasmaLockAuthErrorCode() const;
+    [[nodiscard]] QString systemProfileFreshnessText() const;
     [[nodiscard]] bool systemAuthBusy() const;
+    [[nodiscard]] bool systemProfileCanSync() const;
+    [[nodiscard]] QVariantList sddmReadiness() const;
+    [[nodiscard]] QVariantList plasmaLockReadiness() const;
+    [[nodiscard]] AuthOperationState authOperationState() const;
+    [[nodiscard]] AuthOperationResult authOperationResult() const;
+    [[nodiscard]] QString authOperationTarget() const;
+    [[nodiscard]] QString authOperationText() const;
+    [[nodiscard]] QString authOperationErrorCode() const;
 
     Q_INVOKABLE void refreshProfileStatus();
     Q_INVOKABLE void checkSystemAuthStatus();
+    Q_INVOKABLE void syncSystemProfile();
     Q_INVOKABLE void enableSddmAuth();
     Q_INVOKABLE void disableSddmAuth();
     Q_INVOKABLE void enablePlasmaLockAuth();
     Q_INVOKABLE void disablePlasmaLockAuth();
+    Q_INVOKABLE void setSddmAuthMode(const QString &mode);
+    Q_INVOKABLE void setPlasmaLockAuthMode(const QString &mode);
     Q_INVOKABLE void startEnrollment();
     Q_INVOKABLE void captureSample(bool automatic = false);
     Q_INVOKABLE void discardLastSample();
@@ -177,11 +257,17 @@ class EnrollmentSession final : public QObject
     void setState(State state, const QString &text);
     void clearSensitive();
     [[nodiscard]] quint64 nextGeneration();
-    void updateAuthTargetStatus(const QString &target, bool pamConfigured, bool authComponentsInstalled,
-                                bool pamServiceAvailable, bool systemProfileReady, bool daemonReady);
-    void runAuthTargetOperation(const QString &target, bool enable);
-    void finishAuthTargetOperation(QProcess *process, const QString &target, bool enable, int exitCode,
-                                   QProcess::ExitStatus exitStatus);
+    void updateAuthTargetStatus(const QString &target, const QString &mode, bool authComponentsInstalled,
+                                bool integrationAvailable, bool pamServiceAvailable, bool systemProfileReady,
+                                bool daemonReady);
+    void runAuthTargetOperation(const QString &target, const QString &mode, bool resync = false);
+    void finishAuthTargetOperation(int exitCode, bool normalExit);
+    void finishAuthReadback();
+    void applyAuthStatusSnapshot(const AuthStatusSnapshot &snapshot);
+    [[nodiscard]] QVariantList authReadinessRows(bool sddm) const;
+    void refreshAuthTargetStatus(const QString &target);
+    void revokeSystemProfileThen(std::function<void(bool)> continuation);
+    void deleteLocalProfile(quint64 epoch);
 
     enum class PendingOperation
     {
@@ -219,6 +305,33 @@ class EnrollmentSession final : public QObject
     bool m_plasmaLockAuthConfigured = false;
     QString m_sddmAuthErrorCode = QStringLiteral("status-not-checked");
     QString m_plasmaLockAuthErrorCode = QStringLiteral("status-not-checked");
+    QString m_sddmAuthMode = QStringLiteral("unknown");
+    QString m_plasmaLockAuthMode = QStringLiteral("unknown");
+    QString m_sddmIntegrationStatus = QStringLiteral("not-checked");
+    QString m_plasmaLockIntegrationStatus = QStringLiteral("not-checked");
+    QString m_systemProfileFreshness = QStringLiteral("unknown");
+    bool m_authComponentsAvailable = false;
+    bool m_sddmIntegrationAvailable = false;
+    bool m_plasmaLockIntegrationAvailable = false;
+    bool m_daemonReady = false;
+    bool m_systemProfileReady = false;
+    bool m_authPolicyStatusReady = false;
+    int m_authPolicyQueriesRemaining = 0;
+    quint64 m_authPolicyQueryGeneration = 0;
     bool m_systemAuthBusy = false;
+    AuthStatusSnapshot m_authReadiness;
+    AuthStatusProbe m_authStatusProbe;
+    AuthOperationRunner m_authOperationRunner;
+    AuthOperationState m_authOperationState = AuthOperationState::Idle;
+    AuthOperationResult m_authOperationResult = AuthOperationResult::None;
+    QString m_authOperationTarget;
+    QString m_expectedSddmMode;
+    QString m_expectedPlasmaMode;
+    bool m_authOperationRequiresProfile = false;
+    quint64 m_authOperationGeneration = 0;
+    QTimer m_authReadbackTimer;
+    QProcess *m_systemProfileMutationProcess = nullptr;
+    bool m_commitAfterSystemRevoke = false;
+    quint64 m_profileMutationEpoch = 0;
     QTimer m_sessionTimer;
 };

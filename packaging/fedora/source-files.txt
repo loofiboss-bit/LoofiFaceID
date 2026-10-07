@@ -1,8 +1,10 @@
 .cargo/config.toml
 .clang-format
+.gitattributes
 .github/ISSUE_TEMPLATE/bug_report.md
 .github/dependabot.yml
 .github/workflows/ci.yml
+.github/workflows/integrations.yml
 .github/workflows/rpm.yml
 .gitignore
 CHANGELOG.md
@@ -14,7 +16,9 @@ SECURITY.md
 cmake/ProjectIdentity.cmake
 data/CMakeLists.txt
 data/kcm_kfaceauth.desktop.in
+data/pam/kde-kfaceauth
 data/pam/kfaceauth-pam-setup.sh
+data/pam/sddm-kfaceauth
 data/polkit/org.kde.kfaceauth.policy
 data/selinux/kfaceauth.fc
 data/selinux/kfaceauth.te
@@ -74,6 +78,8 @@ engine/identity/src/main.rs
 engine/protocol/Cargo.toml
 engine/protocol/src/lib.rs
 engine/templates/Cargo.toml
+engine/templates/src/auth_policy.rs
+engine/templates/src/bin/kfaceauth-policy.rs
 engine/templates/src/bin/kfaceauth-sync-vault.rs
 engine/templates/src/lib.rs
 engine/vendor/proc-macro2/.cargo-checksum.json
@@ -319,6 +325,18 @@ engine/vision/src/sha256.rs
 engine/vision/src/worker.rs
 engine/vision/src/yunet.rs
 engine/vision/tests/production_worker.rs
+integrations/ci/build_and_verify.sh
+integrations/ci/test_verify_staged_integration.py
+integrations/ci/verify_staged_integration.py
+integrations/kscreenlocker/README.md
+integrations/kscreenlocker/check_patch.sh
+integrations/kscreenlocker/patches/0001-face-auth-factor-kscreenlocker-v6.7.5.patch
+integrations/kscreenlocker/tests/test_patch_contract.py
+integrations/sddm/README.md
+integrations/sddm/check_patch.sh
+integrations/sddm/patches/0001-face-auth-v0.21.0.patch
+integrations/sddm/patches/series
+integrations/sddm/tests/test_patch_contract.py
 models/files/face_detection_yunet_2023mar.onnx
 models/files/face_recognition_sface_2021dec.onnx
 models/licenses/sface-Apache-2.0.txt
@@ -362,6 +380,8 @@ src/backend/nativefaceauthbackend.h
 src/backend/pamconfiguration.h
 src/backend/refreshcoordinator.cpp
 src/backend/refreshcoordinator.h
+src/backend/sddmthemeconfig.cpp
+src/backend/sddmthemeconfig.h
 src/backend/supportreport.cpp
 src/backend/supportreport.h
 src/backend/systemauthprotocol.cpp
@@ -378,6 +398,7 @@ src/kcm/camerapreviewitem.h
 src/kcm/kcm_kfaceauth.json.in
 src/kcm/kfaceauthkcm.cpp
 src/kcm/kfaceauthkcm.h
+src/kcm/ui/AuthIntegrationPage.qml
 src/kcm/ui/DiagnosticsPage.qml
 src/kcm/ui/HomePage.qml
 src/kcm/ui/SetupPage.qml
@@ -425,6 +446,7 @@ tests/unit/test_previewprotocol.cpp
 tests/unit/test_previewworker.cpp
 tests/unit/test_qmlpages.cpp
 tests/unit/test_refreshcoordinator.cpp
+tests/unit/test_sddmthemeconfig.cpp
 tests/unit/test_supportreport.cpp
 tests/unit/test_systemauthprotocol.cpp
 tests/unit/test_systemstate.cpp

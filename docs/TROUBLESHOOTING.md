@@ -1,5 +1,41 @@
 # Troubleshooting
 
+## Upgrade blocked by the experimental-auth package
+
+The opt-in `kfaceauth-experimental-auth` package requires the exact same
+version of `kfaceauth`. COPR publishes the standard local-profile package, not
+the opt-in authentication package, so DNF cannot upgrade the base while an
+older experimental package is installed.
+
+To return to the standard package, first disable every authentication target
+that you enabled. These commands restore the normal password-based PAM path;
+they do not delete the local face profile or its KWallet key:
+
+```bash
+sudo kfaceauth-pam-setup --disable-target sddm
+sudo kfaceauth-pam-setup --disable-target plasma-lock
+```
+
+Then preview the package removal and check that DNF lists only
+`kfaceauth-experimental-auth`:
+
+```bash
+sudo dnf5 remove --assumeno kfaceauth-experimental-auth
+```
+
+If the preview is as expected, remove that package and upgrade the standard
+one:
+
+```bash
+sudo dnf5 remove kfaceauth-experimental-auth
+sudo dnf5 upgrade kfaceauth
+```
+
+Do not continue if either target cannot be disabled or the removal preview
+includes another package. The experimental package is unqualified and is not
+available as a matching COPR upgrade; keeping it installed pins the base
+package to its exact version.
+
 ## Unsupported system
 
 LoofiFace-ID is qualified only on Fedora 44 with KDE Plasma. If Diagnostics

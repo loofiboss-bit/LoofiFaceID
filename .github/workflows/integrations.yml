@@ -1,0 +1,82 @@
+name: Fedora 44 greeter integrations
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  greeter-integration:
+    name: ${{ matrix.component }} default and experimental builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: fedora:44
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: sddm
+            repository: sddm/sddm
+            commit: 63780fcd79f1dbf81a30eef48c28c699ab15aded
+          - component: kscreenlocker
+            repository: KDE/kscreenlocker
+            commit: 057b3774d9ad322cfccc2683ea057aed87e0f878
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install Git before checkout
+        run: dnf install -y git-core
+      - name: Check out LoofiFaceID
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Check out pinned upstream
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.commit }}
+          path: upstream
+          persist-credentials: false
+      - name: Configure Git safe directories
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/upstream"
+      - name: Install integration build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            cmake extra-cmake-modules gcc-c++ ninja-build python3 \
+            qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel \
+            qt6-qttools-devel pam-devel systemd-devel libXau-devel \
+            libxcb-devel libxkbcommon-devel libX11-devel libXi-devel \
+            xcb-util-keysyms-devel xcb-util-devel xcb-util-wm-devel \
+            xcb-util-image-devel wayland-devel wayland-protocols-devel \
+            kf6-kcrash-devel kf6-kcmutils-devel kf6-kio-devel \
+            kf6-kglobalaccel-devel kf6-ki18n-devel kf6-kidletime-devel \
+            kf6-knotifications-devel kf6-solid-devel kf6-kwindowsystem-devel \
+            kf6-kxmlgui-devel kf6-ksvg-devel kf6-kirigami-devel \
+            libplasma-devel layer-shell-qt-devel libkscreen-devel gettext
+      - name: Test the staged install verifier
+        run: python3 integrations/ci/test_verify_staged_integration.py -v
+      - name: Check patch, build, run Qt tests, and verify staged markers
+        run: integrations/ci/build_and_verify.sh "${{ matrix.component }}" "$PWD/upstream"
+
+  companion-theme-contract:
+    name: Pinned NoxForge API-v1 adapter contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out pinned companion source
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          repository: loofiboss-bit/NoxForge
+          ref: 40fd4917689f1708cd0732fe1ad9b67432762c2a
+          persist-credentials: false
+      - name: Reuse companion adapter checks
+        run: >-
+          python3 -m unittest
+          tests.test_v15_contracts.NoxForgeV15ContractsTests.test_experimental_face_auth_theme_contracts
+          -v

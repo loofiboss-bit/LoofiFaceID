@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Dedicated Plasma lock-screen face-authentication method. The ordinary kde service remains untouched.
+auth        sufficient    pam_kfaceauth.so
+auth        include       kde
+account     include       kde
+password    include       kde
+session     include       kde

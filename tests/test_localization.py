@@ -8,8 +8,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 QML_FILES = sorted((ROOT / "src" / "kcm" / "ui").rglob("*.qml"))
-CPP_FILES = sorted((ROOT / "src" / "backend").glob("*.cpp")) + sorted(
-    (ROOT / "src" / "preview").glob("*.cpp")
+CPP_FILES = (
+    sorted((ROOT / "src" / "backend").glob("*.cpp"))
+    + sorted((ROOT / "src" / "preview").glob("*.cpp"))
+    + sorted((ROOT / "src" / "kcm").glob("*.cpp"))
 )
 SWEDISH_CATALOG = ROOT / "po" / "sv" / "kcm_kfaceauth.po"
 
@@ -68,7 +70,7 @@ class LocalizationTests(unittest.TestCase):
                     missing.append(f"{path.relative_to(ROOT)}: {msgid}")
 
         backend_pattern = re.compile(
-            r'(?<!::)\btranslate\(\s*((?:"(?:[^"\\]|\\.)*"\s*)+)\)',
+            r'(?<!::)\b(?:translate|userText)\(\s*((?:"(?:[^"\\]|\\.)*"\s*)+)\)',
             re.DOTALL,
         )
         direct_pattern = re.compile(
@@ -77,6 +79,16 @@ class LocalizationTests(unittest.TestCase):
         )
         for path in CPP_FILES:
             text = path.read_text(encoding="utf-8")
+            if "QCoreApplication::translate(" in text:
+                missing.append(
+                    f"{path.relative_to(ROOT)}: use the installed KI18n gettext catalog, not Qt-only translations"
+                )
+            if re.search(r"\b(?:translate|userText)\(const char \*text\)", text) and (
+                'i18nd("kcm_kfaceauth", text)' not in text
+            ):
+                missing.append(
+                    f"{path.relative_to(ROOT)}: native status translations must use the kcm_kfaceauth gettext domain"
+                )
             for literals in backend_pattern.findall(text):
                 msgid = "".join(
                     ast.literal_eval(literal)

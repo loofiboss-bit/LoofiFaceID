@@ -15,5 +15,9 @@ zeroize.workspace = true
 name = "kfaceauth-sync-vault"
 path = "src/bin/kfaceauth-sync-vault.rs"
 
+[[bin]]
+name = "kfaceauth-policy"
+path = "src/bin/kfaceauth-policy.rs"
+
 [lints]
 workspace = true

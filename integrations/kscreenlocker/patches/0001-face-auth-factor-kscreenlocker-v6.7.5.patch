@@ -1,0 +1,1686 @@
+diff --git a/greeter/CMakeLists.txt b/greeter/CMakeLists.txt
+index 550ebe2..35ee76c 100644
+--- a/greeter/CMakeLists.txt
++++ b/greeter/CMakeLists.txt
+@@ -11,6 +11,8 @@ set(kscreenlocker_authenticator_SRCS
+     pamauthenticators.h
+     pamauthenticator.cpp
+     pamauthenticator.h
++    facepamauthenticator.cpp
++    facepamauthenticator.h
+ )
+ 
+ ecm_qt_declare_logging_category(kscreenlocker_authenticator_SRCS
+@@ -45,6 +47,12 @@ target_link_libraries(kscreenlocker_authenticator
+     ${PAM_LIBRARIES}
+ )
+ 
++if (NOT DEFINED KSCREENLOCKER_PAM_FACE_SERVICE)
++  set(KSCREENLOCKER_PAM_FACE_SERVICE "kde-kfaceauth" CACHE STRING "The PAM service to use for experimental face authentication.")
++endif()
++
++option(KSCREENLOCKER_ENABLE_EXPERIMENTAL_FACE_AUTH "Build the opt-in KFaceAuth lock-screen factor." OFF)
++
+ qt_add_resources(kscreenlocker_greet_SRCS fallbacktheme.qrc)
+ 
+ ecm_add_wayland_client_protocol(kscreenlocker_greet_SRCS
+@@ -54,6 +62,29 @@ ecm_add_wayland_client_protocol(kscreenlocker_greet_SRCS
+ 
+ add_executable(kscreenlocker_greet ${kscreenlocker_greet_SRCS})
+ 
++if (KSCREENLOCKER_ENABLE_EXPERIMENTAL_FACE_AUTH)
++    add_executable(kscreenlocker_face_pam_worker facepamworker.cpp)
++    target_link_libraries(kscreenlocker_face_pam_worker PRIVATE ${PAM_LIBRARIES})
++    target_compile_definitions(kscreenlocker_face_pam_worker PRIVATE
++        KSCREENLOCKER_PAM_FACE_SERVICE="${KSCREENLOCKER_PAM_FACE_SERVICE}"
++    )
++    install(TARGETS kscreenlocker_face_pam_worker DESTINATION ${KDE_INSTALL_LIBEXECDIR})
++    configure_file(
++        ${CMAKE_CURRENT_SOURCE_DIR}/kfaceauth-kscreenlocker.json.in
++        ${CMAKE_CURRENT_BINARY_DIR}/kfaceauth-kscreenlocker.json
++        @ONLY
++    )
++    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/kfaceauth-kscreenlocker.json
++        DESTINATION ${KDE_INSTALL_DATADIR}/kfaceauth/integrations
++        RENAME kscreenlocker.json
++    )
++    target_compile_definitions(kscreenlocker_greet PRIVATE
++        KSCREENLOCKER_ENABLE_EXPERIMENTAL_FACE_AUTH=1
++        KSCREENLOCKER_FACE_PAM_WORKER="${KDE_INSTALL_FULL_LIBEXECDIR}/kscreenlocker_face_pam_worker"
++        KSCREENLOCKER_FACE_POLICY_HELPER="/usr/libexec/kfaceauth-policy"
++    )
++endif()
++
+ target_link_libraries(kscreenlocker_greet
+     settings
+     kscreenlocker_authenticator
+@@ -102,4 +133,5 @@ install(DIRECTORY themes/org.kde.passworddialog DESTINATION ${KDE_INSTALL_DATADI
+ 
+ if(BUILD_TESTING)
+     add_subdirectory(autotests)
++    add_subdirectory(faceautotests)
+ endif()
+diff --git a/greeter/faceautotests/CMakeLists.txt b/greeter/faceautotests/CMakeLists.txt
+new file mode 100644
+index 0000000..1d639b6
+--- /dev/null
++++ b/greeter/faceautotests/CMakeLists.txt
+@@ -0,0 +1,13 @@
++include(ECMMarkAsTest)
++
++add_executable(facePamAuthenticatorTest
++    facepamauthenticator_autotest.cpp
++    ../facepamauthenticator.cpp
++    ../facepamauthenticator.h
++)
++add_executable(facePamWorkerFixture facepamworker_fixture.cpp)
++add_executable(facePolicyHelperFixture facepolicyhelper_fixture.cpp)
++target_link_libraries(facePamAuthenticatorTest PRIVATE Qt::Core Qt::Test)
++add_dependencies(facePamAuthenticatorTest facePamWorkerFixture facePolicyHelperFixture)
++add_test(NAME kscreenlocker-facePamAuthenticatorTest COMMAND facePamAuthenticatorTest)
++ecm_mark_as_test(facePamAuthenticatorTest)
+diff --git a/greeter/faceautotests/facepamauthenticator_autotest.cpp b/greeter/faceautotests/facepamauthenticator_autotest.cpp
+new file mode 100644
+index 0000000..95caabe
+--- /dev/null
++++ b/greeter/faceautotests/facepamauthenticator_autotest.cpp
+@@ -0,0 +1,382 @@
++/*
++    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++    SPDX-License-Identifier: GPL-2.0-or-later
++*/
++#include "../facepamauthenticator.h"
++#include "../facepamstatus.h"
++
++#include <QCoreApplication>
++#include <QElapsedTimer>
++#include <QSignalSpy>
++#include <QTest>
++
++class FacePamAuthenticatorTest : public QObject
++{
++    Q_OBJECT
++
++private Q_SLOTS:
++    void remainsIdleUntilExplicitRequest();
++    void themeInterfaceMustBeLoadedBeforeStarting();
++    void sharedAttemptLivesUntilLastThemeViewDisappears();
++    void onlyPamSuccessUnlocks();
++    void onlyTypedProgressIsExposed();
++    void pamConversationAllowlist_data();
++    void pamConversationAllowlist();
++    void terminalCategoriesSurviveProcessExit_data();
++    void terminalCategoriesSurviveProcessExit();
++    void cancellationStopsWorkerWithoutUnlocking();
++    void cancelledAttemptIgnoresLatePositiveExit();
++    void attemptHasTwoSecondDeadline();
++    void policyOffHidesAndBlocksTheFactor();
++    void manualModeRequiresAnExplicitRequest();
++    void onActivityStartsOnlyOnceUntilTheCycleResets();
++    void activityCanWaitForPolicyLookupButCancellationWins();
++    void activityExpiresWhenThemeSupportDoesNotResolve();
++    void policyLookupFailsClosedOnInvalidOutputAndTimeout();
++};
++
++static QString fixturePath()
++{
++    return QCoreApplication::applicationDirPath() + QStringLiteral("/facePamWorkerFixture");
++}
++
++static QString policyHelperPath()
++{
++    return QCoreApplication::applicationDirPath() + QStringLiteral("/facePolicyHelperFixture");
++}
++
++static void waitForMode(FacePamAuthenticator &authenticator, const QString &mode)
++{
++    if (mode == QLatin1String("unknown")) {
++        QSignalSpy resolved(&authenticator, &FacePamAuthenticator::policyModeChanged);
++        QTRY_VERIFY_WITH_TIMEOUT(!resolved.isEmpty(), 1000);
++    } else {
++        QTRY_COMPARE_WITH_TIMEOUT(authenticator.policyMode(), mode, 1000);
++    }
++    QCOMPARE(authenticator.policyMode(), mode);
++}
++
++static void registerManualTheme(FacePamAuthenticator &authenticator, QObject *theme)
++{
++    waitForMode(authenticator, QStringLiteral("manual"));
++    QVERIFY(authenticator.registerThemeComponent(theme, FacePamAuthenticator::InterfaceV1));
++}
++
++void FacePamAuthenticatorTest::remainsIdleUntilExplicitRequest()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("block"), fixturePath(), QString(), 1000);
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Idle);
++    QVERIFY(!authenticator.isBusy());
++    QVERIFY(!authenticator.isAvailable());
++    QVERIFY(!authenticator.canStart());
++    QVERIFY(!authenticator.isUnlocked());
++}
++
++void FacePamAuthenticatorTest::themeInterfaceMustBeLoadedBeforeStarting()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1002);
++    QObject wrongThemeComponent;
++    QObject themeComponent;
++    waitForMode(authenticator, QStringLiteral("manual"));
++
++    QVERIFY(!authenticator.registerThemeComponent(&wrongThemeComponent, 99));
++    authenticator.startAttempt();
++    QTest::qWait(100);
++    QVERIFY(!authenticator.isBusy());
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Idle);
++
++    registerManualTheme(authenticator, &themeComponent);
++    QVERIFY(authenticator.isAvailable());
++    QVERIFY(authenticator.canStart());
++    authenticator.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::Succeeded, 1500);
++}
++
++void FacePamAuthenticatorTest::sharedAttemptLivesUntilLastThemeViewDisappears()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("block"), fixturePath(), policyHelperPath(), 1002);
++    auto *firstScreenComponent = new QObject;
++    auto *secondScreenComponent = new QObject;
++    waitForMode(authenticator, QStringLiteral("manual"));
++    QVERIFY(authenticator.registerThemeComponent(firstScreenComponent, FacePamAuthenticator::InterfaceV1));
++    QVERIFY(authenticator.registerThemeComponent(secondScreenComponent, FacePamAuthenticator::InterfaceV1));
++
++    authenticator.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::CameraStarting, 1000);
++    delete firstScreenComponent;
++    QVERIFY(authenticator.isAvailable());
++    QVERIFY(authenticator.isBusy());
++
++    delete secondScreenComponent;
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Cancelled);
++    QVERIFY(!authenticator.isAvailable());
++    QVERIFY(!authenticator.isUnlocked());
++    QTRY_VERIFY_WITH_TIMEOUT(!authenticator.isBusy(), 1000);
++}
++
++void FacePamAuthenticatorTest::onlyPamSuccessUnlocks()
++{
++    FacePamAuthenticator success(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1002);
++    QObject successTheme;
++    registerManualTheme(success, &successTheme);
++    QSignalSpy successSpy(&success, &FacePamAuthenticator::succeeded);
++    success.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(success.state(), FacePamAuthenticator::Succeeded, 1500);
++    QCOMPARE(successSpy.count(), 1);
++    QVERIFY(success.isUnlocked());
++
++    FacePamAuthenticator failure(QStringLiteral("failure"), fixturePath(), policyHelperPath(), 1002);
++    QObject failureTheme;
++    registerManualTheme(failure, &failureTheme);
++    failure.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(failure.state(), FacePamAuthenticator::UsePassword, 1000);
++    QTRY_VERIFY_WITH_TIMEOUT(!failure.isBusy(), 1500);
++    QCOMPARE(failure.state(), FacePamAuthenticator::UsePassword);
++    QVERIFY(!failure.isUnlocked());
++}
++
++void FacePamAuthenticatorTest::onlyTypedProgressIsExposed()
++{
++    FacePamAuthenticator progress(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1002);
++    QObject progressTheme;
++    registerManualTheme(progress, &progressTheme);
++    progress.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(progress.state(), FacePamAuthenticator::CameraStarting, 1000);
++    QTRY_COMPARE_WITH_TIMEOUT(progress.state(), FacePamAuthenticator::LookingForFace, 1000);
++    QTRY_COMPARE_WITH_TIMEOUT(progress.state(), FacePamAuthenticator::Succeeded, 1500);
++
++    FacePamAuthenticator untrusted(QStringLiteral("untrusted"), fixturePath(), policyHelperPath(), 1002);
++    QObject untrustedTheme;
++    registerManualTheme(untrusted, &untrustedTheme);
++    untrusted.startAttempt();
++    QTRY_VERIFY_WITH_TIMEOUT(untrusted.isBusy(), 500);
++    QTest::qWait(100);
++    QCOMPARE(untrusted.state(), FacePamAuthenticator::Starting);
++    untrusted.cancel();
++    QTRY_VERIFY_WITH_TIMEOUT(untrusted.canStart(), 1000);
++}
++
++void FacePamAuthenticatorTest::pamConversationAllowlist_data()
++{
++    QTest::addColumn<QByteArray>("message");
++    QTest::addColumn<QByteArray>("token");
++    QTest::newRow("starting-camera") << QByteArray("KFACEAUTH_STATUS=starting-camera") << QByteArray("camera-starting");
++    for (const char *value : {"looking-for-face", "use-password", "camera-busy", "timeout", "service-unavailable", "retry-later"}) {
++        QTest::newRow(value) << QByteArray("KFACEAUTH_STATUS=") + value << QByteArray(value);
++    }
++    QTest::newRow("unknown") << QByteArray("KFACEAUTH_STATUS=accepted") << QByteArray();
++    QTest::newRow("raw-text") << QByteArray("untrusted text") << QByteArray();
++    QTest::newRow("leading-space") << QByteArray(" KFACEAUTH_STATUS=timeout") << QByteArray();
++    QTest::newRow("trailing-newline") << QByteArray("KFACEAUTH_STATUS=timeout\n") << QByteArray();
++}
++
++void FacePamAuthenticatorTest::pamConversationAllowlist()
++{
++    QFETCH(QByteArray, message);
++    QFETCH(QByteArray, token);
++    QCOMPARE(QByteArray(facePamStatusToken(message.constData())), token);
++    QVERIFY(facePamStatusToken(nullptr) == nullptr);
++}
++
++void FacePamAuthenticatorTest::terminalCategoriesSurviveProcessExit_data()
++{
++    QTest::addColumn<QString>("token");
++    QTest::addColumn<int>("state");
++    QTest::newRow("camera-busy") << QStringLiteral("camera-busy") << int(FacePamAuthenticator::CameraBusy);
++    QTest::newRow("timeout") << QStringLiteral("timeout") << int(FacePamAuthenticator::TimedOut);
++    QTest::newRow("service-unavailable") << QStringLiteral("service-unavailable") << int(FacePamAuthenticator::ServiceUnavailable);
++    QTest::newRow("retry-later") << QStringLiteral("retry-later") << int(FacePamAuthenticator::RetryLater);
++    QTest::newRow("use-password") << QStringLiteral("use-password") << int(FacePamAuthenticator::UsePassword);
++}
++
++void FacePamAuthenticatorTest::terminalCategoriesSurviveProcessExit()
++{
++    QFETCH(QString, token);
++    QFETCH(int, state);
++    for (const QString &suffix : {QString(), QStringLiteral("-late-success")}) {
++        FacePamAuthenticator authenticator(token + suffix, fixturePath(), policyHelperPath(), 1002);
++        QObject theme;
++        registerManualTheme(authenticator, &theme);
++        QSignalSpy successes(&authenticator, &FacePamAuthenticator::succeeded);
++        authenticator.startAttempt();
++        QTRY_VERIFY_WITH_TIMEOUT(!authenticator.isBusy(), 1500);
++        QCOMPARE(int(authenticator.state()), state);
++        QCOMPARE(successes.count(), 0);
++        QVERIFY(!authenticator.isUnlocked());
++        QVERIFY(authenticator.canStart());
++    }
++}
++
++void FacePamAuthenticatorTest::cancellationStopsWorkerWithoutUnlocking()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("block"), fixturePath(), policyHelperPath(), 1002);
++    QObject themeComponent;
++    registerManualTheme(authenticator, &themeComponent);
++    authenticator.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::CameraStarting, 1000);
++
++    QElapsedTimer timer;
++    timer.start();
++    authenticator.cancel();
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Cancelled);
++    QVERIFY(timer.elapsed() < 250);
++    QVERIFY(!authenticator.isUnlocked());
++    QTRY_VERIFY_WITH_TIMEOUT(authenticator.canStart(), 1000);
++}
++
++void FacePamAuthenticatorTest::cancelledAttemptIgnoresLatePositiveExit()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("late-success"), fixturePath(), policyHelperPath(), 1002);
++    QObject themeComponent;
++    registerManualTheme(authenticator, &themeComponent);
++    authenticator.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::CameraStarting, 1000);
++    authenticator.cancel();
++    QTRY_VERIFY_WITH_TIMEOUT(authenticator.canStart(), 1000);
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Cancelled);
++    QVERIFY(!authenticator.isUnlocked());
++}
++
++void FacePamAuthenticatorTest::attemptHasTwoSecondDeadline()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("block"), fixturePath(), policyHelperPath(), 1002);
++    QObject themeComponent;
++    registerManualTheme(authenticator, &themeComponent);
++    QElapsedTimer timer;
++    timer.start();
++    authenticator.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::TimedOut, 2500);
++    QVERIFY(timer.elapsed() >= 1800);
++    QVERIFY(timer.elapsed() < 2400);
++    QVERIFY(!authenticator.isUnlocked());
++    QTRY_VERIFY_WITH_TIMEOUT(authenticator.canStart(), 1000);
++}
++
++void FacePamAuthenticatorTest::policyOffHidesAndBlocksTheFactor()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1001);
++    waitForMode(authenticator, QStringLiteral("off"));
++    QObject theme;
++    QVERIFY(authenticator.registerThemeComponent(&theme, FacePamAuthenticator::InterfaceV1));
++    QVERIFY(!authenticator.isAvailable());
++    QVERIFY(!authenticator.canStart());
++
++    authenticator.notifyUserActivity();
++    authenticator.startAttempt();
++    QTest::qWait(100);
++    QVERIFY(!authenticator.isBusy());
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Idle);
++}
++
++void FacePamAuthenticatorTest::manualModeRequiresAnExplicitRequest()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1002);
++    QObject theme;
++    registerManualTheme(authenticator, &theme);
++
++    authenticator.notifyUserActivity();
++    QTest::qWait(100);
++    QVERIFY(!authenticator.isBusy());
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Idle);
++
++    authenticator.startAttempt();
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::Succeeded, 1500);
++}
++
++void FacePamAuthenticatorTest::onActivityStartsOnlyOnceUntilTheCycleResets()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("failure"), fixturePath(), policyHelperPath(), 1003);
++    waitForMode(authenticator, QStringLiteral("on-activity"));
++    QObject theme;
++    QVERIFY(authenticator.registerThemeComponent(&theme, FacePamAuthenticator::InterfaceV1));
++    QSignalSpy busySpy(&authenticator, &FacePamAuthenticator::busyChanged);
++    QTest::qWait(100);
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Idle);
++    QVERIFY(!authenticator.isBusy());
++
++    authenticator.notifyUserActivity();
++    authenticator.notifyUserActivity();
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::UsePassword, 1500);
++    QTRY_VERIFY_WITH_TIMEOUT(!authenticator.isBusy(), 1500);
++    QVERIFY(!authenticator.isBusy());
++    QCOMPARE(busySpy.count(), 2);
++
++    authenticator.notifyUserActivity();
++    QTest::qWait(100);
++    QVERIFY(!authenticator.isBusy());
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::UsePassword);
++
++    authenticator.resetActivityCycle();
++    authenticator.notifyUserActivity();
++    QTRY_VERIFY_WITH_TIMEOUT(busySpy.count() >= 3, 1000);
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::UsePassword, 1500);
++    QTRY_VERIFY_WITH_TIMEOUT(!authenticator.isBusy(), 1500);
++}
++
++void FacePamAuthenticatorTest::activityCanWaitForPolicyLookupButCancellationWins()
++{
++    FacePamAuthenticator pending(QStringLiteral("block"), fixturePath(), policyHelperPath(), 1007);
++    QObject pendingTheme;
++    QVERIFY(pending.registerThemeComponent(&pendingTheme, FacePamAuthenticator::InterfaceV1));
++    pending.notifyUserActivity();
++    QTRY_COMPARE_WITH_TIMEOUT(pending.state(), FacePamAuthenticator::CameraStarting, 1000);
++    pending.cancel();
++    QTRY_VERIFY_WITH_TIMEOUT(!pending.isBusy(), 1000);
++    QVERIFY(!pending.isUnlocked());
++
++    FacePamAuthenticator cancelled(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1007);
++    cancelled.notifyUserActivity();
++    cancelled.cancel();
++    QObject cancelledTheme;
++    QVERIFY(cancelled.registerThemeComponent(&cancelledTheme, FacePamAuthenticator::InterfaceV1));
++    waitForMode(cancelled, QStringLiteral("on-activity"));
++    QTest::qWait(150);
++    QVERIFY(!cancelled.isBusy());
++    QCOMPARE(cancelled.state(), FacePamAuthenticator::Idle);
++}
++
++void FacePamAuthenticatorTest::activityExpiresWhenThemeSupportDoesNotResolve()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("block"), fixturePath(), policyHelperPath(), 1003);
++    authenticator.notifyUserActivity();
++    waitForMode(authenticator, QStringLiteral("on-activity"));
++    QTest::qWait(300);
++
++    QObject theme;
++    QVERIFY(authenticator.registerThemeComponent(&theme, FacePamAuthenticator::InterfaceV1));
++    QVERIFY(authenticator.isAvailable());
++    QVERIFY(!authenticator.isBusy());
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::Idle);
++
++    authenticator.resetActivityCycle();
++    authenticator.notifyUserActivity();
++    QTRY_VERIFY_WITH_TIMEOUT(authenticator.isBusy(), 1000);
++    authenticator.cancel();
++}
++
++void FacePamAuthenticatorTest::policyLookupFailsClosedOnInvalidOutputAndTimeout()
++{
++    FacePamAuthenticator extraOutput(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1004);
++    waitForMode(extraOutput, QStringLiteral("unknown"));
++    QObject extraOutputTheme;
++    QVERIFY(extraOutput.registerThemeComponent(&extraOutputTheme, FacePamAuthenticator::InterfaceV1));
++    QVERIFY(!extraOutput.isAvailable());
++
++    FacePamAuthenticator nonzero(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1005);
++    waitForMode(nonzero, QStringLiteral("unknown"));
++    QVERIFY(!nonzero.isAvailable());
++
++    FacePamAuthenticator timeout(QStringLiteral("success"), fixturePath(), policyHelperPath(), 1006);
++    QElapsedTimer timer;
++    timer.start();
++    waitForMode(timeout, QStringLiteral("unknown"));
++    QVERIFY(timer.elapsed() < 500);
++    QVERIFY(!timeout.isAvailable());
++
++    FacePamAuthenticator missing(QStringLiteral("success"), fixturePath(), QStringLiteral("/no/such/kfaceauth-policy"), 1002);
++    QCOMPARE(missing.policyMode(), QStringLiteral("unknown"));
++    QVERIFY(!missing.isAvailable());
++}
++
++QTEST_GUILESS_MAIN(FacePamAuthenticatorTest)
++#include "facepamauthenticator_autotest.moc"
+diff --git a/greeter/faceautotests/facepamworker_fixture.cpp b/greeter/faceautotests/facepamworker_fixture.cpp
+new file mode 100644
+index 0000000..96d1f82
+--- /dev/null
++++ b/greeter/faceautotests/facepamworker_fixture.cpp
+@@ -0,0 +1,58 @@
++/*
++    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++    SPDX-License-Identifier: GPL-2.0-or-later
++*/
++#include <chrono>
++#include <csignal>
++#include <cstdlib>
++#include <iostream>
++#include <string_view>
++#include <string>
++#include <thread>
++
++int main(int argc, char **argv)
++{
++    if (argc != 2) {
++        return 2;
++    }
++    const std::string_view mode(argv[1]);
++    for (const std::string_view token : {"camera-busy", "timeout", "service-unavailable", "retry-later", "use-password"}) {
++        if (mode == token || mode == std::string(token) + "-late-success") {
++            std::cout << token << "\nlooking-for-face\n" << std::flush;
++            return mode == token ? 1 : 0;
++        }
++    }
++    if (mode == "success") {
++        std::cout << "camera-starting\n" << std::flush;
++        std::this_thread::sleep_for(std::chrono::milliseconds(100));
++        std::cout << "looking-for-face\n" << std::flush;
++        std::this_thread::sleep_for(std::chrono::milliseconds(100));
++        return 0;
++    }
++    if (mode == "failure") {
++        std::cout << "use-password\n" << std::flush;
++        std::this_thread::sleep_for(std::chrono::milliseconds(100));
++        return 1;
++    }
++    if (mode == "untrusted") {
++        std::cout << "unlock-granted\n" << std::flush;
++        std::this_thread::sleep_for(std::chrono::seconds(2));
++        return 0;
++    }
++    if (mode == "late-success") {
++        std::signal(SIGTERM, [](int) {
++            std::_Exit(0);
++        });
++        std::cout << "camera-starting\n" << std::flush;
++        for (;;) {
++            std::this_thread::sleep_for(std::chrono::seconds(10));
++        }
++    }
++    if (mode == "block") {
++        std::cout << "camera-starting\n" << std::flush;
++        for (;;) {
++            std::this_thread::sleep_for(std::chrono::seconds(10));
++        }
++    }
++    return 2;
++}
+diff --git a/greeter/faceautotests/facepolicyhelper_fixture.cpp b/greeter/faceautotests/facepolicyhelper_fixture.cpp
+new file mode 100644
+index 0000000..ce1695b
+--- /dev/null
++++ b/greeter/faceautotests/facepolicyhelper_fixture.cpp
+@@ -0,0 +1,52 @@
++/*
++    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++    SPDX-License-Identifier: GPL-2.0-or-later
++*/
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <thread>
++
++int main(int argc, char **argv)
++{
++    if (argc != 6 || std::strcmp(argv[1], "--get") != 0 || std::strcmp(argv[2], "--uid") != 0 || std::strcmp(argv[4], "--target") != 0
++        || std::strcmp(argv[5], "plasma-lock") != 0) {
++        return 2;
++    }
++
++    char *end = nullptr;
++    const unsigned long uid = std::strtoul(argv[3], &end, 10);
++    if (end == argv[3] || *end != '\0') {
++        return 2;
++    }
++
++    switch (uid) {
++    case 1001:
++        std::fputs("mode=off\n", stdout);
++        return 0;
++    case 1002:
++        std::fputs("mode=manual\n", stdout);
++        return 0;
++    case 1003:
++        std::fputs("mode=on-activity\n", stdout);
++        return 0;
++    case 1004:
++        std::fputs("mode=on-activity\nextra\n", stdout);
++        return 0;
++    case 1005:
++        std::fputs("mode=manual\n", stdout);
++        return 1;
++    case 1006:
++        std::this_thread::sleep_for(std::chrono::milliseconds(500));
++        std::fputs("mode=on-activity\n", stdout);
++        return 0;
++    case 1007:
++        std::this_thread::sleep_for(std::chrono::milliseconds(75));
++        std::fputs("mode=on-activity\n", stdout);
++        return 0;
++    default:
++        std::fputs("mode=invalid\n", stdout);
++        return 0;
++    }
++}
+diff --git a/greeter/facepamauthenticator.cpp b/greeter/facepamauthenticator.cpp
+new file mode 100644
+index 0000000..90f1d2b
+--- /dev/null
++++ b/greeter/facepamauthenticator.cpp
+@@ -0,0 +1,465 @@
++/*
++    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
++*/
++#include "facepamauthenticator.h"
++
++#include <QFileInfo>
++#include <QProcessEnvironment>
++#include <QSet>
++
++#include <chrono>
++#include <utility>
++
++using namespace std::chrono_literals;
++
++namespace
++{
++constexpr auto attemptLimit = 2000ms;
++constexpr auto terminateGrace = 100ms;
++constexpr auto maximumStatusBuffer = 256;
++constexpr auto policyLookupLimit = 250ms;
++constexpr auto maximumPolicyOutput = 64;
++}
++
++FacePamAuthenticator::FacePamAuthenticator(QString user, QString workerPath, QString policyHelperPath, quint32 policyUid, QObject *parent)
++    : QObject(parent)
++    , m_user(std::move(user))
++    , m_workerPath(std::move(workerPath))
++    , m_policyHelperPath(std::move(policyHelperPath))
++    , m_policyUid(policyUid)
++{
++    m_attemptDeadline.setSingleShot(true);
++    m_killDeadline.setSingleShot(true);
++    m_policyDeadline.setSingleShot(true);
++    m_activityDeadline.setSingleShot(true);
++    connect(&m_attemptDeadline, &QTimer::timeout, this, [this] {
++        if (!m_process) {
++            return;
++        }
++        m_cancelRequested = true;
++        m_unlocked = false;
++        setState(TimedOut);
++        terminateProcess();
++    });
++    connect(&m_killDeadline, &QTimer::timeout, this, [this] {
++        if (m_process && m_process->state() != QProcess::NotRunning) {
++            m_process->kill();
++        }
++    });
++    connect(&m_policyDeadline, &QTimer::timeout, this, [this] {
++        if (!m_policyProcess) {
++            return;
++        }
++        m_policyRejected = true;
++        setPolicyMode(QStringLiteral("unknown"));
++        if (m_policyProcess->state() != QProcess::NotRunning) {
++            m_policyProcess->kill();
++        }
++    });
++    connect(&m_activityDeadline, &QTimer::timeout, this, [this] {
++        m_pendingActivityAttempt = false;
++    });
++    startPolicyLookup();
++}
++
++FacePamAuthenticator::~FacePamAuthenticator()
++{
++    m_attemptDeadline.stop();
++    m_killDeadline.stop();
++    m_policyDeadline.stop();
++    m_activityDeadline.stop();
++    if (m_process && m_process->state() != QProcess::NotRunning) {
++        m_process->kill();
++        m_process->waitForFinished(100);
++    }
++    if (m_policyProcess && m_policyProcess->state() != QProcess::NotRunning) {
++        m_policyProcess->kill();
++        m_policyProcess->waitForFinished(100);
++    }
++}
++
++bool FacePamAuthenticator::isBusy() const
++{
++    return m_process != nullptr;
++}
++
++bool FacePamAuthenticator::isAvailable() const
++{
++    return m_policyReady && (m_policyMode == QLatin1String("manual") || m_policyMode == QLatin1String("on-activity")) && !m_themeComponents.isEmpty()
++        && !m_workerPath.isEmpty() && QFileInfo(m_workerPath).isExecutable();
++}
++
++bool FacePamAuthenticator::canStart() const
++{
++    return isAvailable() && m_process == nullptr && !m_unlocked;
++}
++
++bool FacePamAuthenticator::isUnlocked() const
++{
++    return m_unlocked;
++}
++
++FacePamAuthenticator::State FacePamAuthenticator::state() const
++{
++    return m_state;
++}
++
++QString FacePamAuthenticator::policyMode() const
++{
++    return m_policyMode;
++}
++
++void FacePamAuthenticator::startAttempt()
++{
++    if (!canStart() || m_user.isEmpty() || m_workerPath.isEmpty()) {
++        return;
++    }
++
++    m_pendingActivityAttempt = false;
++    m_activityDeadline.stop();
++    auto *process = new QProcess(this);
++    m_process = process;
++    m_statusBuffer.clear();
++    m_cancelRequested = false;
++    m_unlocked = false;
++    setState(Starting);
++    Q_EMIT busyChanged();
++    Q_EMIT canStartChanged();
++
++    process->setProgram(m_workerPath);
++    process->setArguments({m_user});
++    process->setProcessChannelMode(QProcess::SeparateChannels);
++    QProcessEnvironment environment;
++    environment.insert(QStringLiteral("LANG"), QStringLiteral("C"));
++    environment.insert(QStringLiteral("LC_ALL"), QStringLiteral("C"));
++    environment.insert(QStringLiteral("PATH"), QStringLiteral("/usr/bin:/bin"));
++    process->setProcessEnvironment(environment);
++
++    connect(process, &QProcess::readyReadStandardOutput, this, [this, process] {
++        readStatus(process);
++    });
++    connect(process, &QProcess::finished, this, [this, process](int exitCode, QProcess::ExitStatus exitStatus) {
++        finishProcess(process, exitCode, exitStatus);
++    });
++    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
++        if (process != m_process || error != QProcess::FailedToStart) {
++            return;
++        }
++        m_attemptDeadline.stop();
++        setState(Failed);
++        finishProcess(process, 1, QProcess::CrashExit);
++    });
++
++    m_attemptDeadline.start(attemptLimit);
++    process->start();
++}
++
++void FacePamAuthenticator::cancel()
++{
++    m_pendingActivityAttempt = false;
++    m_activityDeadline.stop();
++    if (!m_process) {
++        if (m_state == Starting || m_state == CameraStarting || m_state == LookingForFace) {
++            m_unlocked = false;
++            setState(Cancelled);
++        }
++        return;
++    }
++    if (m_cancelRequested) {
++        return;
++    }
++
++    m_cancelRequested = true;
++    m_unlocked = false;
++    m_attemptDeadline.stop();
++    setState(Cancelled);
++    terminateProcess();
++}
++
++bool FacePamAuthenticator::registerThemeComponent(QObject *component, int interfaceVersion)
++{
++    if (!component || interfaceVersion != InterfaceV1 || m_workerPath.isEmpty() || !QFileInfo(m_workerPath).isExecutable()) {
++        return false;
++    }
++    if (m_themeComponents.contains(component)) {
++        return true;
++    }
++
++    const bool wasAvailable = isAvailable();
++    m_themeComponents.insert(component);
++    connect(component, &QObject::destroyed, this, [this, component] {
++        const bool wasAvailable = isAvailable();
++        m_themeComponents.remove(component);
++        if (wasAvailable != isAvailable()) {
++            Q_EMIT availableChanged();
++            Q_EMIT canStartChanged();
++        }
++        if (m_themeComponents.isEmpty()) {
++            cancel();
++        }
++    });
++    if (wasAvailable != isAvailable()) {
++        Q_EMIT availableChanged();
++        Q_EMIT canStartChanged();
++    }
++    if (m_policyMode == QLatin1String("on-activity") && m_pendingActivityAttempt) {
++        schedulePendingActivityAttempt();
++    }
++    return true;
++}
++
++void FacePamAuthenticator::notifyUserActivity()
++{
++    if (m_activityAttemptConsumed || m_unlocked) {
++        return;
++    }
++    m_activityAttemptConsumed = true;
++    if (!m_policyReady) {
++        m_pendingActivityAttempt = true;
++        m_activityDeadline.start(policyLookupLimit);
++        return;
++    }
++    if (m_policyMode == QLatin1String("on-activity")) {
++        m_pendingActivityAttempt = true;
++        m_activityDeadline.start(policyLookupLimit);
++        schedulePendingActivityAttempt();
++    }
++}
++
++void FacePamAuthenticator::resetActivityCycle()
++{
++    m_pendingActivityAttempt = false;
++    m_activityAttemptConsumed = false;
++    m_activityDeadline.stop();
++}
++
++void FacePamAuthenticator::startPolicyLookup()
++{
++    if (m_policyHelperPath.isEmpty() || !QFileInfo(m_policyHelperPath).isExecutable() || m_policyUid == 0) {
++        setPolicyMode(QStringLiteral("unknown"));
++        return;
++    }
++
++    auto *process = new QProcess(this);
++    m_policyProcess = process;
++    m_policyOutput.clear();
++    m_policyRejected = false;
++    process->setProgram(m_policyHelperPath);
++    process->setArguments(
++        {QStringLiteral("--get"), QStringLiteral("--uid"), QString::number(m_policyUid), QStringLiteral("--target"), QStringLiteral("plasma-lock")});
++    process->setProcessChannelMode(QProcess::SeparateChannels);
++    QProcessEnvironment environment;
++    environment.insert(QStringLiteral("LANG"), QStringLiteral("C"));
++    environment.insert(QStringLiteral("LC_ALL"), QStringLiteral("C"));
++    environment.insert(QStringLiteral("PATH"), QStringLiteral("/usr/bin:/bin"));
++    process->setProcessEnvironment(environment);
++
++    connect(process, &QProcess::readyReadStandardOutput, this, [this, process] {
++        readPolicyOutput(process);
++    });
++    connect(process, &QProcess::readyReadStandardError, process, [process] {
++        process->readAllStandardError();
++    });
++    connect(process, &QProcess::finished, this, [this, process](int exitCode, QProcess::ExitStatus exitStatus) {
++        finishPolicyLookup(process, exitCode, exitStatus);
++    });
++    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
++        if (process == m_policyProcess && error == QProcess::FailedToStart) {
++            finishPolicyLookup(process, 1, QProcess::CrashExit);
++        }
++    });
++
++    m_policyDeadline.start(policyLookupLimit);
++    process->start();
++}
++
++void FacePamAuthenticator::readPolicyOutput(QProcess *process)
++{
++    if (process != m_policyProcess || m_policyRejected) {
++        return;
++    }
++    const qsizetype remaining = maximumPolicyOutput + 1 - m_policyOutput.size();
++    m_policyOutput.append(process->read(remaining));
++    if (m_policyOutput.size() > maximumPolicyOutput) {
++        m_policyRejected = true;
++        setPolicyMode(QStringLiteral("unknown"));
++        if (process->state() != QProcess::NotRunning) {
++            process->kill();
++        }
++    }
++}
++
++void FacePamAuthenticator::finishPolicyLookup(QProcess *process, int exitCode, QProcess::ExitStatus exitStatus)
++{
++    if (process != m_policyProcess) {
++        return;
++    }
++    m_policyDeadline.stop();
++    if (!m_policyRejected && m_policyOutput.size() <= maximumPolicyOutput) {
++        const qsizetype remaining = maximumPolicyOutput + 1 - m_policyOutput.size();
++        m_policyOutput.append(process->read(remaining));
++        if (m_policyOutput.size() > maximumPolicyOutput) {
++            m_policyRejected = true;
++        }
++    }
++    m_policyProcess = nullptr;
++    process->deleteLater();
++
++    QString mode = QStringLiteral("unknown");
++    if (!m_policyRejected && m_policyOutput.size() <= maximumPolicyOutput && exitStatus == QProcess::NormalExit && exitCode == 0) {
++        if (m_policyOutput == QByteArrayLiteral("mode=off\n")) {
++            mode = QStringLiteral("off");
++        } else if (m_policyOutput == QByteArrayLiteral("mode=manual\n")) {
++            mode = QStringLiteral("manual");
++        } else if (m_policyOutput == QByteArrayLiteral("mode=on-activity\n")) {
++            mode = QStringLiteral("on-activity");
++        }
++    }
++    m_policyRejected = false;
++    setPolicyMode(mode);
++}
++
++void FacePamAuthenticator::setPolicyMode(const QString &mode)
++{
++    const bool wasAvailable = isAvailable();
++    const bool wasCanStart = canStart();
++    const bool changed = m_policyMode != mode || !m_policyReady;
++    m_policyMode = mode;
++    m_policyReady = true;
++    if (m_policyMode != QLatin1String("on-activity")) {
++        m_pendingActivityAttempt = false;
++        m_activityDeadline.stop();
++    }
++    if (changed) {
++        Q_EMIT policyModeChanged();
++    }
++    if (wasAvailable != isAvailable()) {
++        Q_EMIT availableChanged();
++    }
++    if (wasCanStart != canStart()) {
++        Q_EMIT canStartChanged();
++    }
++    if (m_policyMode == QLatin1String("on-activity") && m_pendingActivityAttempt) {
++        schedulePendingActivityAttempt();
++    }
++}
++
++void FacePamAuthenticator::schedulePendingActivityAttempt()
++{
++    if (m_activityDispatchScheduled) {
++        return;
++    }
++    m_activityDispatchScheduled = true;
++    QTimer::singleShot(0, this, [this] {
++        m_activityDispatchScheduled = false;
++        if (!m_pendingActivityAttempt) {
++            return;
++        }
++        if (m_policyMode != QLatin1String("on-activity")) {
++            m_pendingActivityAttempt = false;
++            m_activityDeadline.stop();
++            return;
++        }
++        if (!canStart()) {
++            return;
++        }
++        m_pendingActivityAttempt = false;
++        m_activityDeadline.stop();
++        startAttempt();
++    });
++}
++
++void FacePamAuthenticator::setState(State state)
++{
++    if (m_state == state) {
++        return;
++    }
++    m_state = state;
++    Q_EMIT stateChanged();
++}
++
++void FacePamAuthenticator::readStatus(QProcess *process)
++{
++    if (process != m_process) {
++        return;
++    }
++    m_statusBuffer.append(process->readAllStandardOutput());
++    if (m_statusBuffer.size() > maximumStatusBuffer) {
++        m_statusBuffer.clear();
++        return;
++    }
++
++    while (true) {
++        const qsizetype newline = m_statusBuffer.indexOf('\n');
++        if (newline < 0) {
++            break;
++        }
++        const QByteArray status = m_statusBuffer.left(newline);
++        m_statusBuffer.remove(0, newline + 1);
++        if (m_cancelRequested || m_state == UsePassword || m_state == CameraBusy
++            || m_state == TimedOut || m_state == ServiceUnavailable || m_state == RetryLater) {
++            continue;
++        }
++        if (status == QByteArrayLiteral("camera-starting")) {
++            setState(CameraStarting);
++        } else if (status == QByteArrayLiteral("looking-for-face")) {
++            setState(LookingForFace);
++        } else if (status == QByteArrayLiteral("camera-busy")) {
++            setState(CameraBusy);
++        } else if (status == QByteArrayLiteral("timeout")) {
++            setState(TimedOut);
++        } else if (status == QByteArrayLiteral("service-unavailable")) {
++            setState(ServiceUnavailable);
++        } else if (status == QByteArrayLiteral("retry-later")) {
++            setState(RetryLater);
++        } else if (status == QByteArrayLiteral("use-password")) {
++            setState(UsePassword);
++        }
++        if (m_state == UsePassword || m_state == CameraBusy || m_state == TimedOut
++            || m_state == ServiceUnavailable || m_state == RetryLater) {
++            m_attemptDeadline.stop();
++            terminateProcess();
++        }
++        // Ignore every other child output value. PAM text never reaches QML.
++    }
++}
++
++void FacePamAuthenticator::finishProcess(QProcess *process, int exitCode, QProcess::ExitStatus exitStatus)
++{
++    if (process != m_process) {
++        return;
++    }
++    m_attemptDeadline.stop();
++    m_killDeadline.stop();
++    readStatus(process);
++    m_process = nullptr;
++    process->deleteLater();
++    Q_EMIT busyChanged();
++    Q_EMIT canStartChanged();
++
++    if (m_cancelRequested) {
++        return;
++    }
++    const bool terminalFailure = m_state == UsePassword || m_state == CameraBusy
++        || m_state == TimedOut || m_state == ServiceUnavailable || m_state == RetryLater;
++    if (exitStatus == QProcess::NormalExit && exitCode == 0 && !terminalFailure) {
++        m_unlocked = true;
++        setState(Succeeded);
++        Q_EMIT succeeded();
++        return;
++    }
++    m_unlocked = false;
++    if (!terminalFailure) {
++        setState(Failed);
++    }
++}
++
++void FacePamAuthenticator::terminateProcess()
++{
++    if (!m_process || m_process->state() == QProcess::NotRunning) {
++        return;
++    }
++    m_process->terminate();
++    m_killDeadline.start(terminateGrace);
++}
+diff --git a/greeter/facepamauthenticator.h b/greeter/facepamauthenticator.h
+new file mode 100644
+index 0000000..a103e48
+--- /dev/null
++++ b/greeter/facepamauthenticator.h
+@@ -0,0 +1,102 @@
++/*
++    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
++*/
++#pragma once
++
++#include <QObject>
++#include <QProcess>
++#include <QSet>
++#include <QTimer>
++
++class FacePamAuthenticator final : public QObject
++{
++    Q_OBJECT
++
++    Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
++    Q_PROPERTY(bool available READ isAvailable NOTIFY availableChanged)
++    Q_PROPERTY(bool canStart READ canStart NOTIFY canStartChanged)
++    Q_PROPERTY(bool unlocked READ isUnlocked NOTIFY succeeded)
++    Q_PROPERTY(State state READ state NOTIFY stateChanged)
++    Q_PROPERTY(QString policyMode READ policyMode NOTIFY policyModeChanged)
++
++public:
++    enum State {
++        Idle,
++        Starting,
++        CameraStarting,
++        LookingForFace,
++        UsePassword,
++        Failed,
++        TimedOut,
++        Cancelled,
++        Succeeded,
++        CameraBusy,
++        ServiceUnavailable,
++        RetryLater,
++    };
++    Q_ENUM(State)
++
++    enum InterfaceVersion {
++        InterfaceV1 = 1,
++    };
++    Q_ENUM(InterfaceVersion)
++
++    explicit FacePamAuthenticator(QString user, QString workerPath, QString policyHelperPath, quint32 policyUid, QObject *parent = nullptr);
++    ~FacePamAuthenticator() override;
++
++    bool isBusy() const;
++    bool isAvailable() const;
++    bool canStart() const;
++    bool isUnlocked() const;
++    State state() const;
++    QString policyMode() const;
++
++    Q_INVOKABLE void startAttempt();
++    Q_INVOKABLE void cancel();
++    Q_INVOKABLE bool registerThemeComponent(QObject *component, int interfaceVersion);
++    Q_INVOKABLE void notifyUserActivity();
++    Q_INVOKABLE void resetActivityCycle();
++
++Q_SIGNALS:
++    void availableChanged();
++    void busyChanged();
++    void canStartChanged();
++    void stateChanged();
++    void policyModeChanged();
++    void succeeded();
++
++private:
++    void setState(State state);
++    void readStatus(QProcess *process);
++    void finishProcess(QProcess *process, int exitCode, QProcess::ExitStatus exitStatus);
++    void terminateProcess();
++    void startPolicyLookup();
++    void readPolicyOutput(QProcess *process);
++    void finishPolicyLookup(QProcess *process, int exitCode, QProcess::ExitStatus exitStatus);
++    void setPolicyMode(const QString &mode);
++    void schedulePendingActivityAttempt();
++
++    const QString m_user;
++    const QString m_workerPath;
++    const QString m_policyHelperPath;
++    const quint32 m_policyUid;
++    QSet<QObject *> m_themeComponents;
++    QProcess *m_process = nullptr;
++    QProcess *m_policyProcess = nullptr;
++    QTimer m_attemptDeadline;
++    QTimer m_killDeadline;
++    QTimer m_policyDeadline;
++    QTimer m_activityDeadline;
++    QByteArray m_statusBuffer;
++    QByteArray m_policyOutput;
++    QString m_policyMode = QStringLiteral("unknown");
++    State m_state = Idle;
++    bool m_cancelRequested = false;
++    bool m_unlocked = false;
++    bool m_policyReady = false;
++    bool m_policyRejected = false;
++    bool m_activityAttemptConsumed = false;
++    bool m_pendingActivityAttempt = false;
++    bool m_activityDispatchScheduled = false;
++};
+diff --git a/greeter/facepamstatus.h b/greeter/facepamstatus.h
+new file mode 100644
+index 0000000..d1e93c6
+--- /dev/null
++++ b/greeter/facepamstatus.h
+@@ -0,0 +1,25 @@
++/*
++    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
++*/
++#pragma once
++#include <cstring>
++#include <initializer_list>
++
++inline const char *facePamStatusToken(const char *message)
++{
++    if (message == nullptr) {
++        return nullptr;
++    }
++    if (std::strcmp(message, "KFACEAUTH_STATUS=starting-camera") == 0) {
++        return "camera-starting";
++    }
++    for (const char *token : {"looking-for-face", "use-password", "camera-busy", "timeout", "service-unavailable", "retry-later"}) {
++        const char *prefix = "KFACEAUTH_STATUS=";
++        const auto length = std::strlen(prefix);
++        if (std::strncmp(message, prefix, length) == 0 && std::strcmp(message + length, token) == 0) {
++            return token;
++        }
++    }
++    return nullptr;
++}
+diff --git a/greeter/facepamworker.cpp b/greeter/facepamworker.cpp
+new file mode 100644
+index 0000000..e4765d2
+--- /dev/null
++++ b/greeter/facepamworker.cpp
+@@ -0,0 +1,89 @@
++/*
++    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
++*/
++#include <security/pam_appl.h>
++#include "facepamstatus.h"
++
++#include <pwd.h>
++#include <sys/types.h>
++#include <unistd.h>
++
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++
++namespace
++{
++int writeTypedStatus(const char *message)
++{
++    const char *token = facePamStatusToken(message);
++    if (token == nullptr) {
++        return 0;
++    }
++    return std::fprintf(stdout, "%s\n", token) < 0 || std::fflush(stdout) != 0 ? -1 : 0;
++}
++
++int converse(int count, const struct pam_message **messages, struct pam_response **responses, void *)
++{
++    if (count <= 0 || count > 16 || messages == nullptr || responses == nullptr) {
++        return PAM_CONV_ERR;
++    }
++    *responses = static_cast<struct pam_response *>(std::calloc(static_cast<size_t>(count), sizeof(struct pam_response)));
++    if (*responses == nullptr) {
++        return PAM_BUF_ERR;
++    }
++    for (int index = 0; index < count; ++index) {
++        if (messages[index] == nullptr || messages[index]->msg == nullptr) {
++            std::free(*responses);
++            *responses = nullptr;
++            return PAM_CONV_ERR;
++        }
++        switch (messages[index]->msg_style) {
++        case PAM_TEXT_INFO:
++            if (writeTypedStatus(messages[index]->msg) != 0) {
++                std::free(*responses);
++                *responses = nullptr;
++                return PAM_CONV_ERR;
++            }
++            break;
++        case PAM_ERROR_MSG:
++            // Do not forward PAM's arbitrary text into the greeter UI.
++            break;
++        case PAM_PROMPT_ECHO_OFF:
++        case PAM_PROMPT_ECHO_ON:
++        default:
++            std::free(*responses);
++            *responses = nullptr;
++            return PAM_CONV_ERR;
++        }
++    }
++    return PAM_SUCCESS;
++}
++} // namespace
++
++int main(int argc, char **argv)
++{
++    if (argc != 2 || argv[1] == nullptr || argv[1][0] == '\0' || getuid() != geteuid()) {
++        return 2;
++    }
++    const struct passwd *account = getpwnam(argv[1]);
++    if (account == nullptr || account->pw_uid != getuid()) {
++        return 2;
++    }
++
++    const struct pam_conv conversation = {converse, nullptr};
++    pam_handle_t *handle = nullptr;
++    int result = pam_start(KSCREENLOCKER_PAM_FACE_SERVICE, argv[1], &conversation, &handle);
++    if (result == PAM_SUCCESS) {
++        result = pam_authenticate(handle, 0);
++        if (result == PAM_SUCCESS) {
++            result = pam_acct_mgmt(handle, 0);
++        }
++        if (result == PAM_SUCCESS) {
++            result = pam_setcred(handle, PAM_REFRESH_CRED);
++        }
++        (void)pam_end(handle, result);
++    }
++    return result == PAM_SUCCESS ? 0 : 1;
++}
+diff --git a/greeter/fallbacktheme.qrc b/greeter/fallbacktheme.qrc
+index 150816b..010d87d 100644
+--- a/greeter/fallbacktheme.qrc
++++ b/greeter/fallbacktheme.qrc
+@@ -2,6 +2,7 @@
+  <qresource>
+     <file>fallbacktheme/LockScreen.qml</file>
+     <file>fallbacktheme/Greeter.qml</file>
++    <file>fallbacktheme/FaceAuthenticationControl.qml</file>
+     <file>fallbacktheme/PasswordSync.qml</file>
+     <file>fallbacktheme/qmldir</file>
+  </qresource>
+diff --git a/greeter/fallbacktheme/FaceAuthenticationControl.qml b/greeter/fallbacktheme/FaceAuthenticationControl.qml
+new file mode 100644
+index 0000000..929f550
+--- /dev/null
++++ b/greeter/fallbacktheme/FaceAuthenticationControl.qml
+@@ -0,0 +1,99 @@
++/*
++SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++SPDX-License-Identifier: GPL-2.0-or-later
++*/
++
++import QtQuick
++import QtQuick.Layouts
++
++import org.kde.kirigami 2.20 as Kirigami
++import org.kde.plasma.components 3.0 as PlasmaComponents3
++import org.kde.kscreenlocker 1.0 as ScreenLocker
++
++Item {
++    id: root
++
++    signal usePasswordRequested()
++
++    visible: faceAuthenticator.available
++    implicitWidth: controls.implicitWidth
++    implicitHeight: controls.implicitHeight
++
++    Component.onCompleted: faceAuthenticator.registerThemeComponent(root, ScreenLocker.FaceAuthenticator.InterfaceV1)
++
++    ColumnLayout {
++        id: controls
++        anchors.fill: parent
++        spacing: Kirigami.Units.smallSpacing
++
++        PlasmaComponents3.Label {
++            Layout.fillWidth: true
++            horizontalAlignment: Text.AlignHCenter
++            wrapMode: Text.Wrap
++            visible: faceAuthenticator.state !== ScreenLocker.FaceAuthenticator.Idle
++            text: {
++                switch (faceAuthenticator.state) {
++                case ScreenLocker.FaceAuthenticator.Starting:
++                    return i18nd("kscreenlocker_greet", "Starting face authentication…");
++                case ScreenLocker.FaceAuthenticator.CameraStarting:
++                    return i18nd("kscreenlocker_greet", "Starting camera…");
++                case ScreenLocker.FaceAuthenticator.LookingForFace:
++                    return i18nd("kscreenlocker_greet", "Look at the camera…");
++                case ScreenLocker.FaceAuthenticator.CameraBusy:
++                    return i18nd("kscreenlocker_greet", "Camera is busy. Use password or try again.");
++                case ScreenLocker.FaceAuthenticator.ServiceUnavailable:
++                    return i18nd("kscreenlocker_greet", "Face authentication is unavailable. Use password or try again.");
++                case ScreenLocker.FaceAuthenticator.RetryLater:
++                    return i18nd("kscreenlocker_greet", "Try again later or use password.");
++                case ScreenLocker.FaceAuthenticator.TimedOut:
++                    return i18nd("kscreenlocker_greet", "Face authentication timed out. Use password or try again.");
++                case ScreenLocker.FaceAuthenticator.UsePassword:
++                    return i18nd("kscreenlocker_greet", "Use your password or try again.");
++                case ScreenLocker.FaceAuthenticator.Failed:
++                case ScreenLocker.FaceAuthenticator.Cancelled:
++                    return i18nd("kscreenlocker_greet", "Use your password or try again.");
++                default:
++                    return "";
++                }
++            }
++        }
++
++        RowLayout {
++            Layout.alignment: Qt.AlignHCenter
++            spacing: Kirigami.Units.smallSpacing
++
++            PlasmaComponents3.Button {
++                enabled: faceAuthenticator.busy || faceAuthenticator.canStart
++                text: faceAuthenticator.busy
++                    ? i18nd("kscreenlocker_greet", "Cancel face check")
++                    : (faceAuthenticator.state === ScreenLocker.FaceAuthenticator.Failed
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.UsePassword
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.TimedOut
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.CameraBusy
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.ServiceUnavailable
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.RetryLater
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.Cancelled
++                       ? i18nd("kscreenlocker_greet", "Try Face ID again")
++                       : i18nd("kscreenlocker_greet", "Use Face ID"))
++                icon.name: faceAuthenticator.busy ? "process-stop" : "camera-web"
++                onClicked: {
++                    if (faceAuthenticator.busy) {
++                        faceAuthenticator.cancel();
++                    } else {
++                        faceAuthenticator.startAttempt();
++                    }
++                }
++                Keys.onEscapePressed: faceAuthenticator.cancel()
++            }
++
++            PlasmaComponents3.Button {
++                text: i18nd("kscreenlocker_greet", "Use password")
++                onClicked: {
++                    faceAuthenticator.cancel();
++                    root.usePasswordRequested();
++                }
++                Keys.onEscapePressed: faceAuthenticator.cancel()
++            }
++        }
++    }
++}
+diff --git a/greeter/fallbacktheme/Greeter.qml b/greeter/fallbacktheme/Greeter.qml
+index 3376a6b..8ffd141 100644
+--- a/greeter/fallbacktheme/Greeter.qml
++++ b/greeter/fallbacktheme/Greeter.qml
+@@ -82,11 +82,26 @@ Item {
+             enabled: !authenticator.busy
+             placeholderText: authenticator.promptForSecret || i18nd("kscreenlocker_greet", "Password")
+             text: PasswordSync.password
+-            Keys.onEnterPressed: authenticator.startAuthenticating()
+-            Keys.onReturnPressed: authenticator.startAuthenticating()
++            onTextEdited: {
++                if (text.length > 0) {
++                    faceAuthenticator.cancel();
++                }
++            }
++            Keys.onEnterPressed: {
++                faceAuthenticator.cancel();
++                authenticator.startAuthenticating();
++            }
++            Keys.onReturnPressed: {
++                faceAuthenticator.cancel();
++                authenticator.startAuthenticating();
++            }
+             Keys.onEscapePressed: {
+-                password.text = ""
+-                password.text = Qt.binding(() => PasswordSync.password)
++                const faceAttemptWasActive = faceAuthenticator.busy;
++                faceAuthenticator.cancel();
++                if (!faceAttemptWasActive) {
++                    password.text = ""
++                    password.text = Qt.binding(() => PasswordSync.password)
++                }
+             }
+         }
+ 
+@@ -96,6 +111,11 @@ Item {
+             value: password.text
+         }
+ 
++        FaceAuthenticationControl {
++            Layout.fillWidth: true
++            onUsePasswordRequested: root.resetFocus()
++        }
++
+         PlasmaComponents3.Label {
+             visible: authenticator.authenticatorTypes & ScreenLocker.Authenticator.Fingerprint
+             text: i18nd("kscreenlocker_greet", "(or place your fingerprint on the reader)")
+@@ -116,14 +136,20 @@ Item {
+                 text: i18nd("kscreenlocker_greet", "&Switch Users")
+                 icon.name: "system-switch-user"
+                 visible: root.switchUserEnabled
+-                onClicked: switchUserClicked()
++                onClicked: {
++                    faceAuthenticator.cancel();
++                    switchUserClicked();
++                }
+             }
+ 
+             PlasmaComponents3.Button {
+                 text: i18nd("kscreenlocker_greet", "Un&lock")
+                 icon.name: "unlock"
+                 enabled: !authenticator.graceLocked
+-                onClicked: authenticator.startAuthenticating()
++                onClicked: {
++                    faceAuthenticator.cancel();
++                    authenticator.startAuthenticating();
++                }
+             }
+         }
+     }
+@@ -156,6 +182,15 @@ Item {
+         }
+     }
+ 
++    Connections {
++        target: faceAuthenticator
++
++        function onSucceeded() {
++            root.authSucceeded = true;
++            Qt.quit();
++        }
++    }
++
+     Component.onCompleted: {
+         root.resetFocus();
+     }
+diff --git a/greeter/greeterapp.cpp b/greeter/greeterapp.cpp
+index 5322831..062dcd9 100644
+--- a/greeter/greeterapp.cpp
++++ b/greeter/greeterapp.cpp
+@@ -13,6 +13,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
+ #include "../logind.h"
+ 
+ #include <config-kscreenlocker.h>
++#include <algorithm>
++#include <QKeyEvent>
+ #include <iostream>
+ #include <unistd.h>
+ #include <kscreenlocker_greet_logging.h>
+@@ -69,6 +71,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
+ 
+ #include "pamauthenticator.h"
+ #include "pamauthenticators.h"
++#include "facepamauthenticator.h"
+ 
+ // this is usable to fake a "screensaver" installation for testing
+ // *must* be "0" for every public commit!
+@@ -142,8 +145,24 @@ UnlockApp::UnlockApp(int &argc, char **argv)
+     noninteractive.push_back(
+         std::make_unique<PamAuthenticator>(QStringLiteral(KSCREENLOCKER_PAM_SMARTCARD_SERVICE), KUser().loginName(), PamAuthenticator::Smartcard));
+     m_authenticators = new PamAuthenticators(std::move(interactive), std::move(noninteractive), this);
+-    connect(m_logindIntegration, &LogindIntegration::prepareForSleep, m_authenticators, [this] {
++    QString faceWorkerPath;
++    QString facePolicyHelperPath;
++#ifdef KSCREENLOCKER_ENABLE_EXPERIMENTAL_FACE_AUTH
++    faceWorkerPath = QStringLiteral(KSCREENLOCKER_FACE_PAM_WORKER);
++    facePolicyHelperPath = QStringLiteral(KSCREENLOCKER_FACE_POLICY_HELPER);
++#endif
++    m_faceAuthenticator = new FacePamAuthenticator(KUser().loginName(), faceWorkerPath, facePolicyHelperPath, static_cast<quint32>(getuid()), this);
++    connect(m_logindIntegration, &LogindIntegration::prepareForSleep, m_authenticators, [this](bool goingToSleep) {
+         m_authenticators->cancel();
++        if (goingToSleep) {
++            m_faceAuthenticator->cancel();
++        }
++        m_faceAuthenticator->resetActivityCycle();
++    });
++    connect(m_authenticators, &PamAuthenticators::busyChanged, this, [this] {
++        if (m_authenticators->isBusy()) {
++            m_faceAuthenticator->cancel();
++        }
+     });
+     initialize();
+ 
+@@ -269,6 +288,11 @@ void UnlockApp::initialViewSetup()
+                                                   0,
+                                                   "Authenticators",
+                                                   QStringLiteral("authenticators must be obtained from the context"));
++    qmlRegisterUncreatableType<FacePamAuthenticator>("org.kde.kscreenlocker",
++                                                      1,
++                                                      0,
++                                                      "FaceAuthenticator",
++                                                      QStringLiteral("the face authenticator must be obtained from the context"));
+     for (QScreen *screen : screens()) {
+         handleScreen(screen);
+     }
+@@ -288,6 +312,7 @@ void UnlockApp::handleScreen(QScreen *screen)
+         }
+         m_views.removeOne(view);
+         delete view;
++        QTimer::singleShot(0, this, &UnlockApp::cancelFaceAuthenticationIfNoViewsVisible);
+     });
+ }
+ 
+@@ -328,7 +353,7 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
+     // engine stuff
+     QQmlContext *context = view->engine()->rootContext();
+     connect(view->engine().get(), &QQmlEngine::quit, this, [this]() {
+-        if (m_authenticators->isUnlocked()) {
++        if (m_authenticators->isUnlocked() || m_faceAuthenticator->isUnlocked()) {
+             std::cout << "Unlocked" << std::endl;
+             // Quit without exit handlers
+             // This is because:
+@@ -343,6 +368,7 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
+     context->setContextProperty(QStringLiteral("kscreenlocker_userName"), m_userName);
+     context->setContextProperty(QStringLiteral("kscreenlocker_userImage"), m_userImage);
+     context->setContextProperty(QStringLiteral("authenticator"), m_authenticators);
++    context->setContextProperty(QStringLiteral("faceAuthenticator"), m_faceAuthenticator);
+     context->setContextProperty(QStringLiteral("org_kde_plasma_screenlocker_greeter_interfaceVersion"), 2);
+     context->setContextProperty(QStringLiteral("org_kde_plasma_screenlocker_greeter_view"), view);
+     context->setContextProperty(QStringLiteral("config"), m_shellIntegration->configuration());
+@@ -430,6 +456,11 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
+     // showFullScreen is implicit on X11 (through geometry and hints) and Wayland (layer-shell)
+     view->show();
+     view->raise();
++    connect(view, &QWindow::visibleChanged, this, [this, view](bool visible) {
++        if (!visible) {
++            QTimer::singleShot(0, this, &UnlockApp::cancelFaceAuthenticationIfNoViewsVisible);
++        }
++    });
+ 
+     auto onFrameSwapped = [this, view] {
+         markViewsAsVisible(view);
+@@ -483,6 +514,16 @@ void UnlockApp::getFocus()
+     activeScreen->requestActivate();
+ }
+ 
++void UnlockApp::cancelFaceAuthenticationIfNoViewsVisible()
++{
++    if (std::none_of(m_views.cbegin(), m_views.cend(), [](const PlasmaQuick::QuickViewSharedEngine *view) {
++            return view && view->isVisible();
++        })) {
++        m_faceAuthenticator->cancel();
++        m_faceAuthenticator->resetActivityCycle();
++    }
++}
++
+ void UnlockApp::graceLockEnded()
+ {
+     m_authenticators->setGraceLocked(false);
+@@ -568,9 +609,26 @@ bool UnlockApp::eventFilter(QObject *obj, QEvent *event)
+         return false;
+     }
+ 
+-    if (event->type() == QEvent::MouseButtonPress && KWindowSystem::isPlatformX11()) {
+-        if (getActiveScreen()) {
+-            getActiveScreen()->requestActivate();
++    bool keyActivity = false;
++    if (event->type() == QEvent::KeyPress) {
++        const auto *key = static_cast<QKeyEvent *>(event);
++        keyActivity = key->key() != Qt::Key_Return && key->key() != Qt::Key_Enter
++            && key->key() != Qt::Key_Escape;
++    }
++    const bool userActivity = event->type() == QEvent::MouseButtonPress || event->type() == QEvent::TouchBegin || event->type() == QEvent::TabletPress
++        || keyActivity;
++    const bool unlockViewVisible = std::any_of(m_views.cbegin(), m_views.cend(), [](const PlasmaQuick::QuickViewSharedEngine *view) {
++        return view && view->isVisible();
++    });
++    if (userActivity && unlockViewVisible && !m_authenticators->isBusy()) {
++        m_faceAuthenticator->notifyUserActivity();
++    }
++
++    if (event->type() == QEvent::MouseButtonPress) {
++        if (KWindowSystem::isPlatformX11()) {
++            if (getActiveScreen()) {
++                getActiveScreen()->requestActivate();
++            }
+         }
+         return false;
+     }
+diff --git a/greeter/greeterapp.h b/greeter/greeterapp.h
+index 6549979..84a1529 100644
+--- a/greeter/greeterapp.h
++++ b/greeter/greeterapp.h
+@@ -30,6 +30,7 @@ class LogindIntegration;
+ struct org_kde_ksld;
+ 
+ class PamAuthenticators;
++class FacePamAuthenticator;
+ 
+ namespace ScreenLocker
+ {
+@@ -76,6 +77,7 @@ private:
+     void setWallpaperItemProperties(PlasmaQuick::SharedQmlEngine *wallpaperObject, PlasmaQuick::QuickViewSharedEngine *view);
+     void screenGeometryChanged(QScreen *screen, const QRect &geo);
+     QWindow *getActiveScreen();
++    void cancelFaceAuthenticationIfNoViewsVisible();
+ 
+     QString m_packageName;
+     QUrl m_mainQmlPath;
+@@ -84,6 +86,7 @@ private:
+     bool m_testing;
+     bool m_immediateLock;
+     PamAuthenticators *m_authenticators;
++    FacePamAuthenticator *m_faceAuthenticator;
+     int m_graceTime;
+     bool m_noLock;
+ 
+diff --git a/greeter/kfaceauth-kscreenlocker.json.in b/greeter/kfaceauth-kscreenlocker.json.in
+new file mode 100644
+index 0000000..b351ddf
+--- /dev/null
++++ b/greeter/kfaceauth-kscreenlocker.json.in
+@@ -0,0 +1,10 @@
++{
++  "schema_version": 1,
++  "component_id": "org.loofi.kfaceauth.kscreenlocker",
++  "kscreenlocker_version": "@PROJECT_VERSION@",
++  "theme_contract": {
++    "interface_version": 1,
++    "component_url": "qrc:/fallbacktheme/FaceAuthenticationControl.qml",
++    "runtime_registration_required": true
++  }
++}

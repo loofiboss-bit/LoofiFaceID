@@ -12,6 +12,7 @@ struct Status
 {
     bool daemonReady = false;
     bool systemProfileReady = false;
+    bool systemProfileKnown = false;
 };
 
 [[nodiscard]] QByteArray statusRequest(quint32 targetUid);

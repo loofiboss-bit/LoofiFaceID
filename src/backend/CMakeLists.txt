@@ -18,6 +18,8 @@ add_library(kfaceauth_core STATIC
     nativefaceauthbackend.h
     refreshcoordinator.cpp
     refreshcoordinator.h
+    sddmthemeconfig.cpp
+    sddmthemeconfig.h
     supportreport.cpp
     supportreport.h
     systemstate.cpp
@@ -38,6 +40,7 @@ target_link_libraries(kfaceauth_core
         Qt6::Concurrent
         Qt6::Core
         Qt6::Gui
+        KF6::I18n
         KF6::Wallet
         OpenSSL::Crypto
 )

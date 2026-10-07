@@ -1,11 +1,67 @@
 # LoofiFaceID Improvement Plan
 
-**Updated:** 2026-10-06
+**Updated:** 2026-10-07
 **Review baseline:** initial plan `v5.2.1`; published baseline `v5.3.0`
 **Delivery:** v5.3.0 is published on GitHub and available from the Fedora 44 COPR repository; release artifacts and repository metadata were read back. PAM remains an unqualified experiment.
 
 The repository follow-up below targets a future v5.3-series build. It does not
 change the already-published v5.3.0 tag or artifacts.
+
+## 2026-10-07 reliability and recovery follow-up
+
+This source-only follow-up keeps the daemon protocol at version 2, theme API
+at version 1, and the encrypted profile format unchanged. It does not change
+published v5.3.0 assets or install packages on the development host.
+
+- Authentication retains a validated, open policy file for the entire attempt.
+  A policy replacement invalidates a positive worker result, including an
+  Off/restore cycle or profile replacement that ends with the same mode. The
+  conservative rule also invalidates attempts when another user's policy is
+  updated. Revoked positive results do not reset the attempt limiter.
+- **Login and unlock → Sync system profile** approves a fresh system copy even
+  when its target modes are unchanged. The administrative helper uses
+  `--resync-profile`, the existing caller-bound authorization and private input.
+  It stages and validates the profile, revokes both user targets during the
+  swap, restores their independent choices only after verification, and does
+  not prepare PAM services. A failed rollback keeps authentication revoked.
+- The KCM verifies policy and system-profile status before reporting success.
+  An unavailable or late readback is a failure to verify, not success. The last
+  operation result survives subsequent refreshes. Profile freshness stays
+  **Unknown** because this version has no persistent generation comparison.
+- Readiness rows distinguish component/API availability, SDDM theme declaration,
+  dedicated PAM service, daemon response, local/system profile and saved mode.
+  Runtime theme registration remains **Unknown** until observed in the actual
+  greeter. Refresh does not capture camera frames. Missing, incompatible and
+  unreadable observations are separate states.
+- Greeters accept only the fixed `camera-busy`, `timeout`, `service-unavailable`
+  and `retry-later` categories in addition to the existing progress/password
+  tokens. Terminal failures cannot be overwritten by a late success. Password
+  input remains available and raw PAM conversation text is not exposed.
+- Support reports include only fixed target/state/error categories and the last
+  operation result. Partial diagnostics remain explicitly incomplete.
+- Dedicated integration CI verifies pinned upstream patch applicability, full
+  default/experimental builds, Qt behavior and staged install boundaries. It
+  reuses the pinned NoxForge companion adapter contract test; that source check
+  does not establish runtime or physical theme qualification.
+- Parallel root-fixture verification exposed a shared-storage NSS group lookup
+  race. The native bridge now uses bounded, private `getgrnam_r` storage, and
+  no-follow child-file opens are nonblocking so a FIFO replacement cannot make
+  the open wait indefinitely.
+
+Physical login/unlock, SELinux Enforcing interactions, camera release,
+suspend/resume, accessibility and attack evaluation remain **NOT RUN** for
+this candidate. The standard package remains authentication-free and the
+experimental package remains unsupported and off by default.
+
+### Later work
+
+Persistent profile freshness needs protected sync metadata tied to the actual
+encrypted source/system files and a separately versioned status request;
+only Current/Stale/Unknown may reach the UI/report. Administrative camera
+selection should extend the existing root-owned daemon configuration and use
+explicit authorization plus readback. Neither feature is part of this protocol-
+2 follow-up. Physical qualification requires the dedicated test system specified
+in `HARDWARE-QUALIFICATION.md`; unavailable gates remain unverified.
 
 ## 2026-10-06 repository follow-up
 
@@ -20,6 +76,39 @@ Verification passed: all 75 Python tests, systemd unit validation, canonical
 project identity, and staged standard/experimental package-boundary checks. No
 new camera capture or lock-screen authentication attempt was run for this
 source-only change; hardware behavior remains unverified.
+
+## 2026-10-06 login and unlock integration
+
+The experimental source now separates installed integration from each user's
+SDDM sign-in and Plasma-unlock choice. A root-owned policy stores Off, On
+activity, or Button only per UID and target. Normal `sddm` and `kde` password
+PAM services remain unchanged; dedicated face services are prepared only by
+the administrative transaction. The former exact LoofiFaceID global PAM block
+is removed with rollback if the migration cannot complete safely.
+
+Profile replacement revokes both targets before swapping the shared system
+copy, then restores the independent per-target choices after integrity checks.
+Profile deletion fails if system revocation fails. The KCM has a dedicated
+Login and unlock page showing component/theme availability, activation, and
+system-profile freshness as separate states. Freshness stays Unknown whenever
+the installed copy cannot be compared safely. Face access remains Off by
+default and only an experimental package build contains the PAM components.
+
+Daemon requests are target-bound, use a two-second absolute deadline, expose
+only fixed progress states, and cancel/reap the camera worker when its PAM
+client disconnects. Late worker success is discarded after cancellation or
+when the accepted policy mode changes. Version-pinned downstream patches and build/check instructions
+are kept in `integrations/sddm` (SDDM 0.21.0) and `integrations/kscreenlocker`
+(KScreenLocker 6.7.5). Both integrations keep the standard password path and
+require a theme API handshake before face UI can run.
+
+Source verification passes the standard and experimental local build/test
+paths. No physical camera capture, SDDM login, Plasma unlock, SELinux Enforcing
+interaction, assistive-technology session, or package installation was run for
+this source-only implementation; those checks remain unverified. At that earlier check, the installed NoxForge SDDM theme did not declare
+the required API. Current NoxForge companion source and installed declaration
+must be checked independently; the historical observation is not a current
+compatibility result.
 
 ## Product boundary
 

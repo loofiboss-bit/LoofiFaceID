@@ -12,7 +12,7 @@ require {
     class chr_file { read write open getattr ioctl map };
     class unix_stream_socket { create bind listen accept read write getattr setopt getopt connectto };
     class sock_file { create getattr setattr unlink write };
-    class process { transition fork sigkill sigchld };
+    class process { transition fork sigkill sigchld setrlimit };
     class fifo_file { create read write getattr ioctl };
     class process2 { nnp_transition };
 }
@@ -39,6 +39,7 @@ allow init_t kfaceauth_sock_t:sock_file { create getattr setattr unlink write };
 
 # The daemon launches and terminates its confined auth worker in the same domain.
 allow kfaceauth_t self:process { fork sigkill sigchld };
+allow kfaceauth_t self:process setrlimit;
 allow kfaceauth_t self:fifo_file { create read write getattr ioctl };
 
 # Self socket operations

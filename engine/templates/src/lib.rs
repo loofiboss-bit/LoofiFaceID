@@ -23,6 +23,8 @@ use kfaceauth_identity_types::{
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+pub mod auth_policy;
+
 pub const MINIMUM_PROFILE_SAMPLES: usize = 3;
 pub const RECOMMENDED_PROFILE_SAMPLES: usize = 5;
 pub const MAXIMUM_PROFILE_SAMPLES: usize = 8;

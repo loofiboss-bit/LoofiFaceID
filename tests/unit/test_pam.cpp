@@ -6,6 +6,9 @@
 
 #include <security/pam_modules.h>
 
+#include <QStringList>
+#include <cstdarg>
+#include <cstring>
 #include <endian.h>
 #include <errno.h>
 #include <pwd.h>
@@ -14,6 +17,9 @@
 #include <thread>
 #include <unistd.h>
 
+static int g_lookingForFaceStatusCount = 0;
+static QStringList g_statuses;
+
 extern "C"
 {
     // Mock pam_get_user implementation to link with pam_kfaceauth
@@ -21,6 +27,33 @@ extern "C"
     {
         (void)prompt;
         *user = reinterpret_cast<const char *>(pamh);
+        return PAM_SUCCESS;
+    }
+
+    int pam_get_item(const pam_handle_t *pamh, int item, const void **value)
+    {
+        (void)pamh;
+        if (item != PAM_SERVICE || value == nullptr)
+            return PAM_SYSTEM_ERR;
+        const char *service = std::getenv("KFACEAUTH_PAM_SERVICE");
+        *value = service == nullptr ? "sddm-kfaceauth" : service;
+        return PAM_SUCCESS;
+    }
+
+    int pam_prompt(const pam_handle_t *pamh, int style, char **response, const char *fmt, ...)
+    {
+        (void)pamh;
+        (void)response;
+        if (style != PAM_TEXT_INFO)
+            return PAM_SYSTEM_ERR;
+        va_list args;
+        va_start(args, fmt);
+        char message[128] = {};
+        std::vsnprintf(message, sizeof(message), fmt, args);
+        va_end(args);
+        g_statuses.append(QString::fromLatin1(message));
+        if (std::strcmp(message, "KFACEAUTH_STATUS=looking-for-face") == 0)
+            ++g_lookingForFaceStatusCount;
         return PAM_SUCCESS;
     }
 
@@ -34,11 +67,18 @@ class TestPam : public QObject
     Q_OBJECT
 
   private Q_SLOTS:
+    void init()
+    {
+        g_statuses.clear();
+        g_lookingForFaceStatusCount = 0;
+    }
     void testUnknownUserFallsBackToPassword();
     void testMissingSocketFailsClosedImmediately();
+    void testPasswordServicesNeverStartFaceAuthentication();
     void testHungServerAbortsWithinTwoSeconds();
     void testSlowDripResponseUsesOneAbsoluteDeadline();
     void testMockServerSuccess();
+    void testMockServerFailure_data();
     void testMockServerFailure();
     void testSetCredAndAcctMgmt();
 };
@@ -63,6 +103,27 @@ void TestPam::testMissingSocketFailsClosedImmediately()
     int res = pam_sm_authenticate(reinterpret_cast<pam_handle_t *>(pw->pw_name), 0, 0, nullptr);
     QCOMPARE(res, PAM_AUTH_ERR);
     QVERIFY(timer.elapsed() < 500); // Must fail closed immediately
+    QCOMPARE(g_statuses.last(), QStringLiteral("KFACEAUTH_STATUS=service-unavailable"));
+}
+
+void TestPam::testPasswordServicesNeverStartFaceAuthentication()
+{
+    struct passwd *pw = getpwuid(getuid());
+    QVERIFY(pw != nullptr);
+
+    const char *sock_path = "/tmp/kfaceauth_unexpected_auth_test.sock";
+    unlink(sock_path);
+    setenv("KFACEAUTH_SOCKET_PATH", sock_path, 1);
+    setenv("KFACEAUTH_PAM_SERVICE", "sddm", 1);
+
+    QElapsedTimer timer;
+    timer.start();
+    const int result = pam_sm_authenticate(reinterpret_cast<pam_handle_t *>(pw->pw_name), 0, 0, nullptr);
+
+    QCOMPARE(result, PAM_AUTH_ERR);
+    QVERIFY(timer.elapsed() < 100);
+    QVERIFY(access(sock_path, F_OK) != 0);
+    unsetenv("KFACEAUTH_PAM_SERVICE");
 }
 
 void TestPam::testHungServerAbortsWithinTwoSeconds()
@@ -109,6 +170,7 @@ void TestPam::testHungServerAbortsWithinTwoSeconds()
     unlink(sock_path);
 
     QCOMPARE(res, PAM_AUTH_ERR);
+    QCOMPARE(g_statuses.last(), QStringLiteral("KFACEAUTH_STATUS=timeout"));
     // Strict Gate 4.2 deadline: should abort at ~2.0s (+/- 300ms tolerance for OS scheduler)
     QVERIFY2(elapsed_ms >= 1800 && elapsed_ms <= 2600,
              qPrintable(QStringLiteral("Elapsed time was %1 ms").arg(elapsed_ms)));
@@ -194,14 +256,17 @@ void TestPam::testMockServerSuccess()
                 ssize_t n = read(cfd, req, sizeof(req));
                 if (n > 4)
                 {
-                    // Send framed SUCCESS response: len = 4, ver = 1, status = 0, reserved = 0
+                    // Send one fixed progress event followed by the only success-bearing final response.
                     uint32_t len_be = htobe32(4);
-                    uint16_t ver_be = htobe16(1);
-                    uint8_t resp[8];
-                    memcpy(resp, &len_be, 4);
-                    memcpy(resp + 4, &ver_be, 2);
-                    resp[6] = 0; // STATUS_SUCCESS
-                    resp[7] = 0;
+                    uint16_t ver_be = htobe16(2);
+                    uint8_t resp[16];
+                    for (int frame = 0; frame < 2; ++frame)
+                    {
+                        memcpy(resp + frame * 8, &len_be, 4);
+                        memcpy(resp + frame * 8 + 4, &ver_be, 2);
+                        resp[frame * 8 + 6] = frame == 0 ? 0x80 : 0;
+                        resp[frame * 8 + 7] = 0;
+                    }
                     write(cfd, resp, sizeof(resp));
                 }
                 close(cfd);
@@ -217,10 +282,32 @@ void TestPam::testMockServerSuccess()
     unlink(sock_path);
 
     QCOMPARE(res, PAM_SUCCESS);
+    QCOMPARE(g_lookingForFaceStatusCount, 1);
+}
+
+void TestPam::testMockServerFailure_data()
+{
+    QTest::addColumn<int>("code");
+    QTest::addColumn<int>("version");
+    QTest::addColumn<int>("reserved");
+    QTest::addColumn<QString>("token");
+    QTest::newRow("camera-busy") << 5 << 2 << 0 << QStringLiteral("camera-busy");
+    QTest::newRow("timeout") << 4 << 2 << 0 << QStringLiteral("timeout");
+    QTest::newRow("service-unavailable") << 6 << 2 << 0 << QStringLiteral("service-unavailable");
+    QTest::newRow("retry-later") << 8 << 2 << 0 << QStringLiteral("retry-later");
+    QTest::newRow("no-match") << 1 << 2 << 0 << QStringLiteral("use-password");
+    QTest::newRow("heuristic-rejection") << 7 << 2 << 0 << QStringLiteral("use-password");
+    QTest::newRow("unknown") << 0x7f << 2 << 0 << QStringLiteral("use-password");
+    QTest::newRow("wrong-version-success") << 0 << 1 << 0 << QStringLiteral("service-unavailable");
+    QTest::newRow("reserved-success") << 0 << 2 << 1 << QStringLiteral("service-unavailable");
 }
 
 void TestPam::testMockServerFailure()
 {
+    QFETCH(int, code);
+    QFETCH(int, version);
+    QFETCH(int, reserved);
+    QFETCH(QString, token);
     struct passwd *pw = getpwuid(getuid());
     QVERIFY(pw != nullptr);
 
@@ -238,7 +325,7 @@ void TestPam::testMockServerFailure()
     QCOMPARE(listen(sfd, 1), 0);
 
     std::thread server_thread(
-        [sfd]()
+        [sfd, code, version, reserved]()
         {
             int cfd = accept(sfd, nullptr, nullptr);
             if (cfd >= 0)
@@ -249,12 +336,12 @@ void TestPam::testMockServerFailure()
                 {
                     // Send framed DEVICE_BUSY response (status = 5)
                     uint32_t len_be = htobe32(4);
-                    uint16_t ver_be = htobe16(1);
+                    uint16_t ver_be = htobe16(static_cast<uint16_t>(version));
                     uint8_t resp[8];
                     memcpy(resp, &len_be, 4);
                     memcpy(resp + 4, &ver_be, 2);
-                    resp[6] = 5; // STATUS_DEVICE_BUSY
-                    resp[7] = 0;
+                    resp[6] = static_cast<uint8_t>(code);
+                    resp[7] = static_cast<uint8_t>(reserved);
                     write(cfd, resp, sizeof(resp));
                 }
                 close(cfd);
@@ -270,6 +357,7 @@ void TestPam::testMockServerFailure()
     unlink(sock_path);
 
     QCOMPARE(res, PAM_AUTH_ERR);
+    QCOMPARE(g_statuses.last(), QStringLiteral("KFACEAUTH_STATUS=") + token);
 }
 
 void TestPam::testSetCredAndAcctMgmt()

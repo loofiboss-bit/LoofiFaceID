@@ -21,6 +21,7 @@ class SupportReportTest final : public QObject
     void mapsMilestoneIssuesToActions();
     void reportPreservesPreviewPrivacy();
     void reportUsesTypedAuthenticationStatus();
+    void authenticationReadinessDoesNotExportUntrustedModeOrIdentifiers();
     void exportsMarkdownAtomically();
 };
 
@@ -101,6 +102,35 @@ void SupportReportTest::reportUsesTypedAuthenticationStatus()
     QVERIFY(report.report().contains(QStringLiteral("unqualified experiment")));
     report.setEnrollmentSession(nullptr);
     QVERIFY(report.report().contains(QStringLiteral("PAM configuration: Unavailable")));
+}
+
+void SupportReportTest::authenticationReadinessDoesNotExportUntrustedModeOrIdentifiers()
+{
+    EnrollmentSession::AuthStatusSnapshot snapshot;
+    snapshot.components = EnrollmentSession::Readiness::Available;
+    snapshot.sddmApi = EnrollmentSession::Readiness::Missing;
+    snapshot.sddmMode = QStringLiteral("manual");
+    snapshot.plasmaMode = QStringLiteral("manual\npassword=not-for-report");
+    SystemState state;
+    state.apply(SystemStateSnapshot{});
+    CameraPreviewSession preview(QStringLiteral("/nonexistent/preview-worker"), nullptr);
+    IdentityWorkerClient worker(QStringLiteral("/nonexistent/identity-worker"), {}, nullptr);
+    KWalletKeyProvider keys;
+    EnrollmentSession enrollment(&preview, &worker, &keys,
+                                 [&snapshot](EnrollmentSession::AuthStatusCompletion completion)
+                                 { completion(snapshot); }, {});
+    SupportReport report(&state, &preview);
+    report.setEnrollmentSession(&enrollment);
+    QVERIFY(report.report().contains(QStringLiteral("sddm.policy: manual")));
+    QVERIFY(report.report().contains(QStringLiteral("plasma-lock.policy: unknown")));
+    QVERIFY(report.report().contains(QStringLiteral("sddm.integration: missing")));
+    QVERIFY(report.report().contains(QStringLiteral("plasma-lock.theme-runtime: unknown")));
+    QVERIFY(report.report().contains(QStringLiteral("profile-freshness: unknown")));
+    QVERIFY(!report.report().contains(QStringLiteral("not-for-report")));
+    QVERIFY(!report.report().contains(QStringLiteral("/home/")));
+    QCOMPARE(report.issueCode(), QStringLiteral("sddm-api-missing"));
+    QVERIFY(!report.recommendedAction().isEmpty());
+    QVERIFY(!preview.previewActive());
 }
 
 void SupportReportTest::exportsMarkdownAtomically()

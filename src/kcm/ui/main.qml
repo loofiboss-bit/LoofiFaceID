@@ -56,6 +56,14 @@ KCMUtils.SimpleKCM {
         }
 
         Kirigami.NavigationTabButton {
+            objectName: "authIntegrationTab"
+            text: i18n("Login and unlock")
+            icon.name: "system-lock-screen"
+            Accessible.name: text
+            activeFocusOnTab: true
+        }
+
+        Kirigami.NavigationTabButton {
             objectName: "diagnosticsTab"
             text: i18n("Diagnostics")
             icon.name: "tools-report-bug"
@@ -90,8 +98,9 @@ KCMUtils.SimpleKCM {
                 setup.beginFirstStart()
             }
             openSetup: () => tabs.currentIndex = 1
+            openAuthIntegration: () => tabs.currentIndex = 3
             openTest: () => tabs.currentIndex = 2
-            openDiagnostics: () => tabs.currentIndex = 3
+            openDiagnostics: () => tabs.currentIndex = 4
             refresh: () => kcm.refresh()
         }
 
@@ -116,6 +125,17 @@ KCMUtils.SimpleKCM {
             localVerificationSession: kcm.localVerificationSession
         }
 
+        AuthIntegrationPage {
+            Layout.fillWidth: true
+            backendReady: root.backendReady
+            enrollmentSession: kcm.enrollmentSession
+            refresh: () => {
+                kcm.refresh()
+                kcm.enrollmentSession.checkSystemAuthStatus()
+            }
+            openSetup: () => tabs.currentIndex = 1
+        }
+
         DiagnosticsPage {
             id: diagnostics
 
@@ -126,6 +146,8 @@ KCMUtils.SimpleKCM {
             cameraPreviewSession: kcm.cameraPreviewSession
             enrollmentSession: kcm.enrollmentSession
             refreshActive: kcm.refreshing
+            partialDiagnostics: kcm.partialDiagnostics
+            retryAvailable: kcm.retryAvailable
             refresh: () => kcm.refresh()
         }
     }

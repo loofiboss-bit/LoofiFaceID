@@ -26,6 +26,13 @@ if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
         RENAME "kfaceauth-pam-setup"
     )
 
+    install(
+        FILES
+            pam/sddm-kfaceauth
+            pam/kde-kfaceauth
+        DESTINATION "${KDE_INSTALL_DATADIR}/kfaceauth/pam"
+    )
+
     # Systemd sysusers configuration
     install(
         FILES

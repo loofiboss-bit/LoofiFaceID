@@ -17,6 +17,8 @@ Kirigami.ScrollablePage {
     property bool backendReady: root.systemState !== null
         && root.supportReport !== null
         && root.cameraPreviewSession !== null
+    property bool partialDiagnostics: false
+    property bool retryAvailable: false
     required property bool refreshActive
     property var refresh: () => {}
 
@@ -62,6 +64,21 @@ Kirigami.ScrollablePage {
             visible: !root.backendReady
             type: Kirigami.MessageType.Warning
             text: i18n("LoofiFace-ID is still initializing. Diagnostic values will appear when the local backend is ready.")
+        }
+
+        Kirigami.InlineMessage {
+            objectName: "partialDiagnosticStatus"
+            Layout.fillWidth: true
+            visible: root.partialDiagnostics
+            type: Kirigami.MessageType.Warning
+            text: i18n("Some diagnostic values could not be checked. Unknown values are not disabled features.")
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Retry diagnostics")
+                    enabled: root.retryAvailable && !root.refreshActive
+                    onTriggered: root.refresh()
+                }
+            ]
         }
 
         Components.ActionableIssue {

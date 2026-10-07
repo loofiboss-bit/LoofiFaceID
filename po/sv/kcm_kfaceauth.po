@@ -1397,8 +1397,16 @@ msgstr "Distribution"
 msgid "Fix the current problem"
 msgstr "Åtgärda aktuellt problem"
 
+#: src/kcm/kfaceauthkcm.cpp
+msgid "Fix problem"
+msgstr "Åtgärda problem"
+
 msgid "Test your profile"
 msgstr "Testa din profil"
+
+#: src/kcm/kfaceauthkcm.cpp
+msgid "Test profile"
+msgstr "Testa profilen"
 
 msgid "Get started"
 msgstr "Kom igång"
@@ -1518,7 +1526,7 @@ msgid "Experimental PAM login"
 msgstr "Experimentell PAM-inloggning"
 
 msgid "Optional and unqualified. Password login remains the PAM fallback. IR camera selection does not prove liveness or spoof resistance."
-msgstr "Valfritt och okvalificerat. Lösenordsinloggning finns kvar som reservväg i PAM. Val av IR-kamera bevisar inte liveness eller motstånd mot förfalskning."
+msgstr "Valfritt och okvalificerat. Lösenordsinloggning finns kvar som reservväg i PAM. Val av IR-kamera bevisar inte livskontroll eller motstånd mot förfalskning."
 
 msgid "SDDM sign-in"
 msgstr "Inloggning med SDDM"
@@ -1601,3 +1609,291 @@ msgstr "Återstår"
 
 msgid "Retry guidance"
 msgstr "Försök med guidningen igen"
+
+msgid "Login and unlock"
+msgstr "Inloggning och upplåsning"
+
+msgid "LoofiFace-ID is still initializing. Authentication controls will appear when the local backend is ready."
+msgstr "LoofiFace-ID initieras fortfarande. Autentiseringsvalen visas när den lokala bakänden är redo."
+
+msgid "Experimental authentication is off by default and requires a version-matched integration build. Face sign-in does not unlock KWallet or encrypted storage; keep your password available."
+msgstr "Experimentell autentisering är avstängd från början och kräver en versionsmatchad integrationsversion. Ansiktsinloggning låser inte upp KWallet eller krypterad lagring; ha lösenordet tillgängligt."
+
+msgid "SDDM sign-in authentication"
+msgstr "Autentisering vid SDDM-inloggning"
+
+msgid "Checking the installed SDDM integration…"
+msgstr "Kontrollerar den installerade SDDM-integrationen…"
+
+msgid "Authentication status is initializing."
+msgstr "Autentiseringsstatus initieras."
+
+msgid "When to try face authentication"
+msgstr "När ansiktsautentisering ska försökas"
+
+msgid "Off"
+msgstr "Av"
+
+msgid "On activity"
+msgstr "Vid aktivitet"
+
+msgid "Button only"
+msgstr "Endast knapp"
+
+msgid "Unknown"
+msgstr "Okänt"
+
+msgid "SDDM face-authentication mode"
+msgstr "Ansiktsautentiseringsläge för SDDM"
+
+msgid "Plasma unlock authentication"
+msgstr "Autentisering vid upplåsning i Plasma"
+
+msgid "Plasma screen unlock"
+msgstr "Upplåsning av Plasma-skärmen"
+
+msgid "Checking the installed KScreenLocker integration…"
+msgstr "Kontrollerar den installerade KScreenLocker-integrationen…"
+
+msgid "Plasma unlock face-authentication mode"
+msgstr "Ansiktsautentiseringsläge för upplåsning i Plasma"
+
+msgid "System face-profile status"
+msgstr "Status för systemets ansiktsprofil"
+
+msgid "System profile"
+msgstr "Systemprofil"
+
+msgid "System-profile freshness is initializing."
+msgstr "Aktualiteten för systemprofilen initieras."
+
+msgid "Each setting belongs to this user and this target. Changing or deleting a local profile first revokes its system copy; if revocation fails, the local change is stopped."
+msgstr "Varje inställning gäller den här användaren och målytan. Vid ändring eller radering av en lokal profil återkallas först systemkopian. Om det misslyckas stoppas den lokala ändringen."
+
+msgid "Login and unlock settings"
+msgstr "Inställningar för inloggning och upplåsning"
+
+msgid "The patched SDDM face-authentication API is installed."
+msgstr "Det korrigerade API:t för ansiktsautentisering i SDDM är installerat."
+
+msgid "The active SDDM theme does not declare face-authentication support."
+msgstr "Det aktiva SDDM-temat anger inte stöd för ansiktsautentisering."
+
+msgid "The versioned SDDM face-authentication API is not installed."
+msgstr "Det versionsbundna API:t för ansiktsautentisering i SDDM är inte installerat."
+
+msgid "The dedicated SDDM PAM service template is missing."
+msgstr "Mallen för den särskilda SDDM-PAM-tjänsten saknas."
+
+msgid "The dedicated SDDM face-authentication service is not prepared."
+msgstr "Den särskilda SDDM-tjänsten för ansiktsautentisering är inte förberedd."
+
+msgid "The experimental authentication package is not installed."
+msgstr "Det experimentella autentiseringspaketet är inte installerat."
+
+msgid "Patched SDDM integration availability is unknown."
+msgstr "Tillgängligheten för den korrigerade SDDM-integrationen är okänd."
+
+msgid "Off. SDDM password sign-in remains unchanged."
+msgstr "Av. SDDM-inloggning med lösenord fungerar som vanligt."
+
+msgid "Ready. Choose a face-authentication behavior; the password path remains available."
+msgstr "Redo. Välj hur ansiktsautentisering ska användas. Lösenordsinloggning finns alltid kvar."
+
+msgid "On activity. Password sign-in remains available at all times."
+msgstr "Vid aktivitet. Lösenordsinloggning finns alltid kvar."
+
+msgid "Button only. Password sign-in remains available at all times."
+msgstr "Endast knapp. Lösenordsinloggning finns alltid kvar."
+
+msgid "Unavailable: install the versioned SDDM integration build."
+msgstr "Otillgängligt: installera den versionsbundna SDDM-integrationen."
+
+msgid "Unavailable: prepare the dedicated SDDM face-authentication service."
+msgstr "Otillgängligt: förbered den särskilda SDDM-tjänsten för ansiktsautentisering."
+
+msgid "The saved per-user setting could not be read safely."
+msgstr "Det gick inte att läsa användarens sparade inställning på ett säkert sätt."
+
+msgid "The system profile is missing. Choose a mode again to approve a fresh sync."
+msgstr "Systemprofilen saknas. Välj ett läge igen för att godkänna en ny synkronisering."
+
+msgid "The experimental authentication service is not ready."
+msgstr "Den experimentella autentiseringstjänsten är inte redo."
+
+msgid "Unavailable until the required integration and profile are ready."
+msgstr "Otillgängligt tills integrationen och profilen är klara."
+
+msgid "The experimental KScreenLocker face factor is installed. The unlock theme must register interface v1 at runtime before a face attempt can start."
+msgstr "Den experimentella ansiktsfaktorn för KScreenLocker är installerad. Upplåsningstemat måste registrera gränssnitt v1 vid körning innan ett ansiktsförsök kan starta."
+
+msgid "The dedicated Plasma unlock service is not prepared."
+msgstr "Den särskilda upplåsningstjänsten för Plasma är inte förberedd."
+
+msgid "The versioned KScreenLocker face-authentication API is not installed."
+msgstr "Det versionsbundna API:t för ansiktsautentisering i KScreenLocker är inte installerat."
+
+msgid "The dedicated Plasma PAM service template is missing."
+msgstr "Mallen för den särskilda Plasma-PAM-tjänsten saknas."
+
+msgid "The patched KScreenLocker integration is not available."
+msgstr "Den korrigerade KScreenLocker-integrationen är inte tillgänglig."
+
+msgid "Off. The normal Plasma password unlock remains unchanged."
+msgstr "Av. Vanlig upplåsning med Plasma-lösenord fungerar som vanligt."
+
+msgid "Ready. Choose a face-authentication behavior; password unlock remains available."
+msgstr "Redo. Välj hur ansiktsautentisering ska användas. Upplåsning med lösenord finns alltid kvar."
+
+msgid "On activity after the unlock view is shown. Password unlock stays available."
+msgstr "Vid aktivitet när upplåsningsvyn visas. Upplåsning med lösenord finns alltid kvar."
+
+msgid "Button only. Password unlock stays available."
+msgstr "Endast knapp. Upplåsning med lösenord finns alltid kvar."
+
+msgid "Unavailable: install the versioned KScreenLocker integration build."
+msgstr "Otillgängligt: installera den versionsbundna KScreenLocker-integrationen."
+
+msgid "The active lock-screen theme has not confirmed the face-authentication interface."
+msgstr "Det aktiva låsskärmstemat har inte bekräftat gränssnittet för ansiktsautentisering."
+
+msgid "Unavailable: prepare the dedicated Plasma unlock service."
+msgstr "Otillgängligt: förbered den särskilda upplåsningstjänsten för Plasma."
+
+msgid "Current: the installed system copy matches the approved local profile generation."
+msgstr "Aktuell: den installerade systemkopian motsvarar den godkända lokala profilversionen."
+
+msgid "Stale: approve a fresh system-profile sync before face authentication can run."
+msgstr "Inaktuell: godkänn en ny synkronisering av systemprofilen innan ansiktsautentisering kan användas."
+
+msgid "Unknown: this build cannot compare local and system profile generations."
+msgstr "Okänt: den här versionen kan inte jämföra de lokala profilversionerna med systemprofilen."
+
+msgid "Wait for the authentication settings operation to finish before saving the profile."
+msgstr "Vänta tills inställningen för autentisering är klar innan du sparar profilen."
+
+msgid "The previous system profile could not be revoked. The local profile was not changed."
+msgstr "Den tidigare systemprofilen kunde inte återkallas. Den lokala profilen ändrades inte."
+
+msgid "The profile operation was cancelled. Any completed system-profile revocation remains in effect."
+msgstr "Profilåtgärden avbröts. En eventuell återkallelse av systemprofilen gäller fortfarande."
+
+msgid "Revoking the system profile before deleting local data…"
+msgstr "Återkallar systemprofilen innan lokala data raderas…"
+
+msgid "The system profile could not be revoked. The local profile was not deleted."
+msgstr "Systemprofilen kunde inte återkallas. Den lokala profilen raderades inte."
+
+msgid "Revoking the system profile before resetting local data…"
+msgstr "Återkallar systemprofilen innan lokala data återställs…"
+
+msgid "The system profile could not be revoked. The local profile was not reset."
+msgstr "Systemprofilen kunde inte återkallas. Den lokala profilen återställdes inte."
+
+msgid "Authentication change in progress"
+msgstr "Ändring av autentisering pågår"
+
+msgid "Authentication change verified."
+msgstr "Autentiseringsändringen har verifierats."
+
+msgid "Authentication service"
+msgstr "Autentiseringstjänst"
+
+msgid "Available"
+msgstr "Tillgänglig"
+
+msgid "Check the profile and integration requirements, refresh status, then retry."
+msgstr "Kontrollera profilen och integrationskraven, uppdatera status och försök igen."
+
+msgid "Checking the saved authentication settings…"
+msgstr "Kontrollerar sparade autentiseringsinställningar…"
+
+msgid "Choose a compatible SDDM theme through its normal settings, then refresh authentication status."
+msgstr "Välj ett kompatibelt SDDM-tema i de vanliga inställningarna och uppdatera sedan autentiseringsstatus."
+
+msgid "Dedicated PAM service"
+msgstr "Separat PAM-tjänst"
+
+msgid "Experimental authentication needs attention"
+msgstr "Experimentell autentisering behöver åtgärdas"
+
+msgid "Experimental components"
+msgstr "Experimentella komponenter"
+
+msgid "Incompatible"
+msgstr "Inkompatibel"
+
+msgid "KScreenLocker 6.7.5 / API v1"
+msgstr "KScreenLocker 6.7.5 / API v1"
+
+msgid "KWallet access was unavailable. No authentication change was started."
+msgstr "KWallet var inte tillgängligt. Ingen autentiseringsändring påbörjades."
+
+msgid "Local profile"
+msgstr "Lokal profil"
+
+msgid "Missing"
+msgstr "Saknas"
+
+msgid "Open Login and unlock, refresh status, and review each requirement before retrying."
+msgstr "Öppna Inloggning och upplåsning, uppdatera status och granska varje krav innan du försöker igen."
+
+msgid "Open Login and unlock, then choose Sync system profile and approve access."
+msgstr "Öppna Inloggning och upplåsning, välj Synkronisera systemprofil och godkänn åtkomst."
+
+msgid "Refreshing status never starts the camera. Theme registration must be observed in the real login or unlock process; installed support alone does not confirm it."
+msgstr "Statusuppdatering startar aldrig kameran. Temaregistrering måste observeras vid verklig inloggning eller upplåsning; installerat stöd räcker inte som bekräftelse."
+
+msgid "Register profile"
+msgstr "Registrera profil"
+
+msgid "Retry diagnostics"
+msgstr "Försök med diagnostiken igen"
+
+msgid "Review the version-matched experimental integration and administrative setup instructions."
+msgstr "Granska den versionsanpassade experimentella integrationen och instruktionerna för administrativ konfiguration."
+
+msgid "Runtime theme registration"
+msgstr "Temaregistrering vid körning"
+
+msgid "SDDM 0.21.0 / API v1"
+msgstr "SDDM 0.21.0 / API v1"
+
+msgid "Saved mode"
+msgstr "Sparat läge"
+
+msgid "Some diagnostic values could not be checked. Unknown values are not disabled features."
+msgstr "Vissa diagnostikvärden kunde inte kontrolleras. Okända värden betyder inte att funktionerna är avstängda."
+
+msgid "Sync system profile"
+msgstr "Synkronisera systemprofil"
+
+msgid "System profile synchronized; saved modes were verified."
+msgstr "Systemprofilen har synkroniserats och sparade lägen har verifierats."
+
+msgid "The authentication change failed. Refresh status before retrying."
+msgstr "Autentiseringsändringen misslyckades. Uppdatera status innan du försöker igen."
+
+msgid "The change was cancelled or denied. Review the saved settings before retrying."
+msgstr "Ändringen avbröts eller nekades. Granska de sparade inställningarna innan du försöker igen."
+
+msgid "The login or unlock integration is unavailable"
+msgstr "Integrationen för inloggning eller upplåsning är inte tillgänglig"
+
+msgid "The saved settings could not be verified. Refresh status before retrying."
+msgstr "De sparade inställningarna kunde inte verifieras. Uppdatera status innan du försöker igen."
+
+msgid "The system profile is missing. Choose Sync system profile to approve a fresh copy."
+msgstr "Systemprofilen saknas. Välj Synkronisera systemprofil för att godkänna en ny kopia."
+
+msgid "Theme declaration"
+msgstr "Temadeklaration"
+
+msgid "Unlock KWallet in the current session, then retry Sync system profile."
+msgstr "Lås upp KWallet i den aktuella sessionen och försök sedan synkronisera systemprofilen igen."
+
+msgid "Updating experimental authentication…"
+msgstr "Uppdaterar experimentell autentisering…"
+
+msgid "Waiting for KWallet access…"
+msgstr "Väntar på åtkomst till KWallet…"
