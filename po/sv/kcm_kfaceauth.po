@@ -1789,3 +1789,111 @@ msgstr "Återkallar systemprofilen innan lokala data återställs…"
 
 msgid "The system profile could not be revoked. The local profile was not reset."
 msgstr "Systemprofilen kunde inte återkallas. Den lokala profilen återställdes inte."
+
+msgid "Authentication change in progress"
+msgstr "Ändring av autentisering pågår"
+
+msgid "Authentication change verified."
+msgstr "Autentiseringsändringen har verifierats."
+
+msgid "Authentication service"
+msgstr "Autentiseringstjänst"
+
+msgid "Available"
+msgstr "Tillgänglig"
+
+msgid "Check the profile and integration requirements, refresh status, then retry."
+msgstr "Kontrollera profilen och integrationskraven, uppdatera status och försök igen."
+
+msgid "Checking the saved authentication settings…"
+msgstr "Kontrollerar sparade autentiseringsinställningar…"
+
+msgid "Choose a compatible SDDM theme through its normal settings, then refresh authentication status."
+msgstr "Välj ett kompatibelt SDDM-tema i de vanliga inställningarna och uppdatera sedan autentiseringsstatus."
+
+msgid "Dedicated PAM service"
+msgstr "Separat PAM-tjänst"
+
+msgid "Experimental authentication needs attention"
+msgstr "Experimentell autentisering behöver åtgärdas"
+
+msgid "Experimental components"
+msgstr "Experimentella komponenter"
+
+msgid "Incompatible"
+msgstr "Inkompatibel"
+
+msgid "KScreenLocker 6.7.5 / API v1"
+msgstr "KScreenLocker 6.7.5 / API v1"
+
+msgid "KWallet access was unavailable. No authentication change was started."
+msgstr "KWallet var inte tillgängligt. Ingen autentiseringsändring påbörjades."
+
+msgid "Local profile"
+msgstr "Lokal profil"
+
+msgid "Missing"
+msgstr "Saknas"
+
+msgid "Open Login and unlock, refresh status, and review each requirement before retrying."
+msgstr "Öppna Inloggning och upplåsning, uppdatera status och granska varje krav innan du försöker igen."
+
+msgid "Open Login and unlock, then choose Sync system profile and approve access."
+msgstr "Öppna Inloggning och upplåsning, välj Synkronisera systemprofil och godkänn åtkomst."
+
+msgid "Refreshing status never starts the camera. Theme registration must be observed in the real login or unlock process; installed support alone does not confirm it."
+msgstr "Statusuppdatering startar aldrig kameran. Temaregistrering måste observeras vid verklig inloggning eller upplåsning; installerat stöd räcker inte som bekräftelse."
+
+msgid "Register profile"
+msgstr "Registrera profil"
+
+msgid "Retry diagnostics"
+msgstr "Försök med diagnostiken igen"
+
+msgid "Review the version-matched experimental integration and administrative setup instructions."
+msgstr "Granska den versionsanpassade experimentella integrationen och instruktionerna för administrativ konfiguration."
+
+msgid "Runtime theme registration"
+msgstr "Temaregistrering vid körning"
+
+msgid "SDDM 0.21.0 / API v1"
+msgstr "SDDM 0.21.0 / API v1"
+
+msgid "Saved mode"
+msgstr "Sparat läge"
+
+msgid "Some diagnostic values could not be checked. Unknown values are not disabled features."
+msgstr "Vissa diagnostikvärden kunde inte kontrolleras. Okända värden betyder inte att funktionerna är avstängda."
+
+msgid "Sync system profile"
+msgstr "Synkronisera systemprofil"
+
+msgid "System profile synchronized; saved modes were verified."
+msgstr "Systemprofilen har synkroniserats och sparade lägen har verifierats."
+
+msgid "The authentication change failed. Refresh status before retrying."
+msgstr "Autentiseringsändringen misslyckades. Uppdatera status innan du försöker igen."
+
+msgid "The change was cancelled or denied. Review the saved settings before retrying."
+msgstr "Ändringen avbröts eller nekades. Granska de sparade inställningarna innan du försöker igen."
+
+msgid "The login or unlock integration is unavailable"
+msgstr "Integrationen för inloggning eller upplåsning är inte tillgänglig"
+
+msgid "The saved settings could not be verified. Refresh status before retrying."
+msgstr "De sparade inställningarna kunde inte verifieras. Uppdatera status innan du försöker igen."
+
+msgid "The system profile is missing. Choose Sync system profile to approve a fresh copy."
+msgstr "Systemprofilen saknas. Välj Synkronisera systemprofil för att godkänna en ny kopia."
+
+msgid "Theme declaration"
+msgstr "Temadeklaration"
+
+msgid "Unlock KWallet in the current session, then retry Sync system profile."
+msgstr "Lås upp KWallet i den aktuella sessionen och försök sedan synkronisera systemprofilen igen."
+
+msgid "Updating experimental authentication…"
+msgstr "Uppdaterar experimentell autentisering…"
+
+msgid "Waiting for KWallet access…"
+msgstr "Väntar på åtkomst till KWallet…"

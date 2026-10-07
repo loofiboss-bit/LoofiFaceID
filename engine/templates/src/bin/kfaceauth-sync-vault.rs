@@ -103,7 +103,7 @@ fn read_user_session_input(target_uid: u32) -> Result<(File, MasterKey), ()> {
 }
 
 fn usage() -> &'static str {
-    "Usage: kfaceauth-sync-vault --enable-target sddm|plasma-lock [--mode off|on-activity|manual] | --disable-target sddm|plasma-lock | --delete-profile --uid UID"
+    "Usage: kfaceauth-sync-vault --enable-target sddm|plasma-lock [--mode off|on-activity|manual] | --disable-target sddm|plasma-lock | --delete-profile --uid UID | --resync-profile"
 }
 
 #[cfg(test)]
@@ -129,6 +129,7 @@ enum Operation {
         target: AuthTarget,
     },
     DeleteProfile,
+    ResyncProfile,
 }
 
 fn parse_pkexec_uid(value: Option<&str>, requested_uid: Option<&str>) -> Result<u32, ()> {
@@ -163,6 +164,7 @@ where
     let mut enable_target: Option<String> = None;
     let mut disable_target: Option<String> = None;
     let mut delete_profile = false;
+    let mut resync_profile = false;
     let mut requested_mode: Option<String> = None;
     let mut requested_uid: Option<String> = None;
 
@@ -184,6 +186,7 @@ where
                 disable_target = Some(value);
             }
             "--delete-profile" if !delete_profile => delete_profile = true,
+            "--resync-profile" if !resync_profile => resync_profile = true,
             "--mode" if requested_mode.is_none() => {
                 let Some(value) = args.next() else {
                     eprintln!("Missing value for --mode");
@@ -211,7 +214,8 @@ where
 
     let operations = usize::from(enable_target.is_some())
         + usize::from(disable_target.is_some())
-        + usize::from(delete_profile);
+        + usize::from(delete_profile)
+        + usize::from(resync_profile);
     if operations != 1 {
         eprintln!("Choose exactly one target operation. {}", usage());
         return Err(());
@@ -236,6 +240,12 @@ where
         Operation::Disable {
             target: parse_target(&target)?,
         }
+    } else if resync_profile {
+        if requested_mode.is_some() || requested_uid.is_some() {
+            eprintln!("--resync-profile accepts no mode or UID override");
+            return Err(());
+        }
+        Operation::ResyncProfile
     } else {
         if requested_mode.is_some() {
             eprintln!("--mode is invalid with --delete-profile");
@@ -328,7 +338,12 @@ fn load_policy(paths: &AnchoredDirectories) -> Result<AuthPolicy, ()> {
 fn write_policy(paths: &AnchoredDirectories, policy: &AuthPolicy) -> Result<(), ()> {
     policy.write_atomic(&paths.config_dir).map_err(|error| {
         eprintln!("{error}");
-    })
+    })?;
+    if load_policy(paths)? != *policy {
+        eprintln!("Authentication policy readback did not match the transaction");
+        return Err(());
+    }
+    Ok(())
 }
 
 fn acquire_policy_lock(paths: &AnchoredDirectories) -> Result<File, ()> {
@@ -633,13 +648,12 @@ fn install_staged_profile(
 
 fn commit_verified_profile(
     target_uid: u32,
-    target: AuthTarget,
-    requested_mode: AuthPolicyMode,
+    target_change: Option<(AuthTarget, AuthPolicyMode)>,
     paths: &AnchoredDirectories,
     system_key: &MasterKey,
     staging: &StagingDirectory,
 ) -> Result<(), ()> {
-    if !run_setup(target, target_uid) {
+    if target_change.is_some_and(|(target, _)| !run_setup(target, target_uid)) {
         eprintln!("Target preparation failed; the existing system profile was preserved");
         return Err(());
     }
@@ -656,7 +670,7 @@ fn commit_verified_profile(
     }
 
     let Ok(mut swap) = install_staged_profile(target_uid, &paths.system_root, staging) else {
-        if write_policy(paths, &previous_policy).is_err() {
+        if restore_previous_policy(target_uid, paths, system_key, &previous_policy).is_err() {
             eprintln!(
                 "Profile replacement failed and prior policy restoration failed; authentication remains revoked"
             );
@@ -664,24 +678,34 @@ fn commit_verified_profile(
         return Err(());
     };
     let installed_vault = Vault::system_with_root(&paths.system_root_path(), target_uid);
-    if installed_vault.validate_integrity(system_key).is_err() {
+    if installed_vault.validate_integrity(system_key).is_err()
+        || paths.system_root.sync_all().is_err()
+    {
         eprintln!("The installed system profile failed integrity verification");
         let rollback_ok = swap.rollback().is_ok();
-        if rollback_ok && write_policy(paths, &previous_policy).is_err() {
+        if rollback_ok
+            && restore_previous_policy(target_uid, paths, system_key, &previous_policy).is_err()
+        {
             eprintln!("Prior policy restoration failed; authentication remains revoked");
         }
         return Err(());
     }
 
     let mut enabled_policy = previous_policy.clone();
-    if enabled_policy
-        .set_mode(target_uid, target, requested_mode)
-        .is_err()
+    if target_change
+        .is_some_and(|(target, mode)| enabled_policy.set_mode(target_uid, target, mode).is_err())
         || write_policy(paths, &enabled_policy).is_err()
     {
         eprintln!("Target policy activation failed; restoring the previous system profile");
+        if write_policy(paths, &revoked_policy).is_err() {
+            // Do not swap data while an enabled policy could remain visible.
+            swap.committed = true;
+            return Err(());
+        }
         let rollback_ok = swap.rollback().is_ok();
-        if rollback_ok && write_policy(paths, &previous_policy).is_err() {
+        if rollback_ok
+            && restore_previous_policy(target_uid, paths, system_key, &previous_policy).is_err()
+        {
             eprintln!("Prior policy restoration failed; authentication remains revoked");
         }
         return Err(());
@@ -689,6 +713,27 @@ fn commit_verified_profile(
 
     swap.commit();
     Ok(())
+}
+
+fn restore_previous_policy(
+    uid: u32,
+    paths: &AnchoredDirectories,
+    key: &MasterKey,
+    policy: &AuthPolicy,
+) -> Result<(), ()> {
+    let requires_profile = [AuthTarget::Sddm, AuthTarget::PlasmaLock]
+        .into_iter()
+        .any(|target| policy.mode_for(uid, target) != AuthPolicyMode::Off);
+    if requires_profile
+        && Vault::system_with_root(&paths.system_root_path(), uid)
+            .validate_integrity(key)
+            .is_err()
+    {
+        eprintln!("Restored system profile could not be verified; authentication remains revoked");
+        return Err(());
+    }
+    paths.system_root.sync_all().map_err(|_| ())?;
+    write_policy(paths, policy)
 }
 
 struct NewKeyGuard {
@@ -703,10 +748,9 @@ impl Drop for NewKeyGuard {
     }
 }
 
-fn enable_target(
+fn sync_profile(
     target_uid: u32,
-    target: AuthTarget,
-    requested_mode: AuthPolicyMode,
+    target_change: Option<(AuthTarget, AuthPolicyMode)>,
     paths: &AnchoredDirectories,
 ) -> ExitCode {
     let Ok((data_home, user_key)) = read_user_session_input(target_uid) else {
@@ -788,19 +832,18 @@ fn enable_target(
         return ExitCode::FAILURE;
     }
 
-    if commit_verified_profile(
-        target_uid,
-        target,
-        requested_mode,
-        paths,
-        &system_key,
-        &staging,
-    )
-    .is_err()
-    {
+    if commit_verified_profile(target_uid, target_change, paths, &system_key, &staging).is_err() {
         return ExitCode::FAILURE;
     }
     new_key_guard.path = None;
+    sync_success(target_change)
+}
+
+fn sync_success(target_change: Option<(AuthTarget, AuthPolicyMode)>) -> ExitCode {
+    let Some((_, requested_mode)) = target_change else {
+        println!("result=ok state=synced");
+        return ExitCode::SUCCESS;
+    };
     println!(
         "result=ok state={} mode={}",
         if requested_mode == AuthPolicyMode::Off {
@@ -1000,10 +1043,11 @@ fn main() -> ExitCode {
     };
     match options.operation {
         Operation::Enable { target, mode } => {
-            enable_target(options.target_uid, target, mode, &paths)
+            sync_profile(options.target_uid, Some((target, mode)), &paths)
         }
         Operation::Disable { target } => disable_target(options.target_uid, target, &paths),
         Operation::DeleteProfile => delete_system_profile(options.target_uid, &paths),
+        Operation::ResyncProfile => sync_profile(options.target_uid, None, &paths),
     }
 }
 
@@ -1179,6 +1223,178 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn resync_is_authorized_and_has_no_target_or_mode_override() {
+        let options = parse_args(arguments(&["--resync-profile"]), Some("1000"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(options.target_uid, 1000);
+        assert!(matches!(options.operation, Operation::ResyncProfile));
+        for uid in [None, Some("0"), Some("01000"), Some("1000x")] {
+            assert!(parse_args(arguments(&["--resync-profile"]), uid).is_err());
+        }
+        for args in [
+            &["--resync-profile", "--mode", "manual"][..],
+            &["--resync-profile", "--uid", "1000"][..],
+            &["--resync-profile", "--enable-target", "sddm"][..],
+            &["--resync-profile", "--disable-target", "plasma-lock"][..],
+            &["--resync-profile", "--delete-profile"][..],
+            &["--resync-profile", "--resync-profile"][..],
+            &["--resync-profile", "--system-root", "/tmp/system"][..],
+        ] {
+            assert!(parse_args(arguments(args), Some("1000")).is_err());
+        }
+        assert_eq!(sync_success(None), ExitCode::SUCCESS);
+    }
+
+    fn synthetic_profile(axis: usize) -> kfaceauth_templates::Profile {
+        let mut values = [0.0; kfaceauth_identity_types::EMBEDDING_DIMENSION];
+        values[axis] = 1.0;
+        let embedding =
+            kfaceauth_identity_types::NormalizedEmbedding::from_normalized(values).unwrap();
+        kfaceauth_templates::Profile::new(vec![embedding.clone(), embedding.clone(), embedding])
+            .unwrap()
+    }
+
+    fn transaction_fixture() -> Option<(PathBuf, AnchoredDirectories, MasterKey, StagingDirectory)>
+    {
+        let (root, paths) = deletion_fixture(1000)?;
+        let key = MasterKey::generate().unwrap();
+        fs::remove_file(root.join("system/1000/identity.vault")).unwrap();
+        Vault::system_with_root(&paths.system_root_path(), 1000)
+            .commit_profile(&key, &synthetic_profile(0))
+            .unwrap();
+        let staging = create_staging_directory(&paths.system_root).unwrap();
+        fs::create_dir(staging.path.join("1000")).unwrap();
+        let staged_profile = open_child_directory_nofollow(&staging.directory, "1000").unwrap();
+        set_fd_permissions(&staged_profile, 0, 0o750, SYSTEM_GROUP).unwrap();
+        let staged_vault = Vault::system_with_root(&staging.path, 1000);
+        staged_vault
+            .commit_profile(&key, &synthetic_profile(1))
+            .unwrap();
+        apply_system_profile_permissions(1000, &staging.directory).unwrap();
+        Some((root, paths, key, staging))
+    }
+
+    #[test]
+    fn resync_preserves_every_independent_mode_pair_and_other_users() {
+        for login in [
+            AuthPolicyMode::Off,
+            AuthPolicyMode::Manual,
+            AuthPolicyMode::OnActivity,
+        ] {
+            for unlock in [
+                AuthPolicyMode::Off,
+                AuthPolicyMode::Manual,
+                AuthPolicyMode::OnActivity,
+            ] {
+                let Some((root, paths, key, staging)) = transaction_fixture() else {
+                    return;
+                };
+                let mut policy = AuthPolicy::default();
+                policy.set_mode(1000, AuthTarget::Sddm, login).unwrap();
+                policy
+                    .set_mode(1000, AuthTarget::PlasmaLock, unlock)
+                    .unwrap();
+                policy
+                    .set_mode(1001, AuthTarget::Sddm, AuthPolicyMode::Manual)
+                    .unwrap();
+                write_policy(&paths, &policy).unwrap();
+                commit_verified_profile(1000, None, &paths, &key, &staging).unwrap();
+                assert_eq!(load_policy(&paths).unwrap(), policy);
+                let vault = Vault::system_with_root(&paths.system_root_path(), 1000);
+                vault.validate_integrity(&key).unwrap();
+                assert_eq!(vault.open_profile(&key).unwrap().sample_count(), 3);
+                drop(staging);
+                fs::remove_dir_all(root).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn resync_installs_a_missing_system_profile_without_enabling_targets() {
+        let Some((root, paths, key, staging)) = transaction_fixture() else {
+            return;
+        };
+        fs::remove_dir_all(root.join("system/1000")).unwrap();
+        let policy = AuthPolicy::default();
+        write_policy(&paths, &policy).unwrap();
+        commit_verified_profile(1000, None, &paths, &key, &staging).unwrap();
+        assert_eq!(load_policy(&paths).unwrap(), policy);
+        Vault::system_with_root(&paths.system_root_path(), 1000)
+            .validate_integrity(&key)
+            .unwrap();
+        drop(staging);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn corrupt_resync_rolls_back_profile_and_exact_policy() {
+        let Some((root, paths, key, staging)) = transaction_fixture() else {
+            return;
+        };
+        let previous_policy = load_policy(&paths).unwrap();
+        let previous_bytes = fs::read(root.join("system/1000/identity.vault")).unwrap();
+        fs::write(
+            staging.path.join("1000/identity.vault"),
+            b"invalid ciphertext",
+        )
+        .unwrap();
+        assert!(commit_verified_profile(1000, None, &paths, &key, &staging).is_err());
+        assert_eq!(load_policy(&paths).unwrap(), previous_policy);
+        assert_eq!(
+            fs::read(root.join("system/1000/identity.vault")).unwrap(),
+            previous_bytes
+        );
+        drop(staging);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_rollback_never_restores_enabled_policy() {
+        let Some((root, paths, key, staging)) = transaction_fixture() else {
+            return;
+        };
+        fs::write(
+            root.join("system/1000/identity.vault"),
+            b"invalid previous ciphertext",
+        )
+        .unwrap();
+        fs::write(
+            staging.path.join("1000/identity.vault"),
+            b"invalid new ciphertext",
+        )
+        .unwrap();
+        assert!(commit_verified_profile(1000, None, &paths, &key, &staging).is_err());
+        let policy = load_policy(&paths).unwrap();
+        assert_eq!(policy.mode_for(1000, AuthTarget::Sddm), AuthPolicyMode::Off);
+        assert_eq!(
+            policy.mode_for(1000, AuthTarget::PlasmaLock),
+            AuthPolicyMode::Off
+        );
+        drop(staging);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn active_policy_transaction_refuses_concurrent_resync_without_swapping() {
+        let Some((root, paths, key, staging)) = transaction_fixture() else {
+            return;
+        };
+        let previous_policy = load_policy(&paths).unwrap();
+        let previous_bytes = fs::read(root.join("system/1000/identity.vault")).unwrap();
+        let lock = acquire_policy_lock(&paths).unwrap();
+        assert!(commit_verified_profile(1000, None, &paths, &key, &staging).is_err());
+        assert_eq!(load_policy(&paths).unwrap(), previous_policy);
+        assert_eq!(
+            fs::read(root.join("system/1000/identity.vault")).unwrap(),
+            previous_bytes
+        );
+        drop(lock);
+        drop(staging);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

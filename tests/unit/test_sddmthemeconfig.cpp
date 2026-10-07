@@ -6,8 +6,10 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTest>
+#include <sys/stat.h>
 
 using KFaceAuth::SddmThemeConfigPaths;
+using KFaceAuth::SddmThemeSupport;
 
 class TestSddmThemeConfig final : public QObject
 {
@@ -19,6 +21,7 @@ class TestSddmThemeConfig final : public QObject
     void metadataMayChooseThemeConfigurationFile();
     void emptyThemeUsesEmbeddedFallback();
     void unsupportedOrEscapingThemeConfigurationFailsClosed();
+    void unreadableOrMalformedConfigurationIsUnknown();
 };
 
 static bool writeFile(const QString &path, const QByteArray &contents)
@@ -50,10 +53,10 @@ void TestSddmThemeConfig::activeThemeMustDeclareTheVersionedInterface()
                       "[General]\nfaceAuthenticationApi=1\n"));
     QVERIFY(writeFile(paths.mainConfigFile, "[Theme]\nCurrent=face\n"));
 
-    QVERIFY(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Declared);
     QVERIFY(writeFile(paths.defaultThemeDirectory + QStringLiteral("/face/theme.conf"),
                       "[General]\nfaceAuthenticationApi=2\n"));
-    QVERIFY(!KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Unsupported);
 }
 
 void TestSddmThemeConfig::effectiveConfigurationUsesSddmPrecedence()
@@ -76,9 +79,9 @@ void TestSddmThemeConfig::effectiveConfigurationUsesSddmPrecedence()
                       "[Theme]\nCurrent=face\n"));
     QVERIFY(writeFile(paths.mainConfigFile, "[Theme]\nCurrent=plain\n"));
 
-    QVERIFY(!KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Unsupported);
     QVERIFY(writeFile(paths.mainConfigFile, "[Theme]\nCurrent=face\n"));
-    QVERIFY(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Declared);
 }
 
 void TestSddmThemeConfig::metadataMayChooseThemeConfigurationFile()
@@ -93,7 +96,7 @@ void TestSddmThemeConfig::metadataMayChooseThemeConfigurationFile()
     QVERIFY(writeFile(theme + QStringLiteral("/settings/face.conf"), "[General]\nfaceAuthenticationApi=1\n"));
     QVERIFY(writeFile(paths.mainConfigFile, "[Theme]\nCurrent=face\n"));
 
-    QVERIFY(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Declared);
 }
 
 void TestSddmThemeConfig::emptyThemeUsesEmbeddedFallback()
@@ -103,7 +106,7 @@ void TestSddmThemeConfig::emptyThemeUsesEmbeddedFallback()
     const auto paths = pathsFor(temporary.path());
     QVERIFY(writeFile(paths.mainConfigFile, "[Theme]\nCurrent=\n"));
 
-    QVERIFY(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Declared);
 }
 
 void TestSddmThemeConfig::unsupportedOrEscapingThemeConfigurationFailsClosed()
@@ -117,10 +120,26 @@ void TestSddmThemeConfig::unsupportedOrEscapingThemeConfigurationFailsClosed()
         writeFile(theme + QStringLiteral("/metadata.desktop"), "[SddmGreeterTheme]\nConfigFile=../../outside.conf\n"));
     QVERIFY(writeFile(paths.mainConfigFile, "[Theme]\nCurrent=face\n"));
 
-    QVERIFY(!KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Unsupported);
     QVERIFY(writeFile(theme + QStringLiteral("/metadata.desktop"), "[SddmGreeterTheme]\n"));
     QVERIFY(writeFile(theme + QStringLiteral("/theme.conf"), "[General]\nfaceAuthenticationApi=\n"));
-    QVERIFY(!KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Unsupported);
+}
+
+void TestSddmThemeConfig::unreadableOrMalformedConfigurationIsUnknown()
+{
+    QTemporaryDir temporary;
+    QVERIFY(temporary.isValid());
+    const auto paths = pathsFor(temporary.path());
+    QVERIFY(writeFile(paths.mainConfigFile, "[Theme]\nCurrent=missing\n"));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Unknown);
+    QVERIFY(writeFile(paths.mainConfigFile, "[Theme]\nCurrent=face\nCurrent=other\n"));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Unknown);
+    QVERIFY(writeFile(paths.mainConfigFile, QByteArray(65537, 'x')));
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Unknown);
+    QVERIFY(QFile::remove(paths.mainConfigFile));
+    QVERIFY(::mkfifo(QFile::encodeName(paths.mainConfigFile).constData(), 0600) == 0);
+    QCOMPARE(KFaceAuth::activeSddmThemeSupportsFaceAuthentication(paths), SddmThemeSupport::Unknown);
 }
 
 QTEST_GUILESS_MAIN(TestSddmThemeConfig)

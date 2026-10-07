@@ -39,6 +39,7 @@ class QmlPagesTest final : public QObject
     void setupPageStopsWhenHidden();
     void setupRecoveryReplacementAndResponsiveFocus();
     void analysisCancelsWhenApplicationDeactivates();
+    void authenticationModesAndReadbackFeedback();
 };
 
 class QmlKcmFacade final : public QObject
@@ -51,6 +52,8 @@ class QmlKcmFacade final : public QObject
     Q_PROPERTY(LocalVerificationSession *localVerificationSession READ localVerificationSession CONSTANT)
     Q_PROPERTY(SupportReport *supportReport READ supportReport CONSTANT)
     Q_PROPERTY(bool refreshing READ refreshing CONSTANT)
+    Q_PROPERTY(bool partialDiagnostics READ refreshing CONSTANT)
+    Q_PROPERTY(bool retryAvailable READ refreshing CONSTANT)
     Q_PROPERTY(QString productVersion READ productVersion CONSTANT)
     Q_PROPERTY(QString flowStateLabel READ flowStateLabel CONSTANT)
     Q_PROPERTY(QString recommendedAction READ recommendedAction CONSTANT)
@@ -360,10 +363,11 @@ void QmlPagesTest::destinationPagesCreateForUnavailableEngine()
     {
         QVERIFY(control);
         QVERIFY(control->property("activeFocusOnTab").toBool());
-        const QString accessibleText = control->property("text").isValid() ? control->property("text").toString()
-                                       : control->property("accessibilityLabel").isValid()
-                                           ? control->property("accessibilityLabel").toString()
-                                           : control->property("currentText").toString();
+        const QString accessibleText =
+            control->property("text").isValid()                 ? control->property("text").toString()
+            : control->property("accessibilityLabel").isValid() ? control->property("accessibilityLabel").toString()
+            : control->property("displayText").isValid()        ? control->property("displayText").toString()
+                                                                : control->property("currentText").toString();
         QVERIFY(!accessibleText.isEmpty());
     }
 
@@ -389,6 +393,81 @@ class QmlTestKeyProvider final : public KWalletKeyProvider
     }
 };
 } // namespace
+
+void QmlPagesTest::authenticationModesAndReadbackFeedback()
+{
+    EnrollmentSession::AuthStatusSnapshot snapshot;
+    snapshot.components = snapshot.sddmApi = snapshot.sddmTheme = snapshot.sddmPam = snapshot.plasmaApi =
+        snapshot.plasmaPam = snapshot.daemon = snapshot.systemProfile = EnrollmentSession::Readiness::Available;
+    snapshot.sddmMode = QStringLiteral("manual");
+    snapshot.plasmaMode = QStringLiteral("on-activity");
+    CameraPreviewSession preview(QStringLiteral("/nonexistent/preview-worker"), nullptr);
+    QmlTestKeyProvider keys;
+    QProcessEnvironment identityEnvironment = QProcessEnvironment::systemEnvironment();
+    identityEnvironment.insert(QStringLiteral("KFACEAUTH_TEST_MODE"), QStringLiteral("session-lifecycle"));
+    IdentityWorkerClient worker(QStringLiteral(KFACEAUTH_FAKE_IDENTITY_WORKER_PATH), identityEnvironment, nullptr);
+    EnrollmentSession::AuthOperationCompletion finishOperation;
+    int launches = 0;
+    EnrollmentSession enrollment(
+        &preview, &worker, &keys,
+        [&snapshot](EnrollmentSession::AuthStatusCompletion completion) { completion(snapshot); },
+        [&finishOperation, &launches](QStringList, QByteArray input,
+                                      EnrollmentSession::AuthOperationCompletion completion)
+        {
+            input.fill('\0');
+            ++launches;
+            finishOperation = std::move(completion);
+        });
+    enrollment.refreshProfileStatus();
+    QTRY_VERIFY(enrollment.profileReady());
+    QQmlEngine engine;
+    KLocalization::setupLocalizedContext(&engine)->setTranslationDomain(QStringLiteral("kcm_kfaceauth"));
+    auto page = createPage(engine, QStringLiteral("AuthIntegrationPage.qml"),
+                           {{QStringLiteral("backendReady"), true},
+                            {QStringLiteral("enrollmentSession"), QVariant::fromValue(&enrollment)}});
+    QVERIFY(page);
+    auto *item = qobject_cast<QQuickItem *>(page.get());
+    QVERIFY(item);
+    QQuickWindow window;
+    item->setParentItem(window.contentItem());
+    for (int width : {320, 480, 960})
+    {
+        window.resize(width, 720);
+        item->setSize(QSizeF(width, 720));
+        QCoreApplication::processEvents();
+        for (const char *name :
+             {"refreshAuthStatus", "openAuthRegistration", "syncSystemProfile", "sddmAuthMode", "plasmaLockAuthMode"})
+        {
+            auto *control = page->findChild<QQuickItem *>(QString::fromLatin1(name));
+            QVERIFY(control);
+            QVERIFY(control->property("activeFocusOnTab").toBool());
+            QVERIFY(control->width() <= width);
+        }
+    }
+    auto *mode = page->findChild<QObject *>(QStringLiteral("sddmAuthMode"));
+    auto *feedback = page->findChild<QObject *>(QStringLiteral("authOperationFeedback"));
+    QVERIFY(mode && feedback);
+    QCOMPARE(mode->property("count").toInt(), 3);
+    QCOMPARE(mode->property("currentIndex").toInt(), 2);
+    mode->setProperty("currentIndex", 1);
+    QVERIFY(QMetaObject::invokeMethod(mode, "activated", Q_ARG(int, 1)));
+    QCOMPARE(launches, 1);
+    QVERIFY(!mode->property("enabled").toBool());
+    QCOMPARE(mode->property("currentIndex").toInt(), 2);
+    QVERIFY(!feedback->property("text").toString().isEmpty());
+    finishOperation(126, true);
+    QCOMPARE(mode->property("currentIndex").toInt(), 2);
+    QVERIFY(mode->property("enabled").toBool());
+    const QString failedText = feedback->property("text").toString();
+    QVERIFY(!failedText.isEmpty());
+    enrollment.checkSystemAuthStatus();
+    QCOMPARE(feedback->property("text").toString(), failedText);
+    snapshot.sddmMode = QStringLiteral("unknown");
+    enrollment.checkSystemAuthStatus();
+    QCOMPARE(mode->property("currentIndex").toInt(), -1);
+    QCOMPARE(mode->property("count").toInt(), 3);
+    QVERIFY(!preview.previewActive());
+}
 
 void QmlPagesTest::setupRecoveryReplacementAndResponsiveFocus()
 {

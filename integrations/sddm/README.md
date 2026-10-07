@@ -75,6 +75,20 @@ the current helper's successful PAM authentication and account-management
 result can follow SDDM's existing session and login checks. A mismatched PAM
 user is rejected.
 
+## Fixed error feedback
+
+The isolated helper accepts only exact `KFACEAUTH_STATUS` messages: starting
+camera, looking for face, use password, camera busy, timeout, service
+unavailable, and retry later. It forwards closed tokens instead of arbitrary
+PAM text. The daemon maps these tokens to translated messages for the reusable
+control. Terminal failures cancel the helper and remain visible after generic
+failure callbacks. Rate limiting offers a later manual retry without promising
+an exact countdown. Recognition and heuristic rejection both use the generic
+password fallback; these messages make no liveness or presentation-attack claim.
+The two-second deadline, attempt ID binding, password input, and API v1 remain
+in place. Qt tests exercise the conversation allowlist, including unknown and
+malformed tokens.
+
 ## Apply and check
 
 Use a clean checkout of the pinned upstream revision. The checker validates the
@@ -98,8 +112,8 @@ cmake --build /tmp/sddm-v0.21.0/build-face-auth --parallel
 ctest --test-dir /tmp/sddm-v0.21.0/build-face-auth --output-on-failure
 ```
 
-The patch applies to the pinned upstream commit, its nine source-contract tests
-pass, the opt-in Qt 6 build completes, and its three CTest cases pass. Physical
+The patch applies to the pinned upstream commit. Its source-contract checks
+and Qt conversation-status test cover fixed error feedback. Physical
 SDDM login, SELinux behavior, password fallback, camera release,
 assistive-technology behavior, and the installed marker on Fedora remain
 unverified until tested on the target system. This patch does not install SDDM,

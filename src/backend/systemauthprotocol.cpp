@@ -17,6 +17,7 @@ constexpr quint8 StatusSpoofDetected = 7;
 constexpr quint8 StatusRateLimited = 8;
 constexpr quint8 StatusCancelled = 9;
 constexpr quint8 MaximumSamples = 8;
+constexpr quint8 MinimumSamples = 3;
 constexpr qsizetype RequestPayloadSize = 8;
 constexpr qsizetype ResponseHeaderSize = 4;
 constexpr qsizetype StatusResponseSize = 6;
@@ -55,11 +56,12 @@ SystemAuthProtocol::Status SystemAuthProtocol::parseStatusResponse(QByteArrayVie
         const quint8 enrolled = static_cast<quint8>(payload.at(4));
         const quint8 sampleCount = static_cast<quint8>(payload.at(5));
         if (enrolled > 1 || sampleCount > MaximumSamples || (enrolled == 0 && sampleCount != 0) ||
-            (enrolled == 1 && sampleCount == 0))
+            (enrolled == 1 && sampleCount < MinimumSamples))
             return result;
 
         result.daemonReady = true;
         result.systemProfileReady = enrolled == 1;
+        result.systemProfileKnown = true;
         return result;
     }
 
@@ -70,5 +72,6 @@ SystemAuthProtocol::Status SystemAuthProtocol::parseStatusResponse(QByteArrayVie
         return result;
 
     result.daemonReady = true;
+    result.systemProfileKnown = statusCode == StatusNoProfile;
     return result;
 }

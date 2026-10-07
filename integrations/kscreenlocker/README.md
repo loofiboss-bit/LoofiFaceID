@@ -45,9 +45,10 @@ alone does not. Password entry, Enter/Return, Escape, choosing password,
 switching users, suspend, or hiding all lock-screen views cancels the separate
 PAM worker. The worker receives SIGTERM immediately and SIGKILL after 100 ms if
 needed, which closes the PAM client's daemon socket. Password input remains
-enabled while face PAM runs. A fixed allowlist maps PAM status tokens to three
-localized states; no raw PAM text reaches QML. Only a normal worker exit with
-PAM success can request unlock, and the greeter rechecks that result before
+enabled while face PAM runs. A fixed allowlist maps PAM status tokens to localized
+progress and failure states; no raw PAM text reaches QML. Only a normal worker
+exit after successful PAM authentication, account management, and credential
+refresh can request unlock, and the greeter rechecks that result before
 quitting. Policy state, activity, and typed progress are never authorization;
 only successful `kde-kfaceauth` PAM completion can unlock.
 
@@ -63,6 +64,20 @@ That theme change has offscreen and password-fallback checks only; physical
 unlock, camera cancellation, and assistive-technology behavior remain
 unverified. Breeze and other themes remain password-only until they load the
 component and complete their own runtime qualification.
+
+## Fixed error feedback
+
+The conversation parser accepts exact status tokens for camera busy, timeout,
+service unavailable, and retry later alongside the existing progress and
+password fallback tokens. Unknown or malformed messages are ignored. Terminal
+failures stop the isolated worker, remain visible after generic process failure,
+and reject subsequent progress or late positive exits. The reusable control
+keeps password selection and explicit retry available; rate limiting says to
+try later without an exact countdown. Recognition and heuristic rejection use
+the generic password fallback and make no liveness or presentation-attack claim.
+Qt tests exercise both the actual conversation parser and synthetic worker
+completion, including every terminal category and a contradictory late success.
+The two-second deadline, shared multiview attempt, and theme API v1 remain.
 
 ## Apply and verify
 

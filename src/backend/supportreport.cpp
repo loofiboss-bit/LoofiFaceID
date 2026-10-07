@@ -225,6 +225,12 @@ QString SupportReport::redactedValue(const QString &value)
 
 QString SupportReport::titleForCode(const QString &code)
 {
+    if (code.startsWith(QLatin1String("auth-")) || code == QLatin1String("system-profile-unavailable") ||
+        code == QLatin1String("daemon-not-ready"))
+        return translate("Experimental authentication needs attention");
+    if (code == QLatin1String("sddm-theme-missing") || code == QLatin1String("sddm-api-missing") ||
+        code == QLatin1String("kscreenlocker-api-missing"))
+        return translate("The login or unlock integration is unavailable");
     if (code == QLatin1String("camera-busy"))
         return translate("The camera is in use");
     if (code == QLatin1String("camera-unavailable"))
@@ -258,6 +264,18 @@ QString SupportReport::titleForCode(const QString &code)
 
 QString SupportReport::actionForCode(const QString &code)
 {
+    if (code == QLatin1String("system-profile-unavailable"))
+        return translate("Open Login and unlock, then choose Sync system profile and approve access.");
+    if (code == QLatin1String("auth-wallet-unavailable"))
+        return translate("Unlock KWallet in the current session, then retry Sync system profile.");
+    if (code.startsWith(QLatin1String("auth-")) || code == QLatin1String("daemon-not-ready"))
+        return translate("Open Login and unlock, refresh status, and review each requirement before retrying.");
+    if (code == QLatin1String("sddm-theme-missing"))
+        return translate(
+            "Choose a compatible SDDM theme through its normal settings, then refresh authentication status.");
+    if (code == QLatin1String("sddm-api-missing") || code == QLatin1String("kscreenlocker-api-missing") ||
+        code == QLatin1String("sddm-pam-service-missing") || code == QLatin1String("kde-pam-service-missing"))
+        return translate("Review the version-matched experimental integration and administrative setup instructions.");
     if (code == QLatin1String("camera-busy"))
         return translate("Close applications using the camera, then retry the preview.");
     if (code == QLatin1String("camera-unavailable"))
@@ -350,6 +368,37 @@ void SupportReport::rebuild()
                      ? m_cameraPreviewSession->errorCode()
                      : QStringLiteral("none"))
             .arg(m_cameraPreviewSession ? m_cameraPreviewSession->droppedFrames() : 0);
+    if (m_enrollmentSession)
+    {
+        const auto results = QMetaEnum::fromType<EnrollmentSession::AuthOperationResult>();
+        m_report += QStringLiteral("\n## Experimental authentication\n");
+        const auto appendTarget = [this](const QString &target, const QVariantList &rows, const QString &error)
+        {
+            for (const QVariant &row : rows)
+            {
+                const QVariantMap values = row.toMap();
+                m_report += QStringLiteral("- %1.%2: %3\n")
+                                .arg(target, values.value(QStringLiteral("id")).toString(),
+                                     values.value(QStringLiteral("code")).toString());
+            }
+            m_report +=
+                QStringLiteral("- %1.issue: %2\n").arg(target, error.isEmpty() ? QStringLiteral("none") : error);
+        };
+        appendTarget(QStringLiteral("sddm"), m_enrollmentSession->sddmReadiness(),
+                     m_enrollmentSession->sddmAuthErrorCode());
+        appendTarget(QStringLiteral("plasma-lock"), m_enrollmentSession->plasmaLockReadiness(),
+                     m_enrollmentSession->plasmaLockAuthErrorCode());
+        m_report +=
+            QStringLiteral("- profile-freshness: unknown\n- last-change.target: %1\n- last-change.result: %2\n- "
+                           "last-change.issue: %3\n")
+                .arg(m_enrollmentSession->authOperationTarget().isEmpty() ? QStringLiteral("none")
+                                                                          : m_enrollmentSession->authOperationTarget(),
+                     QString::fromLatin1(
+                         results.valueToKey(static_cast<int>(m_enrollmentSession->authOperationResult()))),
+                     m_enrollmentSession->authOperationErrorCode().isEmpty()
+                         ? QStringLiteral("none")
+                         : m_enrollmentSession->authOperationErrorCode());
+    }
     Q_EMIT reportChanged();
 }
 
@@ -359,5 +408,18 @@ QString SupportReport::currentIssueCode() const
         return m_cameraPreviewSession->errorCode();
     if (!m_transientIssueCode.isEmpty())
         return m_transientIssueCode;
-    return m_systemState->issueCode();
+    if (!m_systemState->issueCode().isEmpty())
+        return m_systemState->issueCode();
+    if (m_enrollmentSession)
+    {
+        if (!m_enrollmentSession->authOperationErrorCode().isEmpty())
+            return m_enrollmentSession->authOperationErrorCode();
+        if (m_enrollmentSession->sddmAuthStatus() == EnrollmentSession::AuthTargetStatus::Blocked &&
+            !m_enrollmentSession->sddmAuthErrorCode().isEmpty())
+            return m_enrollmentSession->sddmAuthErrorCode();
+        if (m_enrollmentSession->plasmaLockAuthStatus() == EnrollmentSession::AuthTargetStatus::Blocked &&
+            !m_enrollmentSession->plasmaLockAuthErrorCode().isEmpty())
+            return m_enrollmentSession->plasmaLockAuthErrorCode();
+    }
+    return {};
 }

@@ -158,3 +158,23 @@ provenance, then reads existing public files before uploading missing ones.
 Identical files remain untouched; different bytes fail. It independently reads
 back the complete four-file set. Running those publication tools requires
 explicit release authorization; local tests use fixtures only.
+
+## Greeter integration gates
+
+The read-only `Fedora 44 greeter integrations` workflow builds both upstream
+components at the commits recorded in their integration READMEs. Locally, use
+clean pinned upstream checkouts and their full Fedora build dependencies:
+
+```bash
+integrations/ci/build_and_verify.sh sddm /path/to/clean/sddm-v0.21.0
+integrations/ci/build_and_verify.sh kscreenlocker /path/to/clean/kscreenlocker-v6.7.5
+python3 integrations/ci/test_verify_staged_integration.py -v
+```
+
+The script applies the patch in a disposable clone, builds the real default-OFF
+and experimental configurations, requires the relevant Qt tests to exist/pass,
+and installs only into disposable DESTDIR staging. The verifier checks exact
+marker paths and contents, the KScreenLocker worker boundary, and absence of
+PAM configuration in those upstream packages. The companion CI job reuses
+NoxForge's existing API-v1 adapter test at a pinned commit. These gates are
+source/build/packaging evidence, not physical login/unlock qualification.

@@ -195,14 +195,41 @@ uint32_t kfaceauth_effective_uid(void)
     return (uint32_t)geteuid();
 }
 
+// NSS group records have shared storage with getgrnam. Resolve into a private,
+// bounded buffer so concurrent daemon/helper operations cannot change the GID.
+static int resolve_group_gid(const char *name, gid_t *gid)
+{
+    size_t size = 1024;
+    while (size <= 262144)
+    {
+        char *buffer = malloc(size);
+        if (buffer == NULL)
+            return -1;
+        struct group record;
+        struct group *result = NULL;
+        int status = getgrnam_r(name, &record, buffer, size, &result);
+        if (status == 0 && result != NULL)
+        {
+            *gid = record.gr_gid;
+            free(buffer);
+            return 0;
+        }
+        free(buffer);
+        if (status != ERANGE)
+            return -1;
+        size *= 2;
+    }
+    return -1;
+}
+
 int kfaceauth_group_id(const char *groupname, uint32_t *gid_out)
 {
     if (groupname == NULL || groupname[0] == '\0' || gid_out == NULL)
         return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
-    struct group *group = getgrnam(groupname);
-    if (group == NULL)
+    gid_t gid;
+    if (resolve_group_gid(groupname, &gid) != 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
-    *gid_out = (uint32_t)group->gr_gid;
+    *gid_out = (uint32_t)gid;
     return KFACEAUTH_CRYPTO_OK;
 }
 
@@ -265,7 +292,7 @@ int kfaceauth_open_child_file_nofollow(int parent_fd, const char *name)
 {
     if (parent_fd < 0 || !valid_path_component(name))
         return -1;
-    return openat(parent_fd, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    return openat(parent_fd, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
 }
 
 int kfaceauth_lock_child_file_nonblocking(int parent_fd, const char *name)
@@ -302,11 +329,11 @@ int kfaceauth_set_fd_permissions(int fd, uint32_t owner_uid, uint32_t mode, cons
     if (fstat(fd, &st) != 0 || (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode)))
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
-    struct group *group = getgrnam(groupname);
-    if (group == NULL)
+    gid_t gid;
+    if (resolve_group_gid(groupname, &gid) != 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
-    if (fchown(fd, (uid_t)owner_uid, group->gr_gid) != 0 || fchmod(fd, (mode_t)mode) != 0)
+    if (fchown(fd, (uid_t)owner_uid, gid) != 0 || fchmod(fd, (mode_t)mode) != 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
     return KFACEAUTH_CRYPTO_OK;
 }
@@ -342,17 +369,18 @@ int kfaceauth_drop_privileges(const char *username, const char *groupname)
     if (pw == NULL)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
-    struct group *gr = getgrnam(groupname);
-    if (gr == NULL)
+    const uid_t user_uid = pw->pw_uid;
+    gid_t gid;
+    if (resolve_group_gid(groupname, &gid) != 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
-    if (initgroups(username, gr->gr_gid) != 0)
+    if (initgroups(username, gid) != 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
-    if (setgid(gr->gr_gid) != 0)
+    if (setgid(gid) != 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
-    if (setuid(pw->pw_uid) != 0)
+    if (setuid(user_uid) != 0)
         return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
 
     if (geteuid() == 0 || getegid() == 0)
@@ -431,8 +459,8 @@ static int ensure_dir_exists(const char *dir)
         return -1;
     memcpy(tmp, dir, len + 1);
 
-    struct group *gr = getgrnam("kfaceauth");
-    gid_t gr_gid = (gr != NULL) ? gr->gr_gid : (gid_t)-1;
+    gid_t gr_gid = (gid_t)-1;
+    (void)resolve_group_gid("kfaceauth", &gr_gid);
 
     for (char *p = tmp + 1; *p; p++)
     {
@@ -486,10 +514,11 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
     if (fd < 0)
         return -1;
 
-    struct group *gr = getgrnam("kfaceauth");
-    if (gr != NULL)
+    gid_t gid;
+    const int group_available = resolve_group_gid("kfaceauth", &gid) == 0;
+    if (group_available)
     {
-        if (fchown(fd, (uid_t)-1, gr->gr_gid) != 0)
+        if (fchown(fd, (uid_t)-1, gid) != 0)
         {
             // Non-fatal if unprivileged
         }
@@ -508,9 +537,9 @@ static int write_key_file(const char *dir, const char *final_path, const uint8_t
         total_written += (size_t)n;
     }
 
-    if (gr != NULL)
+    if (group_available)
     {
-        if (fchown(fd, (uid_t)-1, gr->gr_gid) != 0)
+        if (fchown(fd, (uid_t)-1, gid) != 0)
         {
             // Non-fatal if unprivileged
         }
@@ -666,10 +695,10 @@ int kfaceauth_set_socket_permissions(const char *path, uint32_t mode, const char
 
     if (groupname != NULL && groupname[0] != '\0')
     {
-        struct group *gr = getgrnam(groupname);
-        if (gr != NULL)
+        gid_t gid;
+        if (resolve_group_gid(groupname, &gid) == 0)
         {
-            if (fchown(fd, (uid_t)-1, gr->gr_gid) != 0)
+            if (fchown(fd, (uid_t)-1, gid) != 0)
             {
                 // Non-fatal if unprivileged
             }

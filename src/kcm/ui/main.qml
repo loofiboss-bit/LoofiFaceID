@@ -129,6 +129,11 @@ KCMUtils.SimpleKCM {
             Layout.fillWidth: true
             backendReady: root.backendReady
             enrollmentSession: kcm.enrollmentSession
+            refresh: () => {
+                kcm.refresh()
+                kcm.enrollmentSession.checkSystemAuthStatus()
+            }
+            openSetup: () => tabs.currentIndex = 1
         }
 
         DiagnosticsPage {
@@ -141,6 +146,8 @@ KCMUtils.SimpleKCM {
             cameraPreviewSession: kcm.cameraPreviewSession
             enrollmentSession: kcm.enrollmentSession
             refreshActive: kcm.refreshing
+            partialDiagnostics: kcm.partialDiagnostics
+            retryAvailable: kcm.retryAvailable
             refresh: () => kcm.refresh()
         }
     }

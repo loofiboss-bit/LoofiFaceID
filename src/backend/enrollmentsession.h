@@ -7,6 +7,7 @@
 #include <QProcess>
 #include <QString>
 #include <QTimer>
+#include <QVariantList>
 
 #include <functional>
 
@@ -58,6 +59,14 @@ class EnrollmentSession final : public QObject
     Q_PROPERTY(QString plasmaLockAuthErrorCode READ plasmaLockAuthErrorCode NOTIFY systemAuthChanged)
     Q_PROPERTY(QString systemProfileFreshnessText READ systemProfileFreshnessText NOTIFY systemAuthChanged)
     Q_PROPERTY(bool systemAuthBusy READ systemAuthBusy NOTIFY systemAuthChanged)
+    Q_PROPERTY(bool systemProfileCanSync READ systemProfileCanSync NOTIFY systemAuthChanged)
+    Q_PROPERTY(QVariantList sddmReadiness READ sddmReadiness NOTIFY systemAuthChanged)
+    Q_PROPERTY(QVariantList plasmaLockReadiness READ plasmaLockReadiness NOTIFY systemAuthChanged)
+    Q_PROPERTY(AuthOperationState authOperationState READ authOperationState NOTIFY systemAuthChanged)
+    Q_PROPERTY(AuthOperationResult authOperationResult READ authOperationResult NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString authOperationTarget READ authOperationTarget NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString authOperationText READ authOperationText NOTIFY systemAuthChanged)
+    Q_PROPERTY(QString authOperationErrorCode READ authOperationErrorCode NOTIFY systemAuthChanged)
 
   public:
     enum class State
@@ -112,8 +121,56 @@ class EnrollmentSession final : public QObject
     };
     Q_ENUM(AuthTargetStatus)
 
+    enum class Readiness
+    {
+        Unknown,
+        Missing,
+        Available,
+        Incompatible
+    };
+    Q_ENUM(Readiness)
+    enum class AuthOperationState
+    {
+        Idle,
+        OpeningWallet,
+        Updating,
+        Checking
+    };
+    Q_ENUM(AuthOperationState)
+    enum class AuthOperationResult
+    {
+        None,
+        Success,
+        Cancelled,
+        WalletUnavailable,
+        NotReady,
+        Failed,
+        ReadbackFailed
+    };
+    Q_ENUM(AuthOperationResult)
+
+    struct AuthStatusSnapshot
+    {
+        Readiness components = Readiness::Unknown;
+        Readiness sddmApi = Readiness::Unknown;
+        Readiness sddmTheme = Readiness::Unknown;
+        Readiness sddmPam = Readiness::Unknown;
+        Readiness plasmaApi = Readiness::Unknown;
+        Readiness plasmaPam = Readiness::Unknown;
+        Readiness daemon = Readiness::Unknown;
+        Readiness systemProfile = Readiness::Unknown;
+        QString sddmMode = QStringLiteral("unknown");
+        QString plasmaMode = QStringLiteral("unknown");
+    };
+    using AuthStatusCompletion = std::function<void(AuthStatusSnapshot)>;
+    using AuthStatusProbe = std::function<void(AuthStatusCompletion)>;
+    using AuthOperationCompletion = std::function<void(int exitCode, bool normalExit)>;
+    using AuthOperationRunner = std::function<void(QStringList arguments, QByteArray input, AuthOperationCompletion)>;
+
     EnrollmentSession(CameraPreviewSession *preview, IdentityWorkerClient *worker, KWalletKeyProvider *keyProvider,
                       QObject *parent = nullptr);
+    EnrollmentSession(CameraPreviewSession *preview, IdentityWorkerClient *worker, KWalletKeyProvider *keyProvider,
+                      AuthStatusProbe statusProbe, AuthOperationRunner operationRunner, QObject *parent = nullptr);
     ~EnrollmentSession() override;
 
     [[nodiscard]] State state() const;
@@ -156,9 +213,18 @@ class EnrollmentSession final : public QObject
     [[nodiscard]] QString plasmaLockAuthErrorCode() const;
     [[nodiscard]] QString systemProfileFreshnessText() const;
     [[nodiscard]] bool systemAuthBusy() const;
+    [[nodiscard]] bool systemProfileCanSync() const;
+    [[nodiscard]] QVariantList sddmReadiness() const;
+    [[nodiscard]] QVariantList plasmaLockReadiness() const;
+    [[nodiscard]] AuthOperationState authOperationState() const;
+    [[nodiscard]] AuthOperationResult authOperationResult() const;
+    [[nodiscard]] QString authOperationTarget() const;
+    [[nodiscard]] QString authOperationText() const;
+    [[nodiscard]] QString authOperationErrorCode() const;
 
     Q_INVOKABLE void refreshProfileStatus();
     Q_INVOKABLE void checkSystemAuthStatus();
+    Q_INVOKABLE void syncSystemProfile();
     Q_INVOKABLE void enableSddmAuth();
     Q_INVOKABLE void disableSddmAuth();
     Q_INVOKABLE void enablePlasmaLockAuth();
@@ -194,9 +260,11 @@ class EnrollmentSession final : public QObject
     void updateAuthTargetStatus(const QString &target, const QString &mode, bool authComponentsInstalled,
                                 bool integrationAvailable, bool pamServiceAvailable, bool systemProfileReady,
                                 bool daemonReady);
-    void runAuthTargetOperation(const QString &target, const QString &mode);
-    void finishAuthTargetOperation(QProcess *process, const QString &target, const QString &mode, int exitCode,
-                                   QProcess::ExitStatus exitStatus);
+    void runAuthTargetOperation(const QString &target, const QString &mode, bool resync = false);
+    void finishAuthTargetOperation(int exitCode, bool normalExit);
+    void finishAuthReadback();
+    void applyAuthStatusSnapshot(const AuthStatusSnapshot &snapshot);
+    [[nodiscard]] QVariantList authReadinessRows(bool sddm) const;
     void refreshAuthTargetStatus(const QString &target);
     void revokeSystemProfileThen(std::function<void(bool)> continuation);
     void deleteLocalProfile(quint64 epoch);
@@ -251,6 +319,17 @@ class EnrollmentSession final : public QObject
     int m_authPolicyQueriesRemaining = 0;
     quint64 m_authPolicyQueryGeneration = 0;
     bool m_systemAuthBusy = false;
+    AuthStatusSnapshot m_authReadiness;
+    AuthStatusProbe m_authStatusProbe;
+    AuthOperationRunner m_authOperationRunner;
+    AuthOperationState m_authOperationState = AuthOperationState::Idle;
+    AuthOperationResult m_authOperationResult = AuthOperationResult::None;
+    QString m_authOperationTarget;
+    QString m_expectedSddmMode;
+    QString m_expectedPlasmaMode;
+    bool m_authOperationRequiresProfile = false;
+    quint64 m_authOperationGeneration = 0;
+    QTimer m_authReadbackTimer;
     QProcess *m_systemProfileMutationProcess = nullptr;
     bool m_commitAfterSystemRevoke = false;
     quint64 m_profileMutationEpoch = 0;

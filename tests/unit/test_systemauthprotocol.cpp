@@ -46,10 +46,12 @@ void SystemAuthProtocolTest::statusResponseSeparatesDaemonAndProfileReadiness()
     const auto ready = SystemAuthProtocol::parseStatusResponse(response(0, {1, 5}));
     QVERIFY(ready.daemonReady);
     QVERIFY(ready.systemProfileReady);
+    QVERIFY(ready.systemProfileKnown);
 
     const auto absent = SystemAuthProtocol::parseStatusResponse(response(0, {0, 0}));
     QVERIFY(absent.daemonReady);
     QVERIFY(!absent.systemProfileReady);
+    QVERIFY(absent.systemProfileKnown);
 
     const auto missing = SystemAuthProtocol::parseStatusResponse(response(3));
     QVERIFY(missing.daemonReady);
@@ -58,6 +60,7 @@ void SystemAuthProtocolTest::statusResponseSeparatesDaemonAndProfileReadiness()
     const auto unavailableKey = SystemAuthProtocol::parseStatusResponse(response(6));
     QVERIFY(unavailableKey.daemonReady);
     QVERIFY(!unavailableKey.systemProfileReady);
+    QVERIFY(!unavailableKey.systemProfileKnown);
 }
 
 void SystemAuthProtocolTest::malformedStatusResponsesFailClosed()
@@ -68,6 +71,7 @@ void SystemAuthProtocolTest::malformedStatusResponsesFailClosed()
 
     QVERIFY(!SystemAuthProtocol::parseStatusResponse(response(0)).daemonReady);
     QVERIFY(!SystemAuthProtocol::parseStatusResponse(response(0, {1, 9})).daemonReady);
+    QVERIFY(!SystemAuthProtocol::parseStatusResponse(response(0, {1, 2})).daemonReady);
     QVERIFY(!SystemAuthProtocol::parseStatusResponse(response(0, {0, 1})).daemonReady);
     QVERIFY(SystemAuthProtocol::parseStatusResponse(response(9)).daemonReady);
 }

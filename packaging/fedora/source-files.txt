@@ -4,6 +4,7 @@
 .github/ISSUE_TEMPLATE/bug_report.md
 .github/dependabot.yml
 .github/workflows/ci.yml
+.github/workflows/integrations.yml
 .github/workflows/rpm.yml
 .gitignore
 CHANGELOG.md
@@ -324,6 +325,9 @@ engine/vision/src/sha256.rs
 engine/vision/src/worker.rs
 engine/vision/src/yunet.rs
 engine/vision/tests/production_worker.rs
+integrations/ci/build_and_verify.sh
+integrations/ci/test_verify_staged_integration.py
+integrations/ci/verify_staged_integration.py
 integrations/kscreenlocker/README.md
 integrations/kscreenlocker/check_patch.sh
 integrations/kscreenlocker/patches/0001-face-auth-factor-kscreenlocker-v6.7.5.patch

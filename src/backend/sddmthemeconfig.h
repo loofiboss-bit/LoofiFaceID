@@ -15,7 +15,14 @@ struct SddmThemeConfigPaths
     QString defaultThemeDirectory;
 };
 
+enum class SddmThemeSupport
+{
+    Unknown,
+    Unsupported,
+    Declared
+};
+
 // Reads SDDM's layered configuration and checks the active theme's declared
 // interface. An empty Current selects SDDM's patched embedded fallback theme.
-[[nodiscard]] bool activeSddmThemeSupportsFaceAuthentication(const SddmThemeConfigPaths &paths);
+[[nodiscard]] SddmThemeSupport activeSddmThemeSupportsFaceAuthentication(const SddmThemeConfigPaths &paths);
 } // namespace KFaceAuth

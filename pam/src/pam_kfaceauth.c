@@ -18,8 +18,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <pwd.h>
 #include <poll.h>
+#include <pwd.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +35,10 @@
 #define DAEMON_PROTOCOL_VERSION 2
 #define OP_PAM_AUTH 0x10
 #define STATUS_SUCCESS 0x00
+#define STATUS_TIMEOUT 0x04
+#define STATUS_DEVICE_BUSY 0x05
+#define STATUS_INTERNAL_ERROR 0x06
+#define STATUS_RATE_LIMITED 0x08
 #define STATUS_PROGRESS_LOOKING_FOR_FACE 0x80
 #define MAX_TIMEOUT_MS 2000
 
@@ -70,11 +74,22 @@ static int auth_target_for_service(pam_handle_t *pamh, uint8_t *target)
     return -1;
 }
 
-static int continue_with_password(pam_handle_t *pamh)
+static int fail_with_status(pam_handle_t *pamh, const char *status)
 {
-    (void)pam_info(pamh, "KFACEAUTH_STATUS=use-password");
+    (void)pam_info(pamh, "%s", status);
     closelog();
     return PAM_AUTH_ERR;
+}
+
+static int continue_with_password(pam_handle_t *pamh)
+{
+    return fail_with_status(pamh, "KFACEAUTH_STATUS=use-password");
+}
+
+static int daemon_unavailable(pam_handle_t *pamh, int socket_errno)
+{
+    return fail_with_status(pamh, socket_errno == ETIMEDOUT ? "KFACEAUTH_STATUS=timeout"
+                                                            : "KFACEAUTH_STATUS=service-unavailable");
 }
 
 static int remaining_timeout_ms(const struct timespec *deadline, int *timeout_ms)
@@ -136,8 +151,7 @@ static int wait_for_fd(int fd, short events, const struct timespec *deadline)
             errno = ECONNRESET;
             return -1;
         }
-        if ((descriptor.revents & events) != 0 ||
-            ((events & POLLIN) != 0 && (descriptor.revents & POLLHUP) != 0))
+        if ((descriptor.revents & events) != 0 || ((events & POLLIN) != 0 && (descriptor.revents & POLLHUP) != 0))
             return 0;
     }
 }
@@ -178,7 +192,11 @@ static int send_all_until(int fd, const uint8_t *buffer, size_t length, const st
         if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
             continue;
         if (n <= 0)
+        {
+            if (n == 0)
+                errno = ECONNRESET;
             return -1;
+        }
         total += (size_t)n;
     }
     return 0;
@@ -195,7 +213,11 @@ static int read_all_until(int fd, uint8_t *buffer, size_t length, const struct t
         if (n < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
             continue;
         if (n <= 0)
+        {
+            if (n == 0)
+                errno = ECONNRESET;
             return -1;
+        }
         total += (size_t)n;
     }
     return 0;
@@ -267,17 +289,19 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0)
     {
+        const int socket_errno = errno;
         syslog(LOG_NOTICE, "daemon socket unavailable; continuing with password stack");
-        return continue_with_password(pamh);
+        return daemon_unavailable(pamh, socket_errno);
     }
 
     // Every socket operation shares one monotonic request deadline.
     struct timespec deadline;
     if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0)
     {
+        const int socket_errno = errno;
         syslog(LOG_NOTICE, "monotonic clock unavailable; continuing with password stack");
         close(fd);
-        return continue_with_password(pamh);
+        return daemon_unavailable(pamh, socket_errno);
     }
     deadline.tv_sec += (time_t)(MAX_TIMEOUT_MS / 1000);
     deadline.tv_nsec += (long)((MAX_TIMEOUT_MS % 1000) * 1000000L);
@@ -295,16 +319,17 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     {
         syslog(LOG_NOTICE, "daemon socket path is invalid; continuing with password stack");
         close(fd);
-        return continue_with_password(pamh);
+        return fail_with_status(pamh, "KFACEAUTH_STATUS=service-unavailable");
     }
     memcpy(addr.sun_path, sock_path, socket_path_len + 1);
 
     if (connect_until(fd, (struct sockaddr *)&addr, (socklen_t)sizeof(addr), &deadline) != 0)
     {
+        const int socket_errno = errno;
         syslog(LOG_NOTICE, "daemon unavailable; continuing with password stack");
         close(fd);
         // Fail closed silently for seamless password fallback
-        return continue_with_password(pamh);
+        return daemon_unavailable(pamh, socket_errno);
     }
 
     size_t user_len = strlen(username);
@@ -333,7 +358,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     if (remaining_timeout_ms(&deadline, &remaining_ms) != 0)
     {
         close(fd);
-        return continue_with_password(pamh);
+        return fail_with_status(pamh, "KFACEAUTH_STATUS=timeout");
     }
     uint32_t timeout_be = htobe32((uint32_t)remaining_ms);
     memcpy(req + 12, &timeout_be, 4);
@@ -344,9 +369,10 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
 
     if (send_all_until(fd, req, 4 + payload_len, &deadline) != 0)
     {
+        const int socket_errno = errno;
         syslog(LOG_NOTICE, "daemon request failed; continuing with password stack");
         close(fd);
-        return continue_with_password(pamh);
+        return daemon_unavailable(pamh, socket_errno);
     }
 
     uint8_t resp_body[4];
@@ -355,9 +381,10 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         uint8_t resp_hdr[4];
         if (read_all_until(fd, resp_hdr, sizeof(resp_hdr), &deadline) != 0)
         {
+            const int socket_errno = errno;
             syslog(LOG_NOTICE, "daemon response unavailable; continuing with password stack");
             close(fd);
-            return continue_with_password(pamh);
+            return daemon_unavailable(pamh, socket_errno);
         }
 
         uint32_t resp_len_be = 0;
@@ -367,14 +394,15 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         {
             syslog(LOG_NOTICE, "invalid daemon response; continuing with password stack");
             close(fd);
-            return continue_with_password(pamh);
+            return fail_with_status(pamh, "KFACEAUTH_STATUS=service-unavailable");
         }
 
         if (read_all_until(fd, resp_body, sizeof(resp_body), &deadline) != 0)
         {
+            const int socket_errno = errno;
             syslog(LOG_NOTICE, "daemon response failed; continuing with password stack");
             close(fd);
-            return continue_with_password(pamh);
+            return daemon_unavailable(pamh, socket_errno);
         }
 
         uint16_t progress_version_be = 0;
@@ -383,7 +411,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
         {
             syslog(LOG_NOTICE, "invalid daemon response; continuing with password stack");
             close(fd);
-            return continue_with_password(pamh);
+            return fail_with_status(pamh, "KFACEAUTH_STATUS=service-unavailable");
         }
         if (resp_body[2] == STATUS_PROGRESS_LOOKING_FOR_FACE)
         {
@@ -408,7 +436,19 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, cons
     }
 
     syslog(LOG_NOTICE, "daemon did not return positive authentication; continuing with password stack");
-    return continue_with_password(pamh);
+    switch (resp_code)
+    {
+    case STATUS_TIMEOUT:
+        return fail_with_status(pamh, "KFACEAUTH_STATUS=timeout");
+    case STATUS_DEVICE_BUSY:
+        return fail_with_status(pamh, "KFACEAUTH_STATUS=camera-busy");
+    case STATUS_INTERNAL_ERROR:
+        return fail_with_status(pamh, "KFACEAUTH_STATUS=service-unavailable");
+    case STATUS_RATE_LIMITED:
+        return fail_with_status(pamh, "KFACEAUTH_STATUS=retry-later");
+    default:
+        return continue_with_password(pamh);
+    }
 }
 
 PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc, const char **argv)

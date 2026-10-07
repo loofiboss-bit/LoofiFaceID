@@ -21,7 +21,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use kfaceauth_crypto_openssl_sys::{PeerCredentials, peer_credentials};
 use kfaceauth_protocol::{read_frame, write_frame};
-use kfaceauth_templates::auth_policy::{AuthPolicy, AuthPolicyMode, AuthTarget};
+use kfaceauth_templates::auth_policy::{AuthPolicyMode, AuthPolicySnapshot, AuthTarget};
 use kfaceauth_templates::{MasterKey, ProfileSummary, Vault, VaultStatus, VerificationResult};
 use kfaceauth_vision::identity::{ExtractionPurpose, IdentityProvider};
 use kfaceauth_vision::{
@@ -110,6 +110,10 @@ pub struct DaemonConfig {
     auth_child: Arc<Mutex<Option<Child>>>,
     #[cfg(test)]
     worker_path: Option<PathBuf>,
+    #[cfg(test)]
+    policy_directory: Option<Arc<fs::File>>,
+    #[cfg(test)]
+    synthetic_policy: bool,
 }
 
 impl Default for DaemonConfig {
@@ -140,6 +144,10 @@ impl DaemonConfig {
             auth_child: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             worker_path: None,
+            #[cfg(test)]
+            policy_directory: None,
+            #[cfg(test)]
+            synthetic_policy: false,
         }
     }
 }
@@ -256,27 +264,54 @@ fn authentication_target(auth_target: u8) -> Option<AuthTarget> {
     }
 }
 
-fn authentication_target_mode(
-    target_uid: u32,
-    auth_target: u8,
-    config: &DaemonConfig,
-) -> Option<AuthPolicyMode> {
+enum AttemptPolicy {
+    Verified(AuthPolicySnapshot),
     #[cfg(test)]
-    if config.worker_path.is_some() {
-        return Some(AuthPolicyMode::OnActivity);
+    Synthetic,
+}
+
+impl AttemptPolicy {
+    fn mode_for(&self, uid: u32, target: AuthTarget) -> AuthPolicyMode {
+        match self {
+            Self::Verified(snapshot) => snapshot.policy().mode_for(uid, target),
+            #[cfg(test)]
+            Self::Synthetic => AuthPolicyMode::OnActivity,
+        }
+    }
+
+    fn is_current(&self, current: &Self) -> bool {
+        match (self, current) {
+            (Self::Verified(start), Self::Verified(end)) => start.same_file_as(end),
+            #[cfg(test)]
+            (Self::Synthetic, Self::Synthetic) => true,
+            #[cfg(test)]
+            _ => false,
+        }
+    }
+}
+
+fn authentication_policy(config: &DaemonConfig) -> Option<AttemptPolicy> {
+    #[cfg(test)]
+    if let Some(directory) = &config.policy_directory {
+        return AuthPolicySnapshot::load_from_directory(directory)
+            .ok()
+            .map(AttemptPolicy::Verified);
+    }
+    #[cfg(test)]
+    if config.synthetic_policy {
+        return Some(AttemptPolicy::Synthetic);
     }
     #[cfg(not(test))]
     let _ = config;
-
-    let target = authentication_target(auth_target)?;
-    AuthPolicy::load_system()
+    AuthPolicySnapshot::load_system()
         .ok()
-        .map(|policy| policy.mode_for(target_uid, target))
+        .map(AttemptPolicy::Verified)
 }
 
 fn authentication_target_enabled(target_uid: u32, auth_target: u8, config: &DaemonConfig) -> bool {
-    authentication_target_mode(target_uid, auth_target, config)
-        .is_some_and(|mode| mode != AuthPolicyMode::Off)
+    authentication_target(auth_target)
+        .zip(authentication_policy(config))
+        .is_some_and(|(target, policy)| policy.mode_for(target_uid, target) != AuthPolicyMode::Off)
 }
 
 type CapturedFrame = (u32, u32, u32, u8, Zeroizing<Vec<u8>>);
@@ -524,9 +559,11 @@ fn dispatch_request_until_with_client(
             timeout_ms,
             ..
         } => {
-            let Some(start_mode) = authentication_target_mode(*target_uid, *auth_target, config)
-                .filter(|mode| *mode != AuthPolicyMode::Off)
-            else {
+            let Some(start_policy) = authentication_policy(config).filter(|policy| {
+                authentication_target(*auth_target).is_some_and(|target| {
+                    policy.mode_for(*target_uid, target) != AuthPolicyMode::Off
+                })
+            }) else {
                 return encode_daemon_response(STATUS_ACCESS_DENIED, &[]);
             };
             let timeout_ms = (*timeout_ms)
@@ -547,13 +584,17 @@ fn dispatch_request_until_with_client(
                 config,
                 cancel_client,
             );
-            // Profile synchronization revokes the selected mode before swapping
-            // system data. Re-read it after the isolated worker exits so a
-            // result cannot authorize after a concurrent revocation.
+            // Compare the attempt-scoped descriptor identity after the worker
+            // exits. A replacement invalidates the attempt even if rollback
+            // restores identical policy contents and mode.
             if status == STATUS_SUCCESS
-                && authentication_target_mode(*target_uid, *auth_target, config) != Some(start_mode)
+                && !authentication_policy(config)
+                    .is_some_and(|current| start_policy.is_current(&current))
             {
                 return encode_daemon_response(STATUS_ACCESS_DENIED, &[]);
+            }
+            if status == STATUS_SUCCESS {
+                config.rate_limiter.clear(*target_uid);
             }
             (status, Vec::new())
         }
@@ -783,9 +824,6 @@ fn supervise_auth_worker(
                 let Some(status) = final_status else {
                     return STATUS_INTERNAL_ERROR;
                 };
-                if status == STATUS_SUCCESS {
-                    config.rate_limiter.clear(uid);
-                }
                 return status;
             }
             Ok(None) => thread::sleep(Duration::from_millis(2)),
@@ -1423,6 +1461,7 @@ mod tests {
             let config = DaemonConfig {
                 keys_dir: Some(root.clone()),
                 worker_path: Some(script),
+                synthetic_policy: true,
                 camera_device: Some(mode.to_owned()),
                 ..DaemonConfig::default()
             };
@@ -1467,6 +1506,91 @@ mod tests {
             }
             self.wait_reaped();
             fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+
+    #[test]
+    fn replacement_with_restored_mode_rejects_late_positive_worker() {
+        if kfaceauth_crypto_openssl_sys::effective_uid() != 0 {
+            return;
+        }
+        for change in ["restore", "same", "other-user", "missing", "unsafe"] {
+            let mut fixture = WorkerFixture::new("controlled");
+            let directory = fs::File::open(&fixture.root).unwrap();
+            kfaceauth_crypto_openssl_sys::set_fd_permissions(&directory, 0, 0o755, "root").unwrap();
+            let directory = Arc::new(directory);
+            let mut policy = kfaceauth_templates::auth_policy::AuthPolicy::default();
+            policy
+                .set_mode(1000, AuthTarget::Sddm, AuthPolicyMode::Manual)
+                .unwrap();
+            policy.write_atomic(&directory).unwrap();
+            fixture.config.policy_directory = Some(directory.clone());
+            let script = fixture.root.join("fake-auth-worker");
+            fs::write(&script, "#!/usr/bin/python3\nimport os, pathlib, sys, time\nsys.stdin.buffer.read()\np = pathlib.Path(os.environ['KFACEAUTH_KEYS_DIR'])\n(p / 'started').touch()\nwhile not (p / 'release').exists(): time.sleep(0.002)\nsys.stdout.buffer.write(bytes([0,2,0,0]))\n").unwrap();
+            thread::scope(|scope| {
+                let attempt = scope.spawn(|| fixture.request(3000));
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while !fixture.root.join("started").exists() {
+                    assert!(Instant::now() < deadline);
+                    thread::sleep(Duration::from_millis(2));
+                }
+                match change {
+                    "restore" => {
+                        policy
+                            .set_mode(1000, AuthTarget::Sddm, AuthPolicyMode::Off)
+                            .unwrap();
+                        policy.write_atomic(&directory).unwrap();
+                        policy
+                            .set_mode(1000, AuthTarget::Sddm, AuthPolicyMode::Manual)
+                            .unwrap();
+                        policy.write_atomic(&directory).unwrap();
+                    }
+                    "same" => policy.write_atomic(&directory).unwrap(),
+                    "other-user" => {
+                        policy
+                            .set_mode(1001, AuthTarget::PlasmaLock, AuthPolicyMode::Manual)
+                            .unwrap();
+                        policy.write_atomic(&directory).unwrap();
+                    }
+                    "missing" => fs::remove_file(fixture.root.join("policy.json")).unwrap(),
+                    "unsafe" => {
+                        use std::os::unix::fs::PermissionsExt;
+                        fs::set_permissions(
+                            fixture.root.join("policy.json"),
+                            fs::Permissions::from_mode(0o666),
+                        )
+                        .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+                fs::write(fixture.root.join("release"), b"").unwrap();
+                assert_eq!(attempt.join().unwrap(), STATUS_ACCESS_DENIED);
+                assert_eq!(
+                    fixture
+                        .config
+                        .rate_limiter
+                        .attempts
+                        .lock()
+                        .unwrap()
+                        .get(&1000)
+                        .unwrap()
+                        .len(),
+                    1
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn worker_path_alone_does_not_bypass_policy() {
+        let mut fixture = WorkerFixture::new("progress");
+        fixture.config.synthetic_policy = false;
+        if kfaceauth_crypto_openssl_sys::effective_uid() == 0 {
+            let directory = fs::File::open(&fixture.root).unwrap();
+            kfaceauth_crypto_openssl_sys::set_fd_permissions(&directory, 0, 0o755, "root").unwrap();
+            fixture.config.policy_directory = Some(Arc::new(directory));
+            assert_eq!(fixture.request(2000), STATUS_ACCESS_DENIED);
+            assert!(fixture.config.auth_child.lock().unwrap().is_none());
         }
     }
 

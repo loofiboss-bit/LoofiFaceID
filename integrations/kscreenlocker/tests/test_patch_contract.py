@@ -29,6 +29,7 @@ class KScreenLockerPatchContract(unittest.TestCase):
         experimental_build = cmake.split("if (KSCREENLOCKER_ENABLE_EXPERIMENTAL_FACE_AUTH)", 1)[1].split("endif()", 1)[0]
         self.assertIn("configure_file(", experimental_build)
         self.assertIn("install(FILES ${CMAKE_CURRENT_BINARY_DIR}/kfaceauth-kscreenlocker.json", experimental_build)
+        self.assertIn("RENAME kscreenlocker.json", experimental_build)
         marker = json.loads(source("greeter/kfaceauth-kscreenlocker.json.in"))
         self.assertEqual(marker["schema_version"], 1)
         self.assertEqual(marker["component_id"], "org.loofi.kfaceauth.kscreenlocker")
@@ -137,15 +138,22 @@ class KScreenLockerPatchContract(unittest.TestCase):
 
     def test_only_allowlisted_typed_statuses_reach_qml(self) -> None:
         worker = source("greeter/facepamworker.cpp")
+        parser = source("greeter/facepamstatus.h")
         authenticator = source("greeter/facepamauthenticator.cpp")
         qml = source("greeter/fallbacktheme/FaceAuthenticationControl.qml")
         self.assertIn("pam_authenticate(handle, 0)", worker)
+        self.assertIn("pam_acct_mgmt(handle, 0)", worker)
+        self.assertIn("facePamStatusToken(message)", worker)
         for token, state in (
             ("KFACEAUTH_STATUS=starting-camera", "camera-starting"),
             ("KFACEAUTH_STATUS=looking-for-face", "looking-for-face"),
             ("KFACEAUTH_STATUS=use-password", "use-password"),
+            ("KFACEAUTH_STATUS=camera-busy", "camera-busy"),
+            ("KFACEAUTH_STATUS=timeout", "timeout"),
+            ("KFACEAUTH_STATUS=service-unavailable", "service-unavailable"),
+            ("KFACEAUTH_STATUS=retry-later", "retry-later"),
         ):
-            self.assertIn(token, worker)
+            self.assertIn(token if token.endswith("starting-camera") else token.split("=", 1)[1], parser)
             self.assertIn(f'QByteArrayLiteral("{state}")', authenticator)
         self.assertIn("PAM text never reaches QML", authenticator)
         self.assertIn("Look at the camera", qml)
@@ -154,7 +162,8 @@ class KScreenLockerPatchContract(unittest.TestCase):
     def test_status_is_never_an_authorization_result(self) -> None:
         authenticator = source("greeter/facepamauthenticator.cpp")
         app = source("greeter/greeterapp.cpp")
-        self.assertIn("exitStatus == QProcess::NormalExit && exitCode == 0", authenticator)
+        self.assertIn("exitStatus == QProcess::NormalExit && exitCode == 0 && !terminalFailure", authenticator)
+        self.assertIn("if (!terminalFailure)", authenticator)
         self.assertIn("m_authenticators->isUnlocked() || m_faceAuthenticator->isUnlocked()", app)
         self.assertNotIn("m_unlocked = true", authenticator.split("void FacePamAuthenticator::readStatus", 1)[1].split("void FacePamAuthenticator::finishProcess", 1)[0])
 

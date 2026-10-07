@@ -103,6 +103,92 @@ impl fmt::Display for AuthPolicyError {
 
 impl std::error::Error for AuthPolicyError {}
 
+/// An attempt-scoped policy descriptor. Holding the open file prevents inode
+/// reuse after atomic replacement from making a revoked attempt look current.
+#[derive(Debug)]
+pub struct AuthPolicySnapshot {
+    policy: AuthPolicy,
+    file: File,
+    identity: (u64, u64, i64, i64, i64, i64, u64),
+}
+
+impl AuthPolicySnapshot {
+    #[must_use]
+    pub fn policy(&self) -> &AuthPolicy {
+        &self.policy
+    }
+
+    #[must_use]
+    pub fn same_file_as(&self, current: &Self) -> bool {
+        // Both descriptors remain alive during this comparison.
+        self.file.metadata().is_ok_and(|metadata| {
+            metadata.dev() == self.identity.0 && metadata.ino() == self.identity.1
+        }) && self.identity == current.identity
+    }
+
+    /// Opens the system policy; missing policy is an error for an auth attempt.
+    /// # Errors
+    /// Returns an error for missing, unsafe, malformed or unreadable policy.
+    pub fn load_system() -> Result<Self, AuthPolicyError> {
+        let etc = open_directory_nofollow(Path::new("/etc"))
+            .map_err(|_| AuthPolicyError::UnsafeFilesystem)?;
+        validate_root_directory(&etc, false)?;
+        let config = open_policy_directory(&etc)?.ok_or(AuthPolicyError::Io)?;
+        Self::load_from_directory(&config)
+    }
+
+    /// Opens and parses one verified descriptor without following symlinks.
+    /// # Errors
+    /// Returns an error for missing, unsafe, malformed or unreadable policy.
+    pub fn load_from_directory(directory: &File) -> Result<Self, AuthPolicyError> {
+        validate_root_directory(directory, true)?;
+        let entry = fs::symlink_metadata(descriptor_path(directory).join(AUTH_POLICY_FILE))
+            .map_err(|_| AuthPolicyError::Io)?;
+        if !entry.is_file() || entry.file_type().is_symlink() {
+            return Err(AuthPolicyError::UnsafeFilesystem);
+        }
+        let mut file = open_child_file_nofollow(directory, AUTH_POLICY_FILE)
+            .map_err(|_| AuthPolicyError::UnsafeFilesystem)?;
+        let metadata = file.metadata().map_err(|_| AuthPolicyError::Io)?;
+        if !metadata.is_file()
+            || metadata.uid() != 0
+            || metadata.gid() != 0
+            || metadata.mode() & 0o7777 != 0o644
+            || metadata.nlink() != 1
+            || metadata.len() > u64::try_from(MAX_POLICY_BYTES).unwrap_or(u64::MAX)
+        {
+            return Err(AuthPolicyError::UnsafeFilesystem);
+        }
+        let identity = policy_identity(&metadata);
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(u64::try_from(MAX_POLICY_BYTES + 1).unwrap_or(u64::MAX))
+            .read_to_end(&mut bytes)
+            .map_err(|_| AuthPolicyError::Io)?;
+        let policy = AuthPolicy::parse_json(&bytes)?;
+        if policy_identity(&file.metadata().map_err(|_| AuthPolicyError::Io)?) != identity {
+            return Err(AuthPolicyError::UnsafeFilesystem);
+        }
+        Ok(Self {
+            policy,
+            file,
+            identity,
+        })
+    }
+}
+
+fn policy_identity(metadata: &fs::Metadata) -> (u64, u64, i64, i64, i64, i64, u64) {
+    (
+        metadata.dev(),
+        metadata.ino(),
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+        metadata.ctime(),
+        metadata.ctime_nsec(),
+        metadata.len(),
+    )
+}
+
 impl AuthPolicy {
     #[must_use]
     pub fn mode_for(&self, uid: u32, target: AuthTarget) -> AuthPolicyMode {
@@ -219,25 +305,7 @@ impl AuthPolicy {
                 Err(AuthPolicyError::UnsafeFilesystem)
             }
             Ok(_) => {
-                let file = open_child_file_nofollow(directory, AUTH_POLICY_FILE)
-                    .map_err(|_| AuthPolicyError::UnsafeFilesystem)?;
-                let metadata = file.metadata().map_err(|_| AuthPolicyError::Io)?;
-                if !metadata.is_file()
-                    || metadata.uid() != 0
-                    || metadata.gid() != 0
-                    || metadata.mode() & 0o7777 != 0o644
-                    || metadata.nlink() != 1
-                    || metadata.len() > u64::try_from(MAX_POLICY_BYTES).unwrap_or(u64::MAX)
-                {
-                    return Err(AuthPolicyError::UnsafeFilesystem);
-                }
-                let capacity =
-                    usize::try_from(metadata.len()).map_err(|_| AuthPolicyError::Invalid)?;
-                let mut bytes = Vec::with_capacity(capacity);
-                file.take(u64::try_from(MAX_POLICY_BYTES + 1).unwrap_or(u64::MAX))
-                    .read_to_end(&mut bytes)
-                    .map_err(|_| AuthPolicyError::Io)?;
-                Self::parse_json(&bytes)
+                AuthPolicySnapshot::load_from_directory(directory).map(|snapshot| snapshot.policy)
             }
         }
     }
@@ -513,6 +581,53 @@ mod tests {
         let config = open_directory_nofollow(&config_path).expect("open policy fixture");
         set_fd_permissions(&config, 0, 0o755, "root").expect("secure policy fixture");
         config_path
+    }
+
+    #[test]
+    fn snapshot_rejects_atomic_replacement_even_with_identical_contents() {
+        if effective_uid() != 0 {
+            return;
+        }
+        let config_path = temporary_config_directory();
+        let directory = open_directory_nofollow(&config_path).unwrap();
+        let mut policy = AuthPolicy::default();
+        policy
+            .set_mode(1000, AuthTarget::Sddm, AuthPolicyMode::Manual)
+            .unwrap();
+        policy.write_atomic(&directory).unwrap();
+        let snapshot = AuthPolicySnapshot::load_from_directory(&directory).unwrap();
+        let unchanged = AuthPolicySnapshot::load_from_directory(&directory).unwrap();
+        assert!(snapshot.same_file_as(&unchanged));
+        policy.write_atomic(&directory).unwrap();
+        let replaced = AuthPolicySnapshot::load_from_directory(&directory).unwrap();
+        assert_eq!(snapshot.policy(), replaced.policy());
+        assert!(!snapshot.same_file_as(&replaced));
+        assert_eq!(snapshot.file.metadata().unwrap().nlink(), 0);
+        fs::remove_dir_all(config_path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn snapshot_missing_unsafe_and_malformed_entries_never_authorize() {
+        if effective_uid() != 0 {
+            return;
+        }
+        let config_path = temporary_config_directory();
+        let directory = open_directory_nofollow(&config_path).unwrap();
+        assert!(AuthPolicySnapshot::load_from_directory(&directory).is_err());
+        AuthPolicy::default().write_atomic(&directory).unwrap();
+        let path = config_path.join(AUTH_POLICY_FILE);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(AuthPolicySnapshot::load_from_directory(&directory).is_err());
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::write(&path, b"not a policy").unwrap();
+        assert!(AuthPolicySnapshot::load_from_directory(&directory).is_err());
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(AuthPolicySnapshot::load_from_directory(&directory).is_err());
+        fs::remove_dir(&path).unwrap();
+        std::os::unix::fs::symlink("outside-policy", &path).unwrap();
+        assert!(AuthPolicySnapshot::load_from_directory(&directory).is_err());
+        fs::remove_dir_all(config_path.parent().unwrap()).unwrap();
     }
 
     #[test]

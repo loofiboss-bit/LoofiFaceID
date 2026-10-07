@@ -148,3 +148,23 @@ Owned frame/key buffers use zeroization wrappers. Standard payloads omit the chi
 without the speculative presentation heuristic. `ExperimentalAuth` keeps
 conservative heuristic rejection, including analysis failure, but is not PAD
 qualification. The internal extraction API requires a purpose at every call site.
+
+## Experimental authentication recovery state
+
+EnrollmentSession retains the existing profile/privileged-helper boundary and
+exposes backend-owned Readiness, AuthOperationState and AuthOperationResult.
+Its optional constructor-injected status/runner functions let synthetic tests
+exercise readback and failures without touching host authentication. Production
+uses fixed installed helpers and the bounded daemon status request. Injection
+is not available through QML, configuration or environment variables.
+
+An explicit resync has no target/mode argument: it replaces the shared system
+profile while preserving both independent user choices. Helper completion starts
+a bounded readback; successful exit alone is insufficient for UI success. Late
+probe generations are discarded and last-operation errors are separate from
+current readiness. Only fixed readiness/result categories reach reports.
+
+The daemon keeps an open, validated policy descriptor from authorization until
+its final positive result check. Supported writers atomically replace the policy;
+any changed file identity revokes that attempt even if mode values were restored.
+The retained descriptor prevents inode reuse from hiding an intermediate swap.

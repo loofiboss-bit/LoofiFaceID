@@ -1,5 +1,5 @@
 diff --git a/greeter/CMakeLists.txt b/greeter/CMakeLists.txt
-index 550ebe2..28a2342 100644
+index 550ebe2..35ee76c 100644
 --- a/greeter/CMakeLists.txt
 +++ b/greeter/CMakeLists.txt
 @@ -11,6 +11,8 @@ set(kscreenlocker_authenticator_SRCS
@@ -24,7 +24,7 @@ index 550ebe2..28a2342 100644
  qt_add_resources(kscreenlocker_greet_SRCS fallbacktheme.qrc)
  
  ecm_add_wayland_client_protocol(kscreenlocker_greet_SRCS
-@@ -54,6 +62,28 @@ ecm_add_wayland_client_protocol(kscreenlocker_greet_SRCS
+@@ -54,6 +62,29 @@ ecm_add_wayland_client_protocol(kscreenlocker_greet_SRCS
  
  add_executable(kscreenlocker_greet ${kscreenlocker_greet_SRCS})
  
@@ -42,6 +42,7 @@ index 550ebe2..28a2342 100644
 +    )
 +    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/kfaceauth-kscreenlocker.json
 +        DESTINATION ${KDE_INSTALL_DATADIR}/kfaceauth/integrations
++        RENAME kscreenlocker.json
 +    )
 +    target_compile_definitions(kscreenlocker_greet PRIVATE
 +        KSCREENLOCKER_ENABLE_EXPERIMENTAL_FACE_AUTH=1
@@ -53,7 +54,7 @@ index 550ebe2..28a2342 100644
  target_link_libraries(kscreenlocker_greet
      settings
      kscreenlocker_authenticator
-@@ -102,4 +132,5 @@ install(DIRECTORY themes/org.kde.passworddialog DESTINATION ${KDE_INSTALL_DATADI
+@@ -102,4 +133,5 @@ install(DIRECTORY themes/org.kde.passworddialog DESTINATION ${KDE_INSTALL_DATADI
  
  if(BUILD_TESTING)
      add_subdirectory(autotests)
@@ -80,15 +81,16 @@ index 0000000..1d639b6
 +ecm_mark_as_test(facePamAuthenticatorTest)
 diff --git a/greeter/faceautotests/facepamauthenticator_autotest.cpp b/greeter/faceautotests/facepamauthenticator_autotest.cpp
 new file mode 100644
-index 0000000..ce3d518
+index 0000000..95caabe
 --- /dev/null
 +++ b/greeter/faceautotests/facepamauthenticator_autotest.cpp
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,382 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
 +    SPDX-License-Identifier: GPL-2.0-or-later
 +*/
 +#include "../facepamauthenticator.h"
++#include "../facepamstatus.h"
 +
 +#include <QCoreApplication>
 +#include <QElapsedTimer>
@@ -105,6 +107,10 @@ index 0000000..ce3d518
 +    void sharedAttemptLivesUntilLastThemeViewDisappears();
 +    void onlyPamSuccessUnlocks();
 +    void onlyTypedProgressIsExposed();
++    void pamConversationAllowlist_data();
++    void pamConversationAllowlist();
++    void terminalCategoriesSurviveProcessExit_data();
++    void terminalCategoriesSurviveProcessExit();
 +    void cancellationStopsWorkerWithoutUnlocking();
 +    void cancelledAttemptIgnoresLatePositiveExit();
 +    void attemptHasTwoSecondDeadline();
@@ -211,7 +217,8 @@ index 0000000..ce3d518
 +    registerManualTheme(failure, &failureTheme);
 +    failure.startAttempt();
 +    QTRY_COMPARE_WITH_TIMEOUT(failure.state(), FacePamAuthenticator::UsePassword, 1000);
-+    QTRY_COMPARE_WITH_TIMEOUT(failure.state(), FacePamAuthenticator::Failed, 1500);
++    QTRY_VERIFY_WITH_TIMEOUT(!failure.isBusy(), 1500);
++    QCOMPARE(failure.state(), FacePamAuthenticator::UsePassword);
 +    QVERIFY(!failure.isUnlocked());
 +}
 +
@@ -234,6 +241,57 @@ index 0000000..ce3d518
 +    QCOMPARE(untrusted.state(), FacePamAuthenticator::Starting);
 +    untrusted.cancel();
 +    QTRY_VERIFY_WITH_TIMEOUT(untrusted.canStart(), 1000);
++}
++
++void FacePamAuthenticatorTest::pamConversationAllowlist_data()
++{
++    QTest::addColumn<QByteArray>("message");
++    QTest::addColumn<QByteArray>("token");
++    QTest::newRow("starting-camera") << QByteArray("KFACEAUTH_STATUS=starting-camera") << QByteArray("camera-starting");
++    for (const char *value : {"looking-for-face", "use-password", "camera-busy", "timeout", "service-unavailable", "retry-later"}) {
++        QTest::newRow(value) << QByteArray("KFACEAUTH_STATUS=") + value << QByteArray(value);
++    }
++    QTest::newRow("unknown") << QByteArray("KFACEAUTH_STATUS=accepted") << QByteArray();
++    QTest::newRow("raw-text") << QByteArray("untrusted text") << QByteArray();
++    QTest::newRow("leading-space") << QByteArray(" KFACEAUTH_STATUS=timeout") << QByteArray();
++    QTest::newRow("trailing-newline") << QByteArray("KFACEAUTH_STATUS=timeout\n") << QByteArray();
++}
++
++void FacePamAuthenticatorTest::pamConversationAllowlist()
++{
++    QFETCH(QByteArray, message);
++    QFETCH(QByteArray, token);
++    QCOMPARE(QByteArray(facePamStatusToken(message.constData())), token);
++    QVERIFY(facePamStatusToken(nullptr) == nullptr);
++}
++
++void FacePamAuthenticatorTest::terminalCategoriesSurviveProcessExit_data()
++{
++    QTest::addColumn<QString>("token");
++    QTest::addColumn<int>("state");
++    QTest::newRow("camera-busy") << QStringLiteral("camera-busy") << int(FacePamAuthenticator::CameraBusy);
++    QTest::newRow("timeout") << QStringLiteral("timeout") << int(FacePamAuthenticator::TimedOut);
++    QTest::newRow("service-unavailable") << QStringLiteral("service-unavailable") << int(FacePamAuthenticator::ServiceUnavailable);
++    QTest::newRow("retry-later") << QStringLiteral("retry-later") << int(FacePamAuthenticator::RetryLater);
++    QTest::newRow("use-password") << QStringLiteral("use-password") << int(FacePamAuthenticator::UsePassword);
++}
++
++void FacePamAuthenticatorTest::terminalCategoriesSurviveProcessExit()
++{
++    QFETCH(QString, token);
++    QFETCH(int, state);
++    for (const QString &suffix : {QString(), QStringLiteral("-late-success")}) {
++        FacePamAuthenticator authenticator(token + suffix, fixturePath(), policyHelperPath(), 1002);
++        QObject theme;
++        registerManualTheme(authenticator, &theme);
++        QSignalSpy successes(&authenticator, &FacePamAuthenticator::succeeded);
++        authenticator.startAttempt();
++        QTRY_VERIFY_WITH_TIMEOUT(!authenticator.isBusy(), 1500);
++        QCOMPARE(int(authenticator.state()), state);
++        QCOMPARE(successes.count(), 0);
++        QVERIFY(!authenticator.isUnlocked());
++        QVERIFY(authenticator.canStart());
++    }
 +}
 +
 +void FacePamAuthenticatorTest::cancellationStopsWorkerWithoutUnlocking()
@@ -325,20 +383,21 @@ index 0000000..ce3d518
 +
 +    authenticator.notifyUserActivity();
 +    authenticator.notifyUserActivity();
-+    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::Failed, 1500);
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::UsePassword, 1500);
++    QTRY_VERIFY_WITH_TIMEOUT(!authenticator.isBusy(), 1500);
 +    QVERIFY(!authenticator.isBusy());
 +    QCOMPARE(busySpy.count(), 2);
 +
 +    authenticator.notifyUserActivity();
 +    QTest::qWait(100);
 +    QVERIFY(!authenticator.isBusy());
-+    QCOMPARE(authenticator.state(), FacePamAuthenticator::Failed);
++    QCOMPARE(authenticator.state(), FacePamAuthenticator::UsePassword);
 +
 +    authenticator.resetActivityCycle();
 +    authenticator.notifyUserActivity();
-+    QTRY_VERIFY_WITH_TIMEOUT(authenticator.isBusy(), 1000);
-+    QCOMPARE(busySpy.count(), 3);
-+    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::Failed, 1500);
++    QTRY_VERIFY_WITH_TIMEOUT(busySpy.count() >= 3, 1000);
++    QTRY_COMPARE_WITH_TIMEOUT(authenticator.state(), FacePamAuthenticator::UsePassword, 1500);
++    QTRY_VERIFY_WITH_TIMEOUT(!authenticator.isBusy(), 1500);
 +}
 +
 +void FacePamAuthenticatorTest::activityCanWaitForPolicyLookupButCancellationWins()
@@ -410,10 +469,10 @@ index 0000000..ce3d518
 +#include "facepamauthenticator_autotest.moc"
 diff --git a/greeter/faceautotests/facepamworker_fixture.cpp b/greeter/faceautotests/facepamworker_fixture.cpp
 new file mode 100644
-index 0000000..b3645a6
+index 0000000..96d1f82
 --- /dev/null
 +++ b/greeter/faceautotests/facepamworker_fixture.cpp
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,58 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
 +    SPDX-License-Identifier: GPL-2.0-or-later
@@ -423,6 +482,7 @@ index 0000000..b3645a6
 +#include <cstdlib>
 +#include <iostream>
 +#include <string_view>
++#include <string>
 +#include <thread>
 +
 +int main(int argc, char **argv)
@@ -431,6 +491,12 @@ index 0000000..b3645a6
 +        return 2;
 +    }
 +    const std::string_view mode(argv[1]);
++    for (const std::string_view token : {"camera-busy", "timeout", "service-unavailable", "retry-later", "use-password"}) {
++        if (mode == token || mode == std::string(token) + "-late-success") {
++            std::cout << token << "\nlooking-for-face\n" << std::flush;
++            return mode == token ? 1 : 0;
++        }
++    }
 +    if (mode == "success") {
 +        std::cout << "camera-starting\n" << std::flush;
 +        std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -525,10 +591,10 @@ index 0000000..ce1695b
 +}
 diff --git a/greeter/facepamauthenticator.cpp b/greeter/facepamauthenticator.cpp
 new file mode 100644
-index 0000000..73c80aa
+index 0000000..90f1d2b
 --- /dev/null
 +++ b/greeter/facepamauthenticator.cpp
-@@ -0,0 +1,449 @@
+@@ -0,0 +1,465 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
 +    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
@@ -928,15 +994,29 @@ index 0000000..73c80aa
 +        }
 +        const QByteArray status = m_statusBuffer.left(newline);
 +        m_statusBuffer.remove(0, newline + 1);
-+        if (m_cancelRequested) {
++        if (m_cancelRequested || m_state == UsePassword || m_state == CameraBusy
++            || m_state == TimedOut || m_state == ServiceUnavailable || m_state == RetryLater) {
 +            continue;
 +        }
 +        if (status == QByteArrayLiteral("camera-starting")) {
 +            setState(CameraStarting);
 +        } else if (status == QByteArrayLiteral("looking-for-face")) {
 +            setState(LookingForFace);
++        } else if (status == QByteArrayLiteral("camera-busy")) {
++            setState(CameraBusy);
++        } else if (status == QByteArrayLiteral("timeout")) {
++            setState(TimedOut);
++        } else if (status == QByteArrayLiteral("service-unavailable")) {
++            setState(ServiceUnavailable);
++        } else if (status == QByteArrayLiteral("retry-later")) {
++            setState(RetryLater);
 +        } else if (status == QByteArrayLiteral("use-password")) {
 +            setState(UsePassword);
++        }
++        if (m_state == UsePassword || m_state == CameraBusy || m_state == TimedOut
++            || m_state == ServiceUnavailable || m_state == RetryLater) {
++            m_attemptDeadline.stop();
++            terminateProcess();
 +        }
 +        // Ignore every other child output value. PAM text never reaches QML.
 +    }
@@ -958,14 +1038,16 @@ index 0000000..73c80aa
 +    if (m_cancelRequested) {
 +        return;
 +    }
-+    if (exitStatus == QProcess::NormalExit && exitCode == 0) {
++    const bool terminalFailure = m_state == UsePassword || m_state == CameraBusy
++        || m_state == TimedOut || m_state == ServiceUnavailable || m_state == RetryLater;
++    if (exitStatus == QProcess::NormalExit && exitCode == 0 && !terminalFailure) {
 +        m_unlocked = true;
 +        setState(Succeeded);
 +        Q_EMIT succeeded();
 +        return;
 +    }
 +    m_unlocked = false;
-+    if (m_state != TimedOut) {
++    if (!terminalFailure) {
 +        setState(Failed);
 +    }
 +}
@@ -980,10 +1062,10 @@ index 0000000..73c80aa
 +}
 diff --git a/greeter/facepamauthenticator.h b/greeter/facepamauthenticator.h
 new file mode 100644
-index 0000000..c8459fc
+index 0000000..a103e48
 --- /dev/null
 +++ b/greeter/facepamauthenticator.h
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,102 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
 +    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
@@ -1017,6 +1099,9 @@ index 0000000..c8459fc
 +        TimedOut,
 +        Cancelled,
 +        Succeeded,
++        CameraBusy,
++        ServiceUnavailable,
++        RetryLater,
 +    };
 +    Q_ENUM(State)
 +
@@ -1083,17 +1168,49 @@ index 0000000..c8459fc
 +    bool m_pendingActivityAttempt = false;
 +    bool m_activityDispatchScheduled = false;
 +};
+diff --git a/greeter/facepamstatus.h b/greeter/facepamstatus.h
+new file mode 100644
+index 0000000..d1e93c6
+--- /dev/null
++++ b/greeter/facepamstatus.h
+@@ -0,0 +1,25 @@
++/*
++    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
++    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
++*/
++#pragma once
++#include <cstring>
++#include <initializer_list>
++
++inline const char *facePamStatusToken(const char *message)
++{
++    if (message == nullptr) {
++        return nullptr;
++    }
++    if (std::strcmp(message, "KFACEAUTH_STATUS=starting-camera") == 0) {
++        return "camera-starting";
++    }
++    for (const char *token : {"looking-for-face", "use-password", "camera-busy", "timeout", "service-unavailable", "retry-later"}) {
++        const char *prefix = "KFACEAUTH_STATUS=";
++        const auto length = std::strlen(prefix);
++        if (std::strncmp(message, prefix, length) == 0 && std::strcmp(message + length, token) == 0) {
++            return token;
++        }
++    }
++    return nullptr;
++}
 diff --git a/greeter/facepamworker.cpp b/greeter/facepamworker.cpp
 new file mode 100644
-index 0000000..107b24c
+index 0000000..e4765d2
 --- /dev/null
 +++ b/greeter/facepamworker.cpp
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,89 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
 +    SPDX-License-Identifier: LGPL-2.1-only OR LGPL-3.0-only OR LicenseRef-KDE-Accepted-LGPL
 +*/
 +#include <security/pam_appl.h>
++#include "facepamstatus.h"
 +
 +#include <pwd.h>
 +#include <sys/types.h>
@@ -1107,16 +1224,11 @@ index 0000000..107b24c
 +{
 +int writeTypedStatus(const char *message)
 +{
-+    if (std::strcmp(message, "KFACEAUTH_STATUS=starting-camera") == 0) {
-+        return std::fputs("camera-starting\n", stdout) < 0 || std::fflush(stdout) != 0 ? -1 : 0;
++    const char *token = facePamStatusToken(message);
++    if (token == nullptr) {
++        return 0;
 +    }
-+    if (std::strcmp(message, "KFACEAUTH_STATUS=looking-for-face") == 0) {
-+        return std::fputs("looking-for-face\n", stdout) < 0 || std::fflush(stdout) != 0 ? -1 : 0;
-+    }
-+    if (std::strcmp(message, "KFACEAUTH_STATUS=use-password") == 0) {
-+        return std::fputs("use-password\n", stdout) < 0 || std::fflush(stdout) != 0 ? -1 : 0;
-+    }
-+    return 0;
++    return std::fprintf(stdout, "%s\n", token) < 0 || std::fflush(stdout) != 0 ? -1 : 0;
 +}
 +
 +int converse(int count, const struct pam_message **messages, struct pam_response **responses, void *)
@@ -1173,7 +1285,10 @@ index 0000000..107b24c
 +    if (result == PAM_SUCCESS) {
 +        result = pam_authenticate(handle, 0);
 +        if (result == PAM_SUCCESS) {
-+            (void)pam_setcred(handle, PAM_REFRESH_CRED);
++            result = pam_acct_mgmt(handle, 0);
++        }
++        if (result == PAM_SUCCESS) {
++            result = pam_setcred(handle, PAM_REFRESH_CRED);
 +        }
 +        (void)pam_end(handle, result);
 +    }
@@ -1193,10 +1308,10 @@ index 150816b..010d87d 100644
   </qresource>
 diff --git a/greeter/fallbacktheme/FaceAuthenticationControl.qml b/greeter/fallbacktheme/FaceAuthenticationControl.qml
 new file mode 100644
-index 0000000..99bb327
+index 0000000..929f550
 --- /dev/null
 +++ b/greeter/fallbacktheme/FaceAuthenticationControl.qml
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,99 @@
 +/*
 +SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
 +SPDX-License-Identifier: GPL-2.0-or-later
@@ -1238,10 +1353,17 @@ index 0000000..99bb327
 +                    return i18nd("kscreenlocker_greet", "Starting camera…");
 +                case ScreenLocker.FaceAuthenticator.LookingForFace:
 +                    return i18nd("kscreenlocker_greet", "Look at the camera…");
++                case ScreenLocker.FaceAuthenticator.CameraBusy:
++                    return i18nd("kscreenlocker_greet", "Camera is busy. Use password or try again.");
++                case ScreenLocker.FaceAuthenticator.ServiceUnavailable:
++                    return i18nd("kscreenlocker_greet", "Face authentication is unavailable. Use password or try again.");
++                case ScreenLocker.FaceAuthenticator.RetryLater:
++                    return i18nd("kscreenlocker_greet", "Try again later or use password.");
++                case ScreenLocker.FaceAuthenticator.TimedOut:
++                    return i18nd("kscreenlocker_greet", "Face authentication timed out. Use password or try again.");
 +                case ScreenLocker.FaceAuthenticator.UsePassword:
 +                    return i18nd("kscreenlocker_greet", "Use your password or try again.");
 +                case ScreenLocker.FaceAuthenticator.Failed:
-+                case ScreenLocker.FaceAuthenticator.TimedOut:
 +                case ScreenLocker.FaceAuthenticator.Cancelled:
 +                    return i18nd("kscreenlocker_greet", "Use your password or try again.");
 +                default:
@@ -1261,6 +1383,9 @@ index 0000000..99bb327
 +                    : (faceAuthenticator.state === ScreenLocker.FaceAuthenticator.Failed
 +                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.UsePassword
 +                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.TimedOut
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.CameraBusy
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.ServiceUnavailable
++                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.RetryLater
 +                       || faceAuthenticator.state === ScreenLocker.FaceAuthenticator.Cancelled
 +                       ? i18nd("kscreenlocker_greet", "Try Face ID again")
 +                       : i18nd("kscreenlocker_greet", "Use Face ID"))
@@ -1373,7 +1498,7 @@ index 3376a6b..8ffd141 100644
          root.resetFocus();
      }
 diff --git a/greeter/greeterapp.cpp b/greeter/greeterapp.cpp
-index 5322831..f1e98dc 100644
+index 5322831..062dcd9 100644
 --- a/greeter/greeterapp.cpp
 +++ b/greeter/greeterapp.cpp
 @@ -13,6 +13,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
@@ -1385,7 +1510,7 @@ index 5322831..f1e98dc 100644
  #include <iostream>
  #include <unistd.h>
  #include <kscreenlocker_greet_logging.h>
-@@ -69,6 +70,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
+@@ -69,6 +71,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
  
  #include "pamauthenticator.h"
  #include "pamauthenticators.h"
@@ -1393,7 +1518,7 @@ index 5322831..f1e98dc 100644
  
  // this is usable to fake a "screensaver" installation for testing
  // *must* be "0" for every public commit!
-@@ -142,8 +144,24 @@ UnlockApp::UnlockApp(int &argc, char **argv)
+@@ -142,8 +145,24 @@ UnlockApp::UnlockApp(int &argc, char **argv)
      noninteractive.push_back(
          std::make_unique<PamAuthenticator>(QStringLiteral(KSCREENLOCKER_PAM_SMARTCARD_SERVICE), KUser().loginName(), PamAuthenticator::Smartcard));
      m_authenticators = new PamAuthenticators(std::move(interactive), std::move(noninteractive), this);
@@ -1419,7 +1544,7 @@ index 5322831..f1e98dc 100644
      });
      initialize();
  
-@@ -269,6 +287,11 @@ void UnlockApp::initialViewSetup()
+@@ -269,6 +288,11 @@ void UnlockApp::initialViewSetup()
                                                    0,
                                                    "Authenticators",
                                                    QStringLiteral("authenticators must be obtained from the context"));
@@ -1431,7 +1556,7 @@ index 5322831..f1e98dc 100644
      for (QScreen *screen : screens()) {
          handleScreen(screen);
      }
-@@ -288,6 +311,7 @@ void UnlockApp::handleScreen(QScreen *screen)
+@@ -288,6 +312,7 @@ void UnlockApp::handleScreen(QScreen *screen)
          }
          m_views.removeOne(view);
          delete view;
@@ -1439,7 +1564,7 @@ index 5322831..f1e98dc 100644
      });
  }
  
-@@ -328,7 +352,7 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
+@@ -328,7 +353,7 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
      // engine stuff
      QQmlContext *context = view->engine()->rootContext();
      connect(view->engine().get(), &QQmlEngine::quit, this, [this]() {
@@ -1448,7 +1573,7 @@ index 5322831..f1e98dc 100644
              std::cout << "Unlocked" << std::endl;
              // Quit without exit handlers
              // This is because:
-@@ -343,6 +367,7 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
+@@ -343,6 +368,7 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
      context->setContextProperty(QStringLiteral("kscreenlocker_userName"), m_userName);
      context->setContextProperty(QStringLiteral("kscreenlocker_userImage"), m_userImage);
      context->setContextProperty(QStringLiteral("authenticator"), m_authenticators);
@@ -1456,7 +1581,7 @@ index 5322831..f1e98dc 100644
      context->setContextProperty(QStringLiteral("org_kde_plasma_screenlocker_greeter_interfaceVersion"), 2);
      context->setContextProperty(QStringLiteral("org_kde_plasma_screenlocker_greeter_view"), view);
      context->setContextProperty(QStringLiteral("config"), m_shellIntegration->configuration());
-@@ -430,6 +455,11 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
+@@ -430,6 +456,11 @@ PlasmaQuick::QuickViewSharedEngine *UnlockApp::createViewForScreen(QScreen *scre
      // showFullScreen is implicit on X11 (through geometry and hints) and Wayland (layer-shell)
      view->show();
      view->raise();
@@ -1468,7 +1593,7 @@ index 5322831..f1e98dc 100644
  
      auto onFrameSwapped = [this, view] {
          markViewsAsVisible(view);
-@@ -483,6 +513,16 @@ void UnlockApp::getFocus()
+@@ -483,6 +514,16 @@ void UnlockApp::getFocus()
      activeScreen->requestActivate();
  }
  
@@ -1485,7 +1610,7 @@ index 5322831..f1e98dc 100644
  void UnlockApp::graceLockEnded()
  {
      m_authenticators->setGraceLocked(false);
-@@ -568,9 +608,26 @@ bool UnlockApp::eventFilter(QObject *obj, QEvent *event)
+@@ -568,9 +609,26 @@ bool UnlockApp::eventFilter(QObject *obj, QEvent *event)
          return false;
      }
  

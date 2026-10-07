@@ -20,6 +20,7 @@ class SddmFaceAuthenticationContract(unittest.TestCase):
         self.assertIn('option(SDDM_ENABLE_EXPERIMENTAL_FACE_AUTH "Build the opt-in KFaceAuth greeter integration." OFF)', cmake)
         self.assertIn("if(SDDM_ENABLE_EXPERIMENTAL_FACE_AUTH)", greeter_cmake)
         self.assertIn('${DATA_INSTALL_DIR}/kfaceauth', greeter_cmake)
+        self.assertIn('RENAME "sddm-face-auth-api-v1.conf"', greeter_cmake)
         self.assertIn("api=1", marker)
         self.assertIn("sddm_version=0.21.0", marker)
         self.assertIn("upstream_commit=63780fcd79f1dbf81a30eef48c28c699ab15aded", marker)
@@ -125,6 +126,20 @@ class SddmFaceAuthenticationContract(unittest.TestCase):
         self.assertIn("if (!success)", auth_result)
         self.assertIn("user != m_faceUser", auth_result)
         self.assertIn("pw_uid) != m_faceUserUid", auth_result)
+
+    def test_fixed_pam_categories_pass_through_the_helper(self) -> None:
+        parser = source("src/common/FaceAuthenticationStatus.h")
+        backend = source("src/helper/backend/PamBackend.cpp")
+        display = source("src/daemon/Display.cpp")
+        self.assertIn("faceAuthenticationPamToken(QString::fromLocal8Bit(msg[i]->msg))", backend)
+        self.assertIn("m_app->info(token, Auth::INFO_NONE)", backend)
+        self.assertIn("if (m_faceAuthentication)", backend)
+        self.assertNotIn("message.trimmed()", display)
+        for token in ("camera-busy", "timeout", "service-unavailable", "retry-later"):
+            self.assertIn(f'"{token}"', parser)
+            self.assertIn(f'token == QLatin1String("{token}")', display)
+        self.assertIn("m_faceAuthCancellationRequested", display)
+        self.assertNotIn('<< error << message', display.split("void Display::slotFaceAuthError", 1)[1].split("QString Display::findGreeterTheme", 1)[0])
 
     def test_multiple_views_share_one_attempt_and_retry_is_explicit(self) -> None:
         app = source("src/greeter/GreeterApp.cpp")
