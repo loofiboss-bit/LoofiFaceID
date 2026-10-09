@@ -6,6 +6,10 @@ require {
     attribute file_type;
     type init_t;
     type v4l_device_t;
+    type passwd_file_t;
+    type cert_t;
+    type proc_t;
+    type sysctl_vm_t;
     role system_r;
     class file { read write getattr open create lock unlink execute execute_no_trans entrypoint ioctl map };
     class dir { read getattr search open write add_name remove_name mounton };
@@ -26,6 +30,9 @@ type kfaceauth_sock_t, file_type;
 role system_r types kfaceauth_t;
 # Permit systemd's ReadWritePaths bind mount on this type only.
 allow init_t kfaceauth_var_lib_t:dir mounton;
+# systemd reads the service EnvironmentFile before dropping privileges.
+allow init_t kfaceauth_etc_t:dir search;
+allow init_t kfaceauth_etc_t:file { read getattr open };
 # Domain transition from init
 allow init_t kfaceauth_exec_t:file { read getattr execute open };
 allow kfaceauth_t kfaceauth_exec_t:file { entrypoint ioctl lock map execute getattr open read };
@@ -41,6 +48,18 @@ allow init_t kfaceauth_sock_t:sock_file { create getattr setattr unlink write };
 allow kfaceauth_t self:process { fork sigkill sigchld };
 allow kfaceauth_t self:process setrlimit;
 allow kfaceauth_t self:fifo_file { create read write getattr ioctl };
+
+# System-vault ownership checks resolve the dedicated group through NSS.
+# Permit read-only public account metadata, never shadow files or mutations.
+allow kfaceauth_t passwd_file_t:file { read getattr open };
+
+# OpenSSL loads the platform configuration while decrypting system profiles.
+allow kfaceauth_t cert_t:dir { search getattr open read };
+allow kfaceauth_t cert_t:file { read getattr open };
+
+# Native allocators probe memory and huge-page availability during startup.
+allow kfaceauth_t proc_t:file { read getattr open };
+allow kfaceauth_t sysctl_vm_t:file { read getattr open };
 
 # Self socket operations
 allow kfaceauth_t self:unix_stream_socket { create bind listen accept read write getattr setopt getopt };

@@ -1,11 +1,49 @@
 # LoofiFaceID Improvement Plan
 
-**Updated:** 2026-10-07
+**Updated:** 2026-10-09
 **Review baseline:** initial plan `v5.2.1`; published baseline `v5.3.0`
 **Delivery:** v5.3.0 is published on GitHub and available from the Fedora 44 COPR repository; release artifacts and repository metadata were read back. PAM remains an unqualified experiment.
 
-The repository follow-up below targets a future v5.3-series build. It does not
-change the already-published v5.3.0 tag or artifacts.
+The working source targets an unreleased 5.4.0 candidate combining the planned
+5.3.1 fixes and 5.4.0 additions. Publishing and host installation are separate
+operations. Existing local integration changes were preserved and integrated in a
+separate worktree based on current main.
+
+## 2026-10-09 camera, comparison and profile status implementation
+
+- Idle hotplug snapshots are accepted without starting capture. Updates received
+  while starting, streaming or stopping wait for camera release. Tokens follow
+  device identity within a worker; removal and worker restart require a new
+  selection. Only an initial single camera can be selected automatically.
+- Comparison results adapt to text size and narrow layouts. Missing profile,
+  locked vault, incompatible model and missing frame have typed actions. Waiting
+  and cancellation are nonblocking, and retries always require a click.
+- System-profile freshness is a backend enum shared by the integration page,
+  diagnostics and allowlisted support report. `identity.freshness` is schema 1,
+  UID-bound and contains SHA-256 of the exact authenticated local ciphertext and
+  installed system ciphertext. It follows profile staging, rollback and deletion.
+  No digest, key or path reaches QML or reports. Informational daemon version 3,
+  opcode 0x12, is caller-bound; authentication and ordinary status remain version 2.
+  Missing/legacy/incomplete status is Unknown. Successful sync requires Current
+  readback; a changed local profile is Stale and can be explicitly synchronized.
+- The experimental-only camera helper lists compatible V4L2 metadata without
+  streaming. Applying or resetting requires Polkit, revalidates selection, preserves
+  unrelated root config, restarts only the experiment daemon, verifies readback,
+  and restores the previous configuration/service state on failure. The UI explains
+  the shared experiment scope and interrupted attempts before confirmation.
+- SELinux/service changes and the pinned Plasma Desktop lock-screen surface are
+  included alongside SDDM/KScreenLocker integration contracts. Password fallback
+  remains available. Source checks and isolated builds do not prove physical use.
+
+### Next qualification and measurement work
+
+Physical camera recovery, suspend/resume, at least 20 repeated local sessions,
+keyboard navigation and screen-reader checks remain the next manual priorities.
+Measure the complete camera pipeline with existing evaluation tools before
+optimizing a demonstrated bottleneck. No separate qualification machine is
+available, so physical SDDM/Plasma testing remains a later resource-dependent
+step under `HARDWARE-QUALIFICATION.md`. The experiment remains Off by default,
+unsupported and unqualified. No publication or installation is included here.
 
 ## 2026-10-07 reliability and recovery follow-up
 
@@ -26,8 +64,8 @@ published v5.3.0 assets or install packages on the development host.
   not prepare PAM services. A failed rollback keeps authentication revoked.
 - The KCM verifies policy and system-profile status before reporting success.
   An unavailable or late readback is a failure to verify, not success. The last
-  operation result survives subsequent refreshes. Profile freshness stays
-  **Unknown** because this version has no persistent generation comparison.
+  operation result survives subsequent refreshes. This earlier follow-up
+  originally reported Unknown; the 5.4.0 candidate above adds protected comparison.
 - Readiness rows distinguish component/API availability, SDDM theme declaration,
   dedicated PAM service, daemon response, local/system profile and saved mode.
   Runtime theme registration remains **Unknown** until observed in the actual
@@ -53,15 +91,6 @@ suspend/resume, accessibility and attack evaluation remain **NOT RUN** for
 this candidate. The standard package remains authentication-free and the
 experimental package remains unsupported and off by default.
 
-### Later work
-
-Persistent profile freshness needs protected sync metadata tied to the actual
-encrypted source/system files and a separately versioned status request;
-only Current/Stale/Unknown may reach the UI/report. Administrative camera
-selection should extend the existing root-owned daemon configuration and use
-explicit authorization plus readback. Neither feature is part of this protocol-
-2 follow-up. Physical qualification requires the dedicated test system specified
-in `HARDWARE-QUALIFICATION.md`; unavailable gates remain unverified.
 
 ## 2026-10-06 repository follow-up
 

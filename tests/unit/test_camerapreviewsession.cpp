@@ -2,6 +2,7 @@
 
 #include "camerapreviewsession.h"
 
+#include <QCborArray>
 #include <QSignalSpy>
 #include <QTest>
 
@@ -11,12 +12,86 @@ class CameraPreviewSessionTest final : public QObject
 
   private Q_SLOTS:
     void discoveryPreviewAndStop();
+    void hotplugSnapshotsWaitForRelease();
+    void hotplugPreservesTokensAcrossReorderingAndRequiresSelectionAfterLoss();
+    void initialUniqueCameraCanBeSelectedAutomatically();
+    void refreshPreservesExplicitSelection();
+    void workerRestartRequiresExplicitSelection();
     void enrollmentBudgetIsGrantedOncePerPreview();
     void invalidSelectionIsIgnored();
     void stableFailures();
     void lifecycleFailures();
     void timeLimitHotUnplugAndRepeatedStart();
 };
+
+namespace
+{
+QCborMap cameraSnapshot(std::initializer_list<const char *> tokens)
+{
+    QCborArray devices;
+    for (const char *token : tokens)
+        devices.append(QCborMap{{QStringLiteral("token"), QString::fromLatin1(token)},
+                                {QStringLiteral("label"), QStringLiteral("Camera")},
+                                {QStringLiteral("spectrum"), QStringLiteral("rgb")}});
+    return {{QStringLiteral("protocol"), PreviewProtocol::Version},
+            {QStringLiteral("session"), QStringLiteral("test-session")},
+            {QStringLiteral("sequence"), 1},
+            {QStringLiteral("type"), QStringLiteral("devices")},
+            {QStringLiteral("devices"), devices}};
+}
+} // namespace
+
+void CameraPreviewSessionTest::hotplugSnapshotsWaitForRelease()
+{
+    for (const auto state : {CameraPreviewSession::State::Starting, CameraPreviewSession::State::Streaming,
+                             CameraPreviewSession::State::Stopping})
+    {
+        CameraPreviewSession session(QStringLiteral("/unused"), nullptr);
+        QVERIFY(session.handleDevices(cameraSnapshot({"first", "second"})));
+        session.setSelectedDeviceIndex(1);
+        session.m_state = state;
+        QVERIFY(session.handleDevices(cameraSnapshot({"second", "first"})));
+        QCOMPARE(session.state(), state);
+        QCOMPARE(session.selectedDeviceIndex(), 1);
+        QCOMPARE(session.m_devices.at(1).token, QStringLiteral("second"));
+        session.m_sessionId = QStringLiteral("test-session");
+        session.m_state = CameraPreviewSession::State::Stopping;
+        QVERIFY(session.handleRecord({{QStringLiteral("protocol"), PreviewProtocol::Version},
+                                      {QStringLiteral("session"), QStringLiteral("test-session")},
+                                      {QStringLiteral("sequence"), 2},
+                                      {QStringLiteral("type"), QStringLiteral("stopped")}}));
+        QCOMPARE(session.state(), CameraPreviewSession::State::Ready);
+        QCOMPARE(session.selectedDeviceIndex(), 0);
+        QVERIFY(session.m_pendingDevices.isEmpty());
+        QVERIFY(!session.frameAvailable());
+    }
+}
+
+void CameraPreviewSessionTest::hotplugPreservesTokensAcrossReorderingAndRequiresSelectionAfterLoss()
+{
+    CameraPreviewSession session(QStringLiteral("/unused"), nullptr);
+    QVERIFY(session.handleDevices(cameraSnapshot({"first", "second"})));
+    session.setSelectedDeviceIndex(1);
+    QVERIFY(session.handleDevices(cameraSnapshot({"second", "first"})));
+    QCOMPARE(session.selectedDeviceIndex(), 0);
+    QVERIFY(session.handleDevices(cameraSnapshot({"first"})));
+    QCOMPARE(session.selectedDeviceIndex(), -1);
+    QVERIFY(session.handleDevices(cameraSnapshot({"second", "first"})));
+    QCOMPARE(session.selectedDeviceIndex(), -1);
+    QVERIFY(session.handleDevices(cameraSnapshot({})));
+    QCOMPARE(session.state(), CameraPreviewSession::State::Failed);
+    QVERIFY(session.handleDevices(cameraSnapshot({"first"})));
+    QCOMPARE(session.selectedDeviceIndex(), -1);
+}
+
+void CameraPreviewSessionTest::initialUniqueCameraCanBeSelectedAutomatically()
+{
+    CameraPreviewSession session(QStringLiteral("/unused"), nullptr);
+    QVERIFY(session.handleDevices(cameraSnapshot({"first"})));
+    QCOMPARE(session.selectedDeviceIndex(), 0);
+    QVERIFY(session.canStartPreview());
+    QVERIFY(!session.frameAvailable());
+}
 
 void CameraPreviewSessionTest::discoveryPreviewAndStop()
 {
@@ -38,6 +113,34 @@ void CameraPreviewSessionTest::discoveryPreviewAndStop()
     session.stopPreview();
     QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
     QVERIFY(!session.frameAvailable());
+}
+
+void CameraPreviewSessionTest::refreshPreservesExplicitSelection()
+{
+    CameraPreviewSession session(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    session.refreshDevices();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    QCOMPARE(session.selectedDeviceIndex(), -1);
+    QVERIFY(!session.canStartPreview());
+    session.setSelectedDeviceIndex(1);
+    session.refreshDevices();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    QCOMPARE(session.selectedDeviceIndex(), 1);
+    QVERIFY(!session.frameAvailable());
+}
+
+void CameraPreviewSessionTest::workerRestartRequiresExplicitSelection()
+{
+    CameraPreviewSession session(QStringLiteral(KFACEAUTH_FAKE_PREVIEW_WORKER_PATH), nullptr);
+    session.refreshDevices();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    session.setSelectedDeviceIndex(3);
+    session.startPreview();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Failed);
+    session.refreshDevices();
+    QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    QCOMPARE(session.selectedDeviceIndex(), -1);
+    QVERIFY(!session.canStartPreview());
 }
 
 void CameraPreviewSessionTest::enrollmentBudgetIsGrantedOncePerPreview()

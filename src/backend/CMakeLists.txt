@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: BSD-2-Clause
 
 add_library(kfaceauth_core STATIC
+    authcameraconfiguration.cpp
+    authcameraconfiguration.h
     camerapreviewsession.cpp
     camerapreviewsession.h
     enrollmentsession.cpp

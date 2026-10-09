@@ -49,6 +49,8 @@ pub const PAM_ATTEMPTS_PER_WINDOW: usize = 3;
 
 pub const OP_PAM_AUTH: u8 = 0x10;
 pub const OP_STATUS: u8 = 0x11;
+pub const OP_FRESHNESS: u8 = 0x12;
+pub const FRESHNESS_PROTOCOL_VERSION: u16 = 3;
 
 pub const AUTH_TARGET_SDDM: u8 = 1;
 pub const AUTH_TARGET_PLASMA_LOCK: u8 = 2;
@@ -172,13 +174,19 @@ pub enum DaemonRequest {
     Status {
         target_uid: u32,
     },
+    Freshness {
+        target_uid: u32,
+        local_digest: [u8; 32],
+    },
 }
 
 impl DaemonRequest {
     #[must_use]
     pub const fn target_uid(&self) -> u32 {
         match self {
-            Self::PamAuth { target_uid, .. } | Self::Status { target_uid } => *target_uid,
+            Self::PamAuth { target_uid, .. }
+            | Self::Status { target_uid }
+            | Self::Freshness { target_uid, .. } => *target_uid,
         }
     }
 }
@@ -193,6 +201,16 @@ pub fn decode_daemon_request(payload: &[u8]) -> Result<DaemonRequest, &'static s
         return Err("invalid request payload length");
     }
     let version = u16::from_be_bytes([payload[0], payload[1]]);
+    if version == FRESHNESS_PROTOCOL_VERSION
+        && payload.len() == 40
+        && payload[2] == OP_FRESHNESS
+        && payload[3] == 0
+    {
+        return Ok(DaemonRequest::Freshness {
+            target_uid: u32::from_be_bytes(payload[4..8].try_into().map_err(|_| "invalid UID")?),
+            local_digest: payload[8..40].try_into().map_err(|_| "invalid digest")?,
+        });
+    }
     if version != DAEMON_PROTOCOL_VERSION {
         return Err("unsupported protocol version");
     }
@@ -546,6 +564,33 @@ fn dispatch_request_until_with_client(
     deadline: Instant,
     cancel_client: Option<&UnixStream>,
 ) -> Vec<u8> {
+    if let DaemonRequest::Freshness {
+        target_uid,
+        local_digest,
+    } = request
+    {
+        // The informational operation is caller-bound, including root callers.
+        let freshness = if peer.uid == *target_uid && remaining_timeout_ms(deadline).is_some() {
+            let root = config
+                .vault_root
+                .clone()
+                .unwrap_or_else(kfaceauth_templates::system_vault_root);
+            kfaceauth_templates::freshness::profile_freshness(&root, *target_uid, local_digest)
+        } else {
+            kfaceauth_templates::freshness::ProfileFreshness::Unknown
+        };
+        return vec![
+            0,
+            3,
+            if peer.uid == *target_uid {
+                STATUS_SUCCESS
+            } else {
+                STATUS_ACCESS_DENIED
+            },
+            0,
+            freshness as u8,
+        ];
+    }
     let target_uid = request.target_uid();
     // Deny requests that attempt to target a UID other than the socket peer.
     if !is_authorized(peer.uid, target_uid) {
@@ -598,6 +643,7 @@ fn dispatch_request_until_with_client(
             }
             (status, Vec::new())
         }
+        DaemonRequest::Freshness { .. } => unreachable!("freshness handled separately"),
         DaemonRequest::Status { target_uid } => {
             let keys_dir = config.keys_dir.as_deref();
             match kfaceauth_crypto_openssl_sys::load_master_key_for_uid(*target_uid, keys_dir) {
@@ -1150,6 +1196,43 @@ fn run_daemon_loop_until(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn freshness_request_has_separate_version_and_is_strictly_caller_bound() {
+        let mut frame = vec![0, 3, OP_FRESHNESS, 0];
+        frame.extend_from_slice(&1000_u32.to_be_bytes());
+        frame.extend_from_slice(&[7; 32]);
+        let request = decode_daemon_request(&frame).unwrap();
+        assert_eq!(request.target_uid(), 1000);
+        for peer_uid in [0, 1001] {
+            let peer = PeerCredentials {
+                uid: peer_uid,
+                gid: peer_uid,
+                pid: 1,
+            };
+            assert_eq!(
+                dispatch_request(&request, &peer, &DaemonConfig::default()),
+                vec![0, 3, STATUS_ACCESS_DENIED, 0, 0]
+            );
+        }
+        let peer = PeerCredentials {
+            uid: 1000,
+            gid: 1000,
+            pid: 1,
+        };
+        assert_eq!(
+            dispatch_request(&request, &peer, &DaemonConfig::default()),
+            vec![0, 3, STATUS_SUCCESS, 0, 0]
+        );
+        frame[1] = 2;
+        assert!(decode_daemon_request(&frame).is_err());
+        frame[1] = 3;
+        frame[3] = 1;
+        assert!(decode_daemon_request(&frame).is_err());
+        frame[3] = 0;
+        frame.pop();
+        assert!(decode_daemon_request(&frame).is_err());
+    }
 
     #[test]
     fn pam_rate_limit_is_per_uid_and_expires_after_the_window() {

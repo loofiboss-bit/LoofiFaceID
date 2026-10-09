@@ -8,6 +8,9 @@ After=kfaceauth.socket local-fs.target systemd-udevd.service
 Type=exec
 ExecStart=/usr/libexec/kfaceauthd
 EnvironmentFile=-/etc/kfaceauth/kfaceauth.conf
+# The service and vault group are static sysusers accounts. NSS must not merge
+# membership from systemd userdb services inside the confined daemon.
+Environment=SYSTEMD_BYPASS_USERDB=1
 User=kfaceauth
 Group=kfaceauth
 SupplementaryGroups=video

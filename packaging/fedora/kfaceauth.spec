@@ -4,7 +4,7 @@
 %bcond_with experimental_auth
 
 Name:           kfaceauth
-Version:        5.3.0
+Version:        5.4.0
 Release:        1%{?dist}
 Summary:        Experimental local face profile and comparison utility for KDE
 
@@ -164,6 +164,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %{_libexecdir}/kfaceauthd
 %{_libexecdir}/kfaceauth-sync-vault
 %{_libexecdir}/kfaceauth-policy
+%{_libexecdir}/kfaceauth-camera-config
 %{_unitdir}/kfaceauth.service
 %{_unitdir}/kfaceauth.socket
 %{_sysusersdir}/kfaceauth.conf
@@ -180,6 +181,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_kfaceauth.desktop
 %endif
 
 %changelog
+* Fri Oct 09 2026 Loofi <noreply@example.invalid> - 5.4.0-1
+- Add bounded camera recovery, verified profile sync status, and experimental camera configuration
+- Preserve standard package and unqualified authentication boundaries
+
 * Mon Oct 05 2026 Loofi <noreply@example.invalid> - 5.3.0-1
 - Improve local enrollment recovery, diagnostics, camera selection, and source release integrity
 - Keep PAM authentication opt-in and unqualified

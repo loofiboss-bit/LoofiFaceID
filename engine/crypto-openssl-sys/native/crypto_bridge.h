@@ -59,6 +59,8 @@ extern "C"
     int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t *buffer, size_t buffer_size,
                                uint32_t *width_out, uint32_t *height_out, uint32_t *format_out);
 
+    int kfaceauth_v4l2_metadata(const char *path, char *label, size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif

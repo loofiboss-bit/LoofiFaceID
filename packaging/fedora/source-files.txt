@@ -53,6 +53,7 @@ docs/THREAT-BOUNDARY.md
 docs/TROUBLESHOOTING.md
 docs/USER-GUIDE.md
 docs/V4-QUALIFICATION-REPORT.md
+docs/VALIDATION-V5.4-CANDIDATE.md
 docs/VISION-PROTOCOL.md
 docs/YUNET-PIPELINE.md
 engine/CMakeLists.txt
@@ -79,8 +80,10 @@ engine/protocol/Cargo.toml
 engine/protocol/src/lib.rs
 engine/templates/Cargo.toml
 engine/templates/src/auth_policy.rs
+engine/templates/src/bin/kfaceauth-camera-config.rs
 engine/templates/src/bin/kfaceauth-policy.rs
 engine/templates/src/bin/kfaceauth-sync-vault.rs
+engine/templates/src/freshness.rs
 engine/templates/src/lib.rs
 engine/vendor/proc-macro2/.cargo-checksum.json
 engine/vendor/proc-macro2/.cargo_vcs_info.json
@@ -332,6 +335,10 @@ integrations/kscreenlocker/README.md
 integrations/kscreenlocker/check_patch.sh
 integrations/kscreenlocker/patches/0001-face-auth-factor-kscreenlocker-v6.7.5.patch
 integrations/kscreenlocker/tests/test_patch_contract.py
+integrations/plasma-desktop/README.md
+integrations/plasma-desktop/check_patch.sh
+integrations/plasma-desktop/patches/0001-face-control-plasma-desktop-v6.7.5.patch
+integrations/plasma-desktop/tests/test_patch_contract.py
 integrations/sddm/README.md
 integrations/sddm/check_patch.sh
 integrations/sddm/patches/0001-face-auth-v0.21.0.patch
@@ -361,6 +368,8 @@ po/README.md
 po/sv/kcm_kfaceauth.po
 src/CMakeLists.txt
 src/backend/CMakeLists.txt
+src/backend/authcameraconfiguration.cpp
+src/backend/authcameraconfiguration.h
 src/backend/authcomponents.h
 src/backend/camerapreviewsession.cpp
 src/backend/camerapreviewsession.h
@@ -434,6 +443,7 @@ tests/unit/camera_hardware_check.cpp
 tests/unit/fake_identity_worker.cpp
 tests/unit/fake_preview_worker.cpp
 tests/unit/fake_vision_worker.cpp
+tests/unit/test_authcameraconfiguration.cpp
 tests/unit/test_camerapreviewsession.cpp
 tests/unit/test_cameraprovider.cpp
 tests/unit/test_identityprotocol.cpp

@@ -53,5 +53,7 @@ class PreviewWorker final : public QObject
     QTimer m_previewLimit;
     qint64 m_deadlineMs = 0;
     bool m_enrollmentBudgetGranted = false;
+    bool m_previewInProgress = false;
+    bool m_discoveryPending = false;
     QSharedMemory m_sharedMemory;
 };

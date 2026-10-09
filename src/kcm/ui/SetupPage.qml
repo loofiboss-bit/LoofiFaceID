@@ -155,6 +155,8 @@ Kirigami.ScrollablePage {
                 root.cameraPreviewSession.startPreview()
             else if (root.cameraPreviewSession.previewActive)
                 root.startGuidedEnrollment()
+            else if (!root.cameraPreviewSession.busy)
+                root.firstStartPending = false
         }
     }
 

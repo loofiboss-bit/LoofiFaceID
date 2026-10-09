@@ -19,5 +19,9 @@ path = "src/bin/kfaceauth-sync-vault.rs"
 name = "kfaceauth-policy"
 path = "src/bin/kfaceauth-policy.rs"
 
+[[bin]]
+name = "kfaceauth-camera-config"
+path = "src/bin/kfaceauth-camera-config.rs"
+
 [lints]
 workspace = true

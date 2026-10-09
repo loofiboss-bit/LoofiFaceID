@@ -155,3 +155,24 @@ the password fallback. Generic vendor emitter controls are not sent.
 A timed-out native attempt is terminated in a separate confined process. A
 kernel-stuck process may remain busy until it actually exits; password fallback
 must remain available. Runtime and physical qualification are still unverified.
+
+## Authentication camera setting (unreleased 5.4.0)
+
+In the opt-in experiment, **Login and unlock → Camera for login and unlock**
+can read the administrator setting, choose a compatible camera or restore
+automatic selection. Refresh, Apply and Reset use a fixed Polkit-protected
+helper. Refresh queries capabilities without capturing frames. The default
+package omits this helper and its policy.
+
+Apply/Reset first explain that the setting affects all experiment users and
+requires a daemon restart, interrupting active face attempts. The helper
+revalidates selection, preserves unrelated root-owned configuration and
+verifies service plus configuration after restart. Failure restores the previous
+snapshot and active state; a failed rollback is reported explicitly. Password
+sign-in remains available. Unsupported multiline/continued EnvironmentFile
+values are rejected before editing, so they require administrator review.
+
+An unverified system profile remains Unknown, including with an older daemon.
+A verified changed local generation is Stale: use **Sync system profile** to
+explicitly approve its new system copy. Successful sync is shown only after
+Current readback. Neither status enables authentication or captures an image.

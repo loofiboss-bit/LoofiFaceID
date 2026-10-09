@@ -12,6 +12,12 @@ does not qualify face comparison for login or other security decisions. See
 the [v5.3.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.3.0)
 and the [release qualification record](docs/RELEASE-QUALIFICATION-V5.3.md).
 
+The working source targets an **unreleased 5.4.0 candidate**. It adds recoverable
+camera hotplug, explicit comparison recovery, verified informational system-profile
+freshness, and an administrator-authorized camera setting in the opt-in experiment.
+These changes do not change the published release or qualify system login. See
+[candidate validation and remaining qualification](docs/VALIDATION-V5.4-CANDIDATE.md).
+
 The previous v5.2.0 source package could not rebuild in a clean COPR build
 because its standard spec omitted `systemd-devel` for `libudev`. v5.2.1 fixed
 that requirement and passed COPR build 11075253. v5.3.0 carries forward the
@@ -45,8 +51,9 @@ before enabling or describing this experiment.
 
 The downstream integration patch series and isolated build checks are documented
 for [SDDM](integrations/sddm/README.md) and
-[KScreenLocker](integrations/kscreenlocker/README.md). Neither patch is installed
-by the standard package, and neither has passed physical login/unlock qualification.
+[KScreenLocker](integrations/kscreenlocker/README.md), with its
+[Plasma Desktop lock-screen surface](integrations/plasma-desktop/README.md). None of these patches is installed
+by the standard package, and none has passed physical login/unlock qualification.
 
 The historical [v5.0.0 GitHub release](https://github.com/loofiboss-bit/LoofiFaceID/releases/tag/v5.0.0)
 has a published correction withdrawing its unsupported authentication, PAD,
@@ -79,8 +86,8 @@ systemsettings kcm_kfaceauth
 ```
 
 Open **Home** and choose **Get started**. The KCM selects the only usable
-camera automatically; a camera selector appears only when more than one
-usable camera is discovered.
+camera automatically; a camera selector permits explicit reselection after a device disappears or its
+worker restarts. Device refresh never starts a camera.
 
 ### Update
 

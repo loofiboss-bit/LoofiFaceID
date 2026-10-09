@@ -188,3 +188,7 @@ if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
     target_link_libraries(test_pam Qt6::Core Qt6::Test)
     add_test(NAME pam_conversation COMMAND test_pam)
 endif()
+
+add_executable(test_authcameraconfiguration test_authcameraconfiguration.cpp)
+target_link_libraries(test_authcameraconfiguration kfaceauth_core Qt6::Core Qt6::Test)
+add_test(NAME authcameraconfiguration COMMAND test_authcameraconfiguration)

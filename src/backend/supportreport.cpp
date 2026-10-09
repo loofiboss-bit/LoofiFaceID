@@ -119,7 +119,18 @@ void SupportReport::setTransientIssueCode(const QString &code)
         QStringLiteral("stale-response"),
         QStringLiteral("identity-protocol-error"),
     };
-    if (walletCodes.contains(code))
+    if (code == QLatin1String("identity-error-13") || code == QLatin1String("profile-unavailable"))
+        normalized = QStringLiteral("profile-unavailable");
+    else if (code == QLatin1String("identity-error-14"))
+        normalized = QStringLiteral("vault-locked");
+    else if (code == QLatin1String("identity-error-16"))
+        normalized = QStringLiteral("model-mismatch");
+    else if (code == QLatin1String("identity-error-20"))
+        normalized = QStringLiteral("model-unavailable");
+    else if (code == QLatin1String("cancelled") || code == QLatin1String("identity-error-18") ||
+             code == QLatin1String("rate-limited"))
+        normalized.clear();
+    else if (walletCodes.contains(code))
         normalized = QStringLiteral("kwallet-unavailable");
     else if (code == QLatin1String("analysis-error-11"))
         normalized = QStringLiteral("model-unavailable");
@@ -139,6 +150,8 @@ void SupportReport::setTransientIssueCode(const QString &code)
         normalized = QStringLiteral("protocol-error");
 
     static const QSet<QString> allowedCodes = {
+        QStringLiteral("profile-unavailable"),
+        QStringLiteral("frame-unavailable"),
         QStringLiteral("model-unavailable"),
         QStringLiteral("model-mismatch"),
         QStringLiteral("vault-locked"),
@@ -225,6 +238,10 @@ QString SupportReport::redactedValue(const QString &value)
 
 QString SupportReport::titleForCode(const QString &code)
 {
+    if (code == QLatin1String("profile-unavailable"))
+        return translate("No enrolled face profile is available");
+    if (code == QLatin1String("frame-unavailable"))
+        return translate("No current preview frame is available");
     if (code.startsWith(QLatin1String("auth-")) || code == QLatin1String("system-profile-unavailable") ||
         code == QLatin1String("daemon-not-ready"))
         return translate("Experimental authentication needs attention");
@@ -264,6 +281,10 @@ QString SupportReport::titleForCode(const QString &code)
 
 QString SupportReport::actionForCode(const QString &code)
 {
+    if (code == QLatin1String("profile-unavailable"))
+        return translate("Open Enrollment and create an encrypted face profile.");
+    if (code == QLatin1String("frame-unavailable"))
+        return translate("Start preview, wait for a current frame, then explicitly retry the local test.");
     if (code == QLatin1String("system-profile-unavailable"))
         return translate("Open Login and unlock, then choose Sync system profile and approve access.");
     if (code == QLatin1String("auth-wallet-unavailable"))
@@ -389,7 +410,7 @@ void SupportReport::rebuild()
         appendTarget(QStringLiteral("plasma-lock"), m_enrollmentSession->plasmaLockReadiness(),
                      m_enrollmentSession->plasmaLockAuthErrorCode());
         m_report +=
-            QStringLiteral("- profile-freshness: unknown\n- last-change.target: %1\n- last-change.result: %2\n- "
+            QStringLiteral("- profile-freshness: %4\n- last-change.target: %1\n- last-change.result: %2\n- "
                            "last-change.issue: %3\n")
                 .arg(m_enrollmentSession->authOperationTarget().isEmpty() ? QStringLiteral("none")
                                                                           : m_enrollmentSession->authOperationTarget(),
@@ -397,7 +418,8 @@ void SupportReport::rebuild()
                          results.valueToKey(static_cast<int>(m_enrollmentSession->authOperationResult()))),
                      m_enrollmentSession->authOperationErrorCode().isEmpty()
                          ? QStringLiteral("none")
-                         : m_enrollmentSession->authOperationErrorCode());
+                         : m_enrollmentSession->authOperationErrorCode())
+                .arg(m_enrollmentSession->systemProfileFreshnessCode());
     }
     Q_EMIT reportChanged();
 }

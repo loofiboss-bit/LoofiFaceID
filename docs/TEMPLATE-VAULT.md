@@ -80,3 +80,20 @@ destructive confirmation. Neither operation claims physical erasure on SSD,
 CoW, journal, snapshot, backup, or remanent storage. Key loss requires
 explicit reset and re-enrollment; no backup/export or login-password recovery
 exists.
+
+## Informational system-profile freshness (unreleased 5.4.0)
+
+Encrypted vault formats remain unchanged. A system-profile installation also
+stages `identity.freshness`: 78 bytes, magic `KFAFRS01`, big-endian schema 1
+(u16), UID (u32), exact authenticated source-ciphertext SHA-256 (32 bytes), and
+installed system-ciphertext SHA-256 (32 bytes). The metadata is root-owned,
+mode 0640, group kfaceauth, single-link, in the protected UID directory. Profile
+swap, rollback and deletion include it as one directory transaction.
+
+Informational daemon protocol 3 opcode 0x12 accepts flags 0, caller UID and a
+32-byte local ciphertext digest. Only the caller's own UID is permitted. A
+verified generation is Current; changed local ciphertext is Stale; absent,
+corrupt, mismatched or legacy metadata is Unknown. A changed directory/file
+identity during readback is rejected. UI and support reports receive only the
+fixed enum; no digest, file path or key is exported. This status never authorizes
+an authentication attempt. Authentication remains protocol 2.

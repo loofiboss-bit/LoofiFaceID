@@ -80,3 +80,22 @@ jobs:
           python3 -m unittest
           tests.test_v15_contracts.NoxForgeV15ContractsTests.test_experimental_face_auth_theme_contracts
           -v
+
+  plasma-shell-contract:
+    name: Pinned Plasma Desktop active lock-screen adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out LoofiFaceID
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Check out pinned Plasma Desktop
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          repository: KDE/plasma-desktop
+          ref: 43f55fff3480c6eb5f60133f045bfc74b9c67d84
+          path: upstream
+          persist-credentials: false
+      - name: Verify actual Plasma/Shell integration and password cancellation
+        run: integrations/plasma-desktop/check_patch.sh "$PWD/upstream"

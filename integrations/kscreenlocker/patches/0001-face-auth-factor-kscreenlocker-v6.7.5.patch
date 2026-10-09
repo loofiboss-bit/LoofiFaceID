@@ -81,10 +81,10 @@ index 0000000..1d639b6
 +ecm_mark_as_test(facePamAuthenticatorTest)
 diff --git a/greeter/faceautotests/facepamauthenticator_autotest.cpp b/greeter/faceautotests/facepamauthenticator_autotest.cpp
 new file mode 100644
-index 0000000..95caabe
+index 0000000..8cd8e78
 --- /dev/null
 +++ b/greeter/faceautotests/facepamauthenticator_autotest.cpp
-@@ -0,0 +1,382 @@
+@@ -0,0 +1,394 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 LoofiFaceID contributors
 +    SPDX-License-Identifier: GPL-2.0-or-later
@@ -103,6 +103,7 @@ index 0000000..95caabe
 +
 +private Q_SLOTS:
 +    void remainsIdleUntilExplicitRequest();
++    void policyDeadlineStartsAfterSynchronousGreeterInitialization();
 +    void themeInterfaceMustBeLoadedBeforeStarting();
 +    void sharedAttemptLivesUntilLastThemeViewDisappears();
 +    void onlyPamSuccessUnlocks();
@@ -147,6 +148,17 @@ index 0000000..95caabe
 +{
 +    waitForMode(authenticator, QStringLiteral("manual"));
 +    QVERIFY(authenticator.registerThemeComponent(theme, FacePamAuthenticator::InterfaceV1));
++}
++
++void FacePamAuthenticatorTest::policyDeadlineStartsAfterSynchronousGreeterInitialization()
++{
++    FacePamAuthenticator authenticator(QStringLiteral("block"), fixturePath(), policyHelperPath(), 1002);
++    QObject theme;
++    QVERIFY(authenticator.registerThemeComponent(&theme, FacePamAuthenticator::InterfaceV1));
++    QTest::qSleep(350); // Simulate QML construction before the greeter event loop starts.
++    waitForMode(authenticator, QStringLiteral("manual"));
++    QVERIFY(authenticator.isAvailable());
++    QVERIFY(!authenticator.isBusy());
 +}
 +
 +void FacePamAuthenticatorTest::remainsIdleUntilExplicitRequest()
@@ -591,7 +603,7 @@ index 0000000..ce1695b
 +}
 diff --git a/greeter/facepamauthenticator.cpp b/greeter/facepamauthenticator.cpp
 new file mode 100644
-index 0000000..90f1d2b
+index 0000000..8156272
 --- /dev/null
 +++ b/greeter/facepamauthenticator.cpp
 @@ -0,0 +1,465 @@
@@ -657,7 +669,7 @@ index 0000000..90f1d2b
 +    connect(&m_activityDeadline, &QTimer::timeout, this, [this] {
 +        m_pendingActivityAttempt = false;
 +    });
-+    startPolicyLookup();
++    QTimer::singleShot(0, this, [this] { startPolicyLookup(); });
 +}
 +
 +FacePamAuthenticator::~FacePamAuthenticator()

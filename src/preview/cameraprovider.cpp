@@ -12,6 +12,7 @@
 #include <QMediaDevices>
 #include <QPermissions>
 #include <QRandomGenerator>
+#include <QSet>
 #include <QVideoFrame>
 #include <QVideoSink>
 
@@ -33,7 +34,19 @@ QString userText(const char *text)
 
 CameraProvider::CameraProvider(QObject *parent) : QObject(parent)
 {
-    connect(new QMediaDevices(this), &QMediaDevices::videoInputsChanged, this, &CameraProvider::deviceListChanged);
+    connect(new QMediaDevices(this), &QMediaDevices::videoInputsChanged, this,
+            [this]()
+            {
+                // Forget a disappeared identity even if capture defers publishing discovery.
+                // The live QCamera owns its device; this snapshot only owns future tokens.
+                QSet<QByteArray> present;
+                for (const auto &device : QMediaDevices::videoInputs())
+                    present.insert(device.id());
+                m_devices.erase(std::remove_if(m_devices.begin(), m_devices.end(), [&present](const auto &entry)
+                                               { return !present.contains(entry.device.id()); }),
+                                m_devices.end());
+                Q_EMIT deviceListChanged();
+            });
 }
 
 CameraProvider::~CameraProvider()
@@ -44,16 +57,25 @@ CameraProvider::~CameraProvider()
 QVector<CameraDescriptor> CameraProvider::discover()
 {
     stop();
+    QHash<QByteArray, QString> previous;
+    for (const auto &entry : std::as_const(m_devices))
+        previous.insert(entry.device.id(), entry.token);
     m_devices.clear();
     const QList<QCameraDevice> inputs = QMediaDevices::videoInputs();
     const qsizetype count = std::min(inputs.size(), PreviewProtocol::MaxDevices);
+    QList<QByteArray> ids;
+    for (qsizetype index = 0; index < count; ++index)
+        ids.append(inputs.at(index).id());
+    const auto tokens = tokensForDevices(ids, previous);
     m_devices.reserve(count);
     for (qsizetype index = 0; index < count; ++index)
     {
         const QCameraDevice &device = inputs.at(index);
+        if (selectFormat(device.videoFormats()).isNull())
+            continue;
         const QString node = deviceNode(device);
         CameraDescriptor descriptor;
-        descriptor.token = QString::number(QRandomGenerator::global()->generate64(), 16);
+        descriptor.token = tokens.value(device.id());
         descriptor.label = sanitizedLabel(device.description());
         descriptor.spectrum = spectrumForNode(node);
         descriptor.device = device;
@@ -70,6 +92,31 @@ QVector<CameraDescriptor> CameraProvider::discover()
                          return false;
                      });
     return m_devices;
+}
+
+QHash<QByteArray, QString> CameraProvider::tokensForDevices(const QList<QByteArray> &ids,
+                                                            const QHash<QByteArray, QString> &previous)
+{
+    QHash<QByteArray, QString> result;
+    QSet<QString> used;
+    for (const auto &token : previous)
+        used.insert(token);
+    for (const auto &id : ids)
+    {
+        if (result.contains(id))
+            continue;
+        auto token = previous.value(id);
+        if (token.isEmpty())
+        {
+            do
+            {
+                token = QString::number(QRandomGenerator::global()->generate64(), 16);
+            } while (used.contains(token));
+            used.insert(token);
+        }
+        result.insert(id, token);
+    }
+    return result;
 }
 
 bool CameraProvider::start(const QString &token, QString *errorCode)

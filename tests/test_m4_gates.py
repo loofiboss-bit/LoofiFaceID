@@ -117,7 +117,9 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
         plasma_service = (ROOT / "data/pam/kde-kfaceauth").read_text(encoding="utf-8")
 
         self.assertIn("read_exact(&mut key)", helper)
-        self.assertIn("migrate_legacy_vault_with_separate_key", helper)
+        self.assertIn("open_anchored_profile_snapshot", helper)
+        self.assertIn("system_vault.commit_profile(&system_key, &profile)", helper)
+        self.assertIn("write_staged_metadata", helper)
         self.assertIn("MasterKey::generate()", helper)
         self.assertNotIn("--hex-key", helper)
         self.assertNotIn("KFACEAUTH_MASTER_KEY", helper)

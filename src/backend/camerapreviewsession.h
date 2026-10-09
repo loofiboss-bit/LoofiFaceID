@@ -98,6 +98,8 @@ class CameraPreviewSession final : public QAbstractListModel
     void frameChanged();
 
   private:
+    friend class CameraPreviewSessionTest;
+
     struct Device
     {
         QString token;
@@ -121,6 +123,8 @@ class CameraPreviewSession final : public QAbstractListModel
     QProcess *m_process = nullptr;
     PreviewProtocol::Parser m_parser;
     QVector<Device> m_devices;
+    QCborMap m_pendingDevices;
+    bool m_initialDiscovery = true;
     State m_state = State::Idle;
     int m_selectedDeviceIndex = -1;
     QImage m_frame;

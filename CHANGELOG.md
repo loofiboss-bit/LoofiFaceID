@@ -1,6 +1,26 @@
 # Changelog
 
-## Unreleased (v5.3 series)
+## Unreleased (5.4.0 development candidate)
+
+- Accept idle camera discovery updates and defer active-session hotplug until
+  release. Retain opaque device tokens within a worker, preserve explicit
+  selection across reorder, and require a new choice after loss or restart.
+- Map missing profiles, locked vaults, model conflicts and missing frames to
+  actionable diagnostics. Show explicit recovery actions and remaining cooldown
+  on an adaptive comparison result card; comparison never retries itself.
+- Add informational Current/Stale/Unknown system-profile freshness using
+  protected, UID-bound, versioned source/system ciphertext metadata in the
+  existing installation/rollback/deletion transaction. A separate version-3
+  status request preserves the version-2 authentication protocol and vault format.
+- Add an experimental-only Polkit camera helper with compatible metadata-only
+  enumeration, private selection tokens, exact config preservation, bounded
+  service restart, verified readback and rollback. Confirm scope before applying.
+- Include the pinned Plasma Desktop lock-screen surface patch and its contract
+  check beside the SDDM and KScreenLocker checks; preserve password fallback.
+- This candidate is source-only. It has not been published or installed; physical
+  login/unlock, camera, suspend/resume and accessibility qualification remain open.
+
+### Per-user authentication integration carried forward
 
 - Replace global, password-triggered face PAM with independent root-owned
   per-user SDDM and Plasma modes: Off, on activity, or button only. Ordinary

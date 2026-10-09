@@ -249,7 +249,10 @@ int CameraPreviewSession::deviceCountForSpectrum(const QString &spectrum) const
 void CameraPreviewSession::refreshDevices()
 {
     if (m_state == State::Starting || m_state == State::Streaming || m_state == State::Stopping)
+    {
+        sendCommand(QStringLiteral("discover"));
         return;
+    }
     clearFrame();
     m_errorCode.clear();
     if (!m_process || m_process->state() == QProcess::NotRunning || m_expectedExit)
@@ -327,6 +330,9 @@ void CameraPreviewSession::clearFrame()
 void CameraPreviewSession::startWorker()
 {
     resetWorker(true);
+    m_selectedDeviceIndex = -1;
+    m_pendingDevices.clear();
+    Q_EMIT selectionChanged();
     m_expectedExit = false;
     m_sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_nextCommandSequence = 0;
@@ -411,6 +417,8 @@ void CameraPreviewSession::processRecords()
     QVector<QCborMap> records;
     QString errorCode;
     const QByteArray bytes = m_process->readAllStandardOutput();
+    if (m_expectedExit)
+        return;
     if (!m_parser.append(bytes, &records, &errorCode))
     {
         fail(errorCode);
@@ -442,8 +450,6 @@ bool CameraPreviewSession::handleRecord(const QCborMap &record)
 
     if (type.toString() == QLatin1String("devices"))
     {
-        if (m_state != State::Discovering)
-            return false;
         return handleDevices(record);
     }
     if (type.toString() == QLatin1String("started"))
@@ -475,6 +481,12 @@ bool CameraPreviewSession::handleRecord(const QCborMap &record)
         m_remainingSeconds = 0;
         clearFrame();
         setState(State::Ready, translate("The camera has been released."));
+        if (!m_pendingDevices.isEmpty())
+        {
+            const auto pending = m_pendingDevices;
+            m_pendingDevices.clear();
+            return handleDevices(pending);
+        }
         return true;
     }
     if (type.toString() == QLatin1String("error") && record.value(QStringLiteral("code")).isString())
@@ -496,7 +508,7 @@ bool CameraPreviewSession::handleRecord(const QCborMap &record)
 bool CameraPreviewSession::handleDevices(const QCborMap &record)
 {
     const auto value = record.value(QStringLiteral("devices"));
-    if (!value.isArray() || value.toArray().size() > PreviewProtocol::MaxDevices)
+    if (record.size() != 5 || !value.isArray() || value.toArray().size() > PreviewProtocol::MaxDevices)
         return false;
     QVector<Device> devices;
     QSet<QString> tokens;
@@ -508,7 +520,8 @@ bool CameraPreviewSession::handleDevices(const QCborMap &record)
         const auto token = item.value(QStringLiteral("token"));
         const auto label = item.value(QStringLiteral("label"));
         const auto spectrum = item.value(QStringLiteral("spectrum"));
-        if (!token.isString() || token.toString().isEmpty() || tokens.contains(token.toString()) || !label.isString() ||
+        if (!token.isString() || token.toString().isEmpty() || token.toString().size() > 64 ||
+            tokens.contains(token.toString()) || !label.isString() ||
             label.toString().toUtf8().size() > PreviewProtocol::MaxLabelBytes || !spectrum.isString() ||
             !QStringList{QStringLiteral("rgb"), QStringLiteral("ir"), QStringLiteral("unknown")}.contains(
                 spectrum.toString()))
@@ -516,24 +529,29 @@ bool CameraPreviewSession::handleDevices(const QCborMap &record)
         tokens.insert(token.toString());
         devices.push_back({token.toString(), label.toString(), spectrum.toString()});
     }
+    if (m_state == State::Starting || m_state == State::Streaming || m_state == State::Stopping)
+    {
+        m_pendingDevices = record;
+        return true;
+    }
+    const QString selectedToken = m_selectedDeviceIndex >= 0 && m_selectedDeviceIndex < m_devices.size()
+                                      ? m_devices.at(m_selectedDeviceIndex).token
+                                      : QString();
     m_startupTimer.stop();
     beginResetModel();
     m_devices = devices;
     endResetModel();
     int preferredIndex = -1;
-    if (!m_devices.isEmpty())
+    for (int index = 0; index < m_devices.size(); ++index)
     {
-        preferredIndex = 0;
-        for (int i = 0; i < m_devices.size(); ++i)
-        {
-            if (m_devices.at(i).spectrum == QStringLiteral("ir"))
-            {
-                preferredIndex = i;
-                break;
-            }
-        }
+        if (!selectedToken.isEmpty() && m_devices.at(index).token == selectedToken)
+            preferredIndex = index;
     }
+    if (m_initialDiscovery && m_devices.size() == 1)
+        preferredIndex = 0;
+    m_initialDiscovery = false;
     m_selectedDeviceIndex = preferredIndex;
+    m_errorCode.clear();
     Q_EMIT devicesChanged();
     Q_EMIT selectionChanged();
     if (m_devices.isEmpty())
@@ -545,7 +563,7 @@ bool CameraPreviewSession::handleDevices(const QCborMap &record)
 
 bool CameraPreviewSession::handleFrame(const QCborMap &record)
 {
-    if (m_state != State::Streaming)
+    if (m_state != State::Streaming && m_state != State::Stopping)
         return false;
     const auto jpeg = record.value(QStringLiteral("jpeg"));
     const auto rgb = record.value(QStringLiteral("rgb"));
@@ -565,6 +583,12 @@ bool CameraPreviewSession::handleFrame(const QCborMap &record)
 
     const int w = static_cast<int>(width.toInteger());
     const int h = static_cast<int>(height.toInteger());
+    // Frames already queued by the worker can arrive after our stop command.
+    if (m_state == State::Stopping)
+        return (shm.toBool() && m_sharedMemory.isAttached()) ||
+               (rgb.isByteArray() && rgb.toByteArray().size() == w * h * 3) ||
+               (jpeg.isByteArray() && !jpeg.toByteArray().isEmpty() &&
+                jpeg.toByteArray().size() <= PreviewProtocol::MaxJpegBytes);
 
     if (shm.toBool() && m_sharedMemory.isAttached())
     {

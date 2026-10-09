@@ -24,12 +24,15 @@ KFaceAuthKcm::KFaceAuthKcm(QObject *parent, const KPluginMetaData &data)
 }
 
 KFaceAuthKcm::KFaceAuthKcm(QObject *parent, const KPluginMetaData &data, std::unique_ptr<FaceAuthBackend> backend)
-    : KQuickConfigModule(parent, data), m_probe(this), m_systemState(this), m_cameraPreviewSession(this),
-      m_visionAnalysisSession(&m_cameraPreviewSession, this), m_keyProvider(this), m_identityWorker(this),
-      m_enrollmentSession(&m_cameraPreviewSession, &m_identityWorker, &m_keyProvider, this),
+    : KQuickConfigModule(parent, data), m_authCameraConfiguration(this), m_probe(this), m_systemState(this),
+      m_cameraPreviewSession(this), m_visionAnalysisSession(&m_cameraPreviewSession, this), m_keyProvider(this),
+      m_identityWorker(this), m_enrollmentSession(&m_cameraPreviewSession, &m_identityWorker, &m_keyProvider, this),
       m_localVerificationSession(&m_cameraPreviewSession, &m_identityWorker, &m_keyProvider, this),
       m_supportReport(&m_systemState, &m_cameraPreviewSession, this), m_refreshCoordinator(std::move(backend), this)
 {
+    qmlRegisterUncreatableType<AuthCameraConfiguration>(
+        KFACEAUTH_QML_URI, 4, 0, "AuthCameraConfiguration",
+        QStringLiteral("AuthCameraConfiguration is provided by the KCM"));
     qmlRegisterType<CameraPreviewItem>(KFACEAUTH_QML_URI, 4, 0, "CameraPreview");
     qmlRegisterUncreatableType<CameraPreviewSession>(KFACEAUTH_QML_URI, 4, 0, "CameraPreviewSession",
                                                      QStringLiteral("CameraPreviewSession is provided by the KCM"));
@@ -87,6 +90,11 @@ KFaceAuthKcm::KFaceAuthKcm(QObject *parent, const KPluginMetaData &data, std::un
 }
 
 KFaceAuthKcm::~KFaceAuthKcm() = default;
+
+AuthCameraConfiguration *KFaceAuthKcm::authCameraConfiguration()
+{
+    return &m_authCameraConfiguration;
+}
 
 SystemState *KFaceAuthKcm::systemState()
 {

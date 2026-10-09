@@ -13,6 +13,7 @@ class SystemAuthProtocolTest final : public QObject
     void statusRequestTargetsTheRequestedUid();
     void statusResponseSeparatesDaemonAndProfileReadiness();
     void malformedStatusResponsesFailClosed();
+    void freshnessIsVersionedAndFailsClosed();
 };
 
 namespace
@@ -74,6 +75,21 @@ void SystemAuthProtocolTest::malformedStatusResponsesFailClosed()
     QVERIFY(!SystemAuthProtocol::parseStatusResponse(response(0, {1, 2})).daemonReady);
     QVERIFY(!SystemAuthProtocol::parseStatusResponse(response(0, {0, 1})).daemonReady);
     QVERIFY(SystemAuthProtocol::parseStatusResponse(response(9)).daemonReady);
+}
+
+void SystemAuthProtocolTest::freshnessIsVersionedAndFailsClosed()
+{
+    const QByteArray digest(32, char(0xa5));
+    const auto request = SystemAuthProtocol::freshnessRequest(1000, digest);
+    QCOMPARE(request.size(), 44);
+    QCOMPARE(qFromBigEndian<quint16>(reinterpret_cast<const uchar *>(request.constData() + 4)), quint16(3));
+    QCOMPARE(request.mid(12), digest);
+    QVERIFY(SystemAuthProtocol::freshnessRequest(1000, QByteArray(31, 'x')).isEmpty());
+    using Freshness = SystemAuthProtocol::ProfileFreshness;
+    QCOMPARE(SystemAuthProtocol::parseFreshnessResponse(QByteArray::fromHex("0003000001")), Freshness::Current);
+    QCOMPARE(SystemAuthProtocol::parseFreshnessResponse(QByteArray::fromHex("0003000002")), Freshness::Stale);
+    for (const auto &invalid : {"0002000001", "0003020001", "0003000101", "0003000003", "00030000", "000300000100"})
+        QCOMPARE(SystemAuthProtocol::parseFreshnessResponse(QByteArray::fromHex(invalid)), Freshness::Unknown);
 }
 
 QTEST_GUILESS_MAIN(SystemAuthProtocolTest)

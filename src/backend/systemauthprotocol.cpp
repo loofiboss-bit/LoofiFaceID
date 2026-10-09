@@ -3,6 +3,7 @@
 #include "systemauthprotocol.h"
 
 #include <QtEndian>
+#include <algorithm>
 
 namespace
 {
@@ -74,4 +75,34 @@ SystemAuthProtocol::Status SystemAuthProtocol::parseStatusResponse(QByteArrayVie
     result.daemonReady = true;
     result.systemProfileKnown = statusCode == StatusNoProfile;
     return result;
+}
+
+QByteArray SystemAuthProtocol::freshnessRequest(quint32 targetUid, QByteArrayView ciphertextSha256)
+{
+    if (ciphertextSha256.size() != 32)
+        return {};
+    QByteArray request(44, Qt::Uninitialized);
+    qToBigEndian(quint32(40), reinterpret_cast<uchar *>(request.data()));
+    qToBigEndian(quint16(3), reinterpret_cast<uchar *>(request.data() + 4));
+    request[6] = char(0x12);
+    request[7] = 0;
+    qToBigEndian(targetUid, reinterpret_cast<uchar *>(request.data() + 8));
+    std::copy(ciphertextSha256.begin(), ciphertextSha256.end(), request.begin() + 12);
+    return request;
+}
+
+SystemAuthProtocol::ProfileFreshness SystemAuthProtocol::parseFreshnessResponse(QByteArrayView payload)
+{
+    if (payload.size() != 5 || qFromBigEndian<quint16>(reinterpret_cast<const uchar *>(payload.data())) != 3 ||
+        payload.at(2) != 0 || payload.at(3) != 0)
+        return ProfileFreshness::Unknown;
+    switch (static_cast<quint8>(payload.at(4)))
+    {
+    case 1:
+        return ProfileFreshness::Current;
+    case 2:
+        return ProfileFreshness::Stale;
+    default:
+        return ProfileFreshness::Unknown;
+    }
 }

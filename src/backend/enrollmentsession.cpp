@@ -13,6 +13,7 @@
 
 #include <KLocalizedString>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -168,6 +169,112 @@ bool kscreenLockerMarkerSupportsFaceAuthentication(const QByteArray &contents)
            themeContract.value(QStringLiteral("component_url")).toString() ==
                QLatin1String("qrc:/fallbacktheme/FaceAuthenticationControl.qml") &&
            themeContract.value(QStringLiteral("runtime_registration_required")).toBool();
+}
+
+// Hash only the fixed current-user ciphertext. Never expose this value to QML.
+QByteArray localProfileDigest()
+{
+    const QString dataHome = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    if (!QDir::isAbsolutePath(dataHome) || QDir::cleanPath(dataHome) != dataHome)
+        return {};
+    int directory = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (directory < 0)
+        return {};
+    const auto components = QFile::encodeName(dataHome).split('/');
+    for (const QByteArray &component : components)
+    {
+        if (component.isEmpty())
+            continue;
+        const int child = ::openat(directory, component.constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        ::close(directory);
+        directory = child;
+        if (directory < 0)
+            return {};
+    }
+    const int profileDirectory = ::openat(directory, "kfaceauth", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    ::close(directory);
+    if (profileDirectory < 0)
+        return {};
+    struct stat directoryMetadata{};
+    if (::fstat(profileDirectory, &directoryMetadata) != 0 || directoryMetadata.st_uid != getuid() ||
+        (directoryMetadata.st_mode & 0777) != 0700)
+    {
+        ::close(profileDirectory);
+        return {};
+    }
+    const int fd = ::openat(profileDirectory, "identity.vault", O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+    struct stat before{};
+    if (fd < 0 || ::fstat(fd, &before) != 0 || !S_ISREG(before.st_mode) || before.st_uid != getuid() ||
+        (before.st_mode & 0777) != 0600 || before.st_nlink != 1 || before.st_size <= 0 || before.st_size > 16384)
+    {
+        if (fd >= 0)
+            ::close(fd);
+        ::close(profileDirectory);
+        return {};
+    }
+    QFile file;
+    if (!file.open(fd, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle))
+    {
+        ::close(fd);
+        ::close(profileDirectory);
+        return {};
+    }
+    QByteArray ciphertext = file.read(16385);
+    struct stat after{}, current{};
+    const bool stable =
+        file.error() == QFileDevice::NoError && ciphertext.size() == before.st_size && ::fstat(fd, &after) == 0 &&
+        ::fstatat(profileDirectory, "identity.vault", &current, AT_SYMLINK_NOFOLLOW) == 0 &&
+        before.st_dev == current.st_dev && before.st_ino == current.st_ino && before.st_size == after.st_size &&
+        before.st_mtim.tv_sec == after.st_mtim.tv_sec && before.st_mtim.tv_nsec == after.st_mtim.tv_nsec &&
+        before.st_ctim.tv_sec == after.st_ctim.tv_sec && before.st_ctim.tv_nsec == after.st_ctim.tv_nsec;
+    ::close(profileDirectory);
+    const QByteArray digest = stable ? QCryptographicHash::hash(ciphertext, QCryptographicHash::Sha256) : QByteArray();
+    ciphertext.fill(0);
+    return digest;
+}
+
+EnrollmentSession::ProfileFreshness queryProfileFreshness(uid_t uid)
+{
+    const QByteArray digest = localProfileDigest();
+    if (digest.size() != 32)
+        return EnrollmentSession::ProfileFreshness::Unknown;
+    const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0)
+        return EnrollmentSession::ProfileFreshness::Unknown;
+    timeval timeout{};
+    timeout.tv_usec = 250000;
+    (void)::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    (void)::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    std::strcpy(address.sun_path, "/run/kfaceauth/kfaceauthd.sock");
+    auto freshness = SystemAuthProtocol::ProfileFreshness::Unknown;
+    if (::connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0)
+    {
+        const QByteArray request = SystemAuthProtocol::freshnessRequest(static_cast<quint32>(uid), digest);
+        uint32_t responseLengthBe = 0;
+        if (writeAll(fd, reinterpret_cast<const uint8_t *>(request.constData()), static_cast<size_t>(request.size())) &&
+            readAll(fd, reinterpret_cast<uint8_t *>(&responseLengthBe), sizeof(responseLengthBe)) &&
+            be32toh(responseLengthBe) == 5)
+        {
+            QByteArray response(5, Qt::Uninitialized);
+            if (readAll(fd, reinterpret_cast<uint8_t *>(response.data()), 5))
+                freshness = SystemAuthProtocol::parseFreshnessResponse(response);
+        }
+    }
+    ::close(fd);
+    if (localProfileDigest() != digest)
+        return EnrollmentSession::ProfileFreshness::Unknown;
+    switch (freshness)
+    {
+    case SystemAuthProtocol::ProfileFreshness::Current:
+        return EnrollmentSession::ProfileFreshness::Current;
+    case SystemAuthProtocol::ProfileFreshness::Stale:
+        return EnrollmentSession::ProfileFreshness::Stale;
+    case SystemAuthProtocol::ProfileFreshness::Unknown:
+        return EnrollmentSession::ProfileFreshness::Unknown;
+    }
+    return EnrollmentSession::ProfileFreshness::Unknown;
 }
 
 bool systemProfileArtifactsExist(uid_t uid)
@@ -555,13 +662,32 @@ QString EnrollmentSession::plasmaLockAuthErrorCode() const
     return m_plasmaLockAuthErrorCode;
 }
 
+EnrollmentSession::ProfileFreshness EnrollmentSession::systemProfileFreshness() const
+{
+    return m_systemProfileFreshness;
+}
+
+QString EnrollmentSession::systemProfileFreshnessCode() const
+{
+    switch (m_systemProfileFreshness)
+    {
+    case ProfileFreshness::Current:
+        return QStringLiteral("current");
+    case ProfileFreshness::Stale:
+        return QStringLiteral("stale");
+    case ProfileFreshness::Unknown:
+        return QStringLiteral("unknown");
+    }
+    return QStringLiteral("unknown");
+}
+
 QString EnrollmentSession::systemProfileFreshnessText() const
 {
-    if (m_systemProfileFreshness == QLatin1String("current"))
+    if (m_systemProfileFreshness == ProfileFreshness::Current)
         return translate("Current: the installed system copy matches the approved local profile generation.");
-    if (m_systemProfileFreshness == QLatin1String("stale"))
-        return translate("Stale: approve a fresh system-profile sync before face authentication can run.");
-    return translate("Unknown: this build cannot compare local and system profile generations.");
+    if (m_systemProfileFreshness == ProfileFreshness::Stale)
+        return translate("Stale: the local profile has changed. Approve a fresh system-profile sync.");
+    return translate("Unknown: profile synchronization could not be verified.");
 }
 
 bool EnrollmentSession::systemAuthBusy() const
@@ -761,7 +887,7 @@ void EnrollmentSession::checkSystemAuthStatus()
                                                                             : QStringLiteral("available");
     m_daemonReady = daemonReady;
     m_systemProfileReady = systemProfileReady;
-    m_systemProfileFreshness = QStringLiteral("unknown");
+    m_systemProfileFreshness = systemProfileReady ? queryProfileFreshness(uid) : ProfileFreshness::Unknown;
 
     const QString policyReader = QStringLiteral("/usr/libexec/kfaceauth-policy");
     const QString policyStore = QStringLiteral("/etc/kfaceauth/policy.json");
@@ -903,6 +1029,7 @@ void EnrollmentSession::runAuthTargetOperation(const QString &target, const QStr
     if (!resync)
         (target == QLatin1String("sddm") ? m_expectedSddmMode : m_expectedPlasmaMode) = mode;
     m_authOperationRequiresProfile = resync || enabled;
+    m_authOperationRequiresFreshness = resync || enabled;
     m_systemAuthBusy = true;
     m_authOperationResult = AuthOperationResult::None;
     m_authOperationState =
@@ -1032,10 +1159,12 @@ void EnrollmentSession::finishAuthReadback()
 {
     if (m_authOperationState != AuthOperationState::Checking || m_authPolicyQueriesRemaining != 0)
         return;
-    const bool verified = m_authPolicyStatusReady && m_sddmAuthMode == m_expectedSddmMode &&
-                          m_plasmaLockAuthMode == m_expectedPlasmaMode &&
-                          (!m_authOperationRequiresProfile || (m_authReadiness.daemon == Readiness::Available &&
-                                                               m_authReadiness.systemProfile == Readiness::Available));
+    const bool verified =
+        (!m_authOperationRequiresFreshness || m_systemProfileFreshness == ProfileFreshness::Current) &&
+        m_authPolicyStatusReady && m_sddmAuthMode == m_expectedSddmMode &&
+        m_plasmaLockAuthMode == m_expectedPlasmaMode &&
+        (!m_authOperationRequiresProfile ||
+         (m_authReadiness.daemon == Readiness::Available && m_authReadiness.systemProfile == Readiness::Available));
     m_authOperationResult = verified ? AuthOperationResult::Success : AuthOperationResult::ReadbackFailed;
     m_authReadbackTimer.stop();
     m_authOperationState = AuthOperationState::Idle;
@@ -1051,7 +1180,9 @@ void EnrollmentSession::applyAuthStatusSnapshot(const AuthStatusSnapshot &snapsh
     m_plasmaLockIntegrationAvailable = snapshot.plasmaApi == Readiness::Available;
     m_daemonReady = snapshot.daemon == Readiness::Available;
     m_systemProfileReady = snapshot.systemProfile == Readiness::Available;
-    m_systemProfileFreshness = QStringLiteral("unknown");
+    m_systemProfileFreshness = snapshot.freshness;
+    if (m_systemProfileFreshness != ProfileFreshness::Current && m_systemProfileFreshness != ProfileFreshness::Stale)
+        m_systemProfileFreshness = ProfileFreshness::Unknown;
     auto validMode = [](const QString &mode)
     {
         return mode == QLatin1String("off") || mode == QLatin1String("manual") || mode == QLatin1String("on-activity")
@@ -1522,7 +1653,7 @@ void EnrollmentSession::revokeSystemProfileThen(std::function<void(bool)> contin
         process->deleteLater();
         if (success)
         {
-            m_systemProfileFreshness = QStringLiteral("unknown");
+            m_systemProfileFreshness = ProfileFreshness::Unknown;
             checkSystemAuthStatus();
         }
         auto callback = std::move(*continuationState);

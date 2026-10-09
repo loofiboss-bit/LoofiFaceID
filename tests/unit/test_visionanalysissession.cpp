@@ -40,6 +40,7 @@ void VisionAnalysisSessionTest::startPreview(CameraPreviewSession *preview)
 {
     preview->refreshDevices();
     QTRY_COMPARE(preview->state(), CameraPreviewSession::State::Ready);
+    preview->setSelectedDeviceIndex(1);
     preview->startPreview();
     QTRY_COMPARE(preview->state(), CameraPreviewSession::State::Streaming);
     QTRY_VERIFY(preview->frameAvailable());

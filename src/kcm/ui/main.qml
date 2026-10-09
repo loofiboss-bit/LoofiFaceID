@@ -123,9 +123,12 @@ KCMUtils.SimpleKCM {
             backendReady: root.backendReady
             cameraPreviewSession: kcm.cameraPreviewSession
             localVerificationSession: kcm.localVerificationSession
+            onSetupRequested: tabs.currentIndex = 1
+            onDiagnosticsRequested: tabs.currentIndex = 4
         }
 
         AuthIntegrationPage {
+            authCameraConfiguration: kcm.authCameraConfiguration
             Layout.fillWidth: true
             backendReady: root.backendReady
             enrollmentSession: kcm.enrollmentSession
