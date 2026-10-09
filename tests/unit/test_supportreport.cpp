@@ -19,6 +19,7 @@ class SupportReportTest final : public QObject
 
   private Q_SLOTS:
     void mapsMilestoneIssuesToActions();
+    void normalizesIdentityFailuresAndIgnoresWaiting();
     void reportPreservesPreviewPrivacy();
     void reportUsesTypedAuthenticationStatus();
     void authenticationReadinessDoesNotExportUntrustedModeOrIdentifiers();
@@ -52,6 +53,34 @@ void SupportReportTest::mapsMilestoneIssuesToActions()
     QCOMPARE(report.issueCode(), QStringLiteral("worker-timeout"));
     report.setTransientIssueCode(QStringLiteral("vault-key-unavailable"));
     QCOMPARE(report.issueCode(), QStringLiteral("kwallet-unavailable"));
+}
+
+void SupportReportTest::normalizesIdentityFailuresAndIgnoresWaiting()
+{
+    SystemState state;
+    SupportReport report(&state);
+    const QList<QPair<QString, QString>> cases = {
+        {QStringLiteral("identity-error-13"), QStringLiteral("profile-unavailable")},
+        {QStringLiteral("identity-error-14"), QStringLiteral("vault-locked")},
+        {QStringLiteral("identity-error-16"), QStringLiteral("model-mismatch")},
+        {QStringLiteral("identity-error-20"), QStringLiteral("model-unavailable")},
+        {QStringLiteral("profile-unavailable"), QStringLiteral("profile-unavailable")},
+        {QStringLiteral("frame-unavailable"), QStringLiteral("frame-unavailable")},
+        {QStringLiteral("rate-limited"), QString()},
+        {QStringLiteral("cancelled"), QString()},
+        {QStringLiteral("identity-error-18"), QString()},
+        {QStringLiteral("identity-error-999"), QString()},
+    };
+    for (const auto &entry : cases)
+    {
+        report.setTransientIssueCode(entry.first);
+        QCOMPARE(report.issueCode(), entry.second);
+        if (!entry.second.isEmpty())
+        {
+            QVERIFY(!report.issueTitle().isEmpty());
+            QVERIFY(!report.recommendedAction().isEmpty());
+        }
+    }
 }
 
 void SupportReportTest::reportPreservesPreviewPrivacy()
@@ -128,6 +157,17 @@ void SupportReportTest::authenticationReadinessDoesNotExportUntrustedModeOrIdent
     QVERIFY(report.report().contains(QStringLiteral("profile-freshness: unknown")));
     QVERIFY(!report.report().contains(QStringLiteral("not-for-report")));
     QVERIFY(!report.report().contains(QStringLiteral("/home/")));
+    for (const auto freshness :
+         {EnrollmentSession::ProfileFreshness::Current, EnrollmentSession::ProfileFreshness::Stale,
+          EnrollmentSession::ProfileFreshness::Unknown})
+    {
+        snapshot.freshness = freshness;
+        enrollment.checkSystemAuthStatus();
+        QVERIFY(
+            report.report().contains(QStringLiteral("profile-freshness: ") + enrollment.systemProfileFreshnessCode()));
+        QVERIFY(!report.report().contains(QStringLiteral("identity.freshness")));
+        QVERIFY(!report.report().contains(QStringLiteral("sha256")));
+    }
     QCOMPARE(report.issueCode(), QStringLiteral("sddm-api-missing"));
     QVERIFY(!report.recommendedAction().isEmpty());
     QVERIFY(!preview.previewActive());

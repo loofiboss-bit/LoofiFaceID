@@ -9,6 +9,7 @@
 #include "pamconfiguration.h"
 
 #include <QElapsedTimer>
+#include <QFile>
 #include <QProcessEnvironment>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -35,6 +36,7 @@ void startPreview(CameraPreviewSession *preview)
 {
     preview->refreshDevices();
     QTRY_COMPARE(preview->state(), CameraPreviewSession::State::Ready);
+    preview->setSelectedDeviceIndex(1);
     preview->startPreview();
     QTRY_COMPARE(preview->state(), CameraPreviewSession::State::Streaming);
     QTRY_VERIFY(preview->frameAvailable());
@@ -158,7 +160,10 @@ class IdentitySessionsTest final : public QObject
 {
     Q_OBJECT
 
+    QTemporaryDir m_helperDirectory;
+
   private Q_SLOTS:
+    void initTestCase();
     void unavailableWalletStatesFailClosed_data();
     void unavailableWalletStatesFailClosed();
     void verificationRateLimitAndLifecycleClearMatch();
@@ -182,7 +187,26 @@ class IdentitySessionsTest final : public QObject
     void authReadbackIsBoundedAndDiscardsLateResults();
     void authModeChangeMustReadBackBothChoices();
     void unknownPolicyCannotBecomeAnOffOrSuccessfulSetting();
+    void freshnessReadbackIsTypedAndRequired();
 };
+
+void IdentitySessionsTest::initTestCase()
+{
+    // Profile lifecycle tests must never invoke the installed privileged helper,
+    // even on a workstation with a real experimental system profile.
+    QVERIFY(m_helperDirectory.isValid());
+    QFile helper(m_helperDirectory.filePath(QStringLiteral("pkexec")));
+    QVERIFY(helper.open(QIODevice::WriteOnly));
+    const QByteArray script = "#!/bin/sh\n"
+                              "[ \"$#\" -eq 4 ] && [ \"$1\" = /usr/libexec/kfaceauth-sync-vault ] "
+                              "&& [ \"$2\" = --delete-profile ] && [ \"$3\" = --uid ] || exit 1\n"
+                              "exit 0\n";
+    QCOMPARE(helper.write(script), script.size());
+    helper.close();
+    QVERIFY(helper.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+    const QByteArray path = m_helperDirectory.path().toUtf8() + ':' + qgetenv("PATH");
+    qputenv("PATH", path);
+}
 
 void IdentitySessionsTest::sameModeSystemProfileResyncPreservesIndependentChoices()
 {
@@ -200,6 +224,7 @@ void IdentitySessionsTest::sameModeSystemProfileResyncPreservesIndependentChoice
     fixture.session->setSddmAuthMode(QStringLiteral("off"));
     QCOMPARE(fixture.launchCount, 1);
     fixture.status.systemProfile = AuthFixture::Readiness::Available;
+    fixture.status.freshness = EnrollmentSession::ProfileFreshness::Current;
     fixture.deferReadback = true;
     fixture.finishOperation(0, true);
     QCOMPARE(fixture.session->authOperationState(), EnrollmentSession::AuthOperationState::Checking);
@@ -210,7 +235,7 @@ void IdentitySessionsTest::sameModeSystemProfileResyncPreservesIndependentChoice
     QVERIFY(!fixture.session->systemAuthBusy());
     QCOMPARE(fixture.session->sddmAuthMode(), QStringLiteral("manual"));
     QCOMPARE(fixture.session->plasmaLockAuthMode(), QStringLiteral("on-activity"));
-    QVERIFY(fixture.session->systemProfileFreshnessText().startsWith(QStringLiteral("Unknown:")));
+    QCOMPARE(fixture.session->systemProfileFreshness(), EnrollmentSession::ProfileFreshness::Current);
     QVERIFY(!fixture.preview.previewActive());
 }
 
@@ -290,6 +315,7 @@ void IdentitySessionsTest::authReadbackIsBoundedAndDiscardsLateResults()
                               EnrollmentSession::AuthOperationResult::ReadbackFailed, 3500);
     QVERIFY(!fixture.session->systemAuthBusy());
     fixture.status.systemProfile = AuthFixture::Readiness::Available;
+    fixture.status.freshness = EnrollmentSession::ProfileFreshness::Current;
     QCOMPARE(fixture.session->sddmAuthMode(), QStringLiteral("unknown"));
     QVERIFY(!fixture.session->systemProfileCanSync());
     fixture.finishReadback(fixture.status);
@@ -306,6 +332,7 @@ void IdentitySessionsTest::authModeChangeMustReadBackBothChoices()
     fixture.status.sddmMode = QStringLiteral("on-activity");
     fixture.status.plasmaMode = QStringLiteral("off");
     fixture.status.systemProfile = AuthFixture::Readiness::Available;
+    fixture.status.freshness = EnrollmentSession::ProfileFreshness::Current;
     fixture.finishOperation(0, true);
     QCOMPARE(fixture.session->authOperationResult(), EnrollmentSession::AuthOperationResult::ReadbackFailed);
     QCOMPARE(fixture.session->plasmaLockAuthMode(), QStringLiteral("off"));
@@ -359,7 +386,7 @@ void IdentitySessionsTest::unavailableWalletStatesFailClosed_data()
     QTest::newRow("locked") << int(KWalletKeyProvider::State::Locked)
                             << int(LocalVerificationSession::Result::VaultLocked);
     QTest::newRow("cancelled") << int(KWalletKeyProvider::State::Cancelled)
-                               << int(LocalVerificationSession::Result::VaultLocked);
+                               << int(LocalVerificationSession::Result::Cancelled);
     QTest::newRow("unavailable") << int(KWalletKeyProvider::State::Unavailable)
                                  << int(LocalVerificationSession::Result::Unavailable);
     QTest::newRow("absent") << int(KWalletKeyProvider::State::Absent)
@@ -533,6 +560,8 @@ void IdentitySessionsTest::failedReplacementPreservesPreviousProfile()
     enrollment.setPageActive(false);
     preview.stopPreview();
     QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+    if (preview.selectedDeviceIndex() < 0)
+        preview.setSelectedDeviceIndex(1);
 }
 
 void IdentitySessionsTest::guidePhaseAndCaptureSignal()
@@ -683,12 +712,34 @@ void IdentitySessionsTest::syntheticLifecycleRunsOneHundredCycles()
         enrollment.setPageActive(false);
         preview.stopPreview();
         QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+        if (preview.selectedDeviceIndex() < 0)
+            preview.setSelectedDeviceIndex(1);
         QVERIFY(!preview.frameAvailable());
         QVERIFY(!worker.busy());
 
         QVERIFY2(timer.elapsed() < 120000,
                  qPrintable(
                      QStringLiteral("100-cycle synthetic lifecycle exceeded 120 seconds at cycle %1").arg(cycle + 1)));
+    }
+}
+
+void IdentitySessionsTest::freshnessReadbackIsTypedAndRequired()
+{
+    for (const auto freshness :
+         {EnrollmentSession::ProfileFreshness::Unknown, EnrollmentSession::ProfileFreshness::Stale,
+          EnrollmentSession::ProfileFreshness::Current})
+    {
+        AuthFixture fixture;
+        QTRY_VERIFY(fixture.session->profileReady());
+        fixture.session->syncSystemProfile();
+        QCOMPARE(fixture.launchCount, 1);
+        fixture.status.systemProfile = AuthFixture::Readiness::Available;
+        fixture.status.freshness = freshness;
+        fixture.finishOperation(0, true);
+        QCOMPARE(fixture.session->systemProfileFreshness(), freshness);
+        QCOMPARE(fixture.session->authOperationResult(), freshness == EnrollmentSession::ProfileFreshness::Current
+                                                             ? EnrollmentSession::AuthOperationResult::Success
+                                                             : EnrollmentSession::AuthOperationResult::ReadbackFailed);
     }
 }
 

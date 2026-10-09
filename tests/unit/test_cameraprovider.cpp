@@ -11,11 +11,29 @@ class CameraProviderTest final : public QObject
     Q_OBJECT
 
   private Q_SLOTS:
+    void tokensFollowIdentityOnlyWithinWorker();
     void classifiesOnlyReviewedUdevProperties();
     void selectsBestBoundedFormat();
     void scalesAndBoundsJpeg();
     void detectsDarkIrStrobeFrames();
 };
+
+void CameraProviderTest::tokensFollowIdentityOnlyWithinWorker()
+{
+    const QList<QByteArray> ids = {"camera-a", "camera-b"};
+    const auto initial = CameraProvider::tokensForDevices(ids, {});
+    QCOMPARE(initial.size(), 2);
+    QVERIFY(initial.value("camera-a") != initial.value("camera-b"));
+    const auto reordered = CameraProvider::tokensForDevices({"camera-b", "camera-a"}, initial);
+    QCOMPARE(reordered, initial);
+    const auto removed = CameraProvider::tokensForDevices({"camera-b"}, reordered);
+    QVERIFY(!removed.contains("camera-a"));
+    const auto reconnected = CameraProvider::tokensForDevices(ids, removed);
+    QCOMPARE(reconnected.value("camera-b"), initial.value("camera-b"));
+    QVERIFY(reconnected.value("camera-a") != initial.value("camera-a"));
+    const auto restarted = CameraProvider::tokensForDevices(ids, {});
+    QVERIFY(restarted.value("camera-b") != initial.value("camera-b"));
+}
 
 void CameraProviderTest::classifiesOnlyReviewedUdevProperties()
 {

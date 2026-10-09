@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "authcameraconfiguration.h"
 #include "camerapreviewitem.h"
 #include "camerapreviewsession.h"
 #include "enrollmentsession.h"
@@ -12,6 +13,7 @@
 
 #include <KLocalizedQmlContext>
 
+#include <QFile>
 #include <QGuiApplication>
 #include <QProcessEnvironment>
 #include <QQmlComponent>
@@ -20,6 +22,8 @@
 #include <QQmlError>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTest>
 #include <algorithm>
 #include <qqml.h>
@@ -32,7 +36,10 @@ class QmlPagesTest final : public QObject
 {
     Q_OBJECT
 
+    QTemporaryDir m_helperDirectory;
+
   private Q_SLOTS:
+    void initTestCase();
     void mainSurfaceCreatesAndNavigates();
     void mainSurfaceHandlesUnavailableBackend();
     void destinationPagesCreateForUnavailableEngine();
@@ -40,11 +47,32 @@ class QmlPagesTest final : public QObject
     void setupRecoveryReplacementAndResponsiveFocus();
     void analysisCancelsWhenApplicationDeactivates();
     void authenticationModesAndReadbackFeedback();
+    void comparisonResultsFitAndRecoveryNavigates();
+    void cameraChangesRequireConfirmation();
 };
+
+void QmlPagesTest::initTestCase()
+{
+    // Profile lifecycle tests must never invoke the installed privileged helper,
+    // even on a workstation with a real experimental system profile.
+    QVERIFY(m_helperDirectory.isValid());
+    QFile helper(m_helperDirectory.filePath(QStringLiteral("pkexec")));
+    QVERIFY(helper.open(QIODevice::WriteOnly));
+    const QByteArray script = "#!/bin/sh\n"
+                              "[ \"$#\" -eq 4 ] && [ \"$1\" = /usr/libexec/kfaceauth-sync-vault ] "
+                              "&& [ \"$2\" = --delete-profile ] && [ \"$3\" = --uid ] || exit 1\n"
+                              "exit 0\n";
+    QCOMPARE(helper.write(script), script.size());
+    helper.close();
+    QVERIFY(helper.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+    const QByteArray path = m_helperDirectory.path().toUtf8() + ':' + qgetenv("PATH");
+    qputenv("PATH", path);
+}
 
 class QmlKcmFacade final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(AuthCameraConfiguration *authCameraConfiguration READ authCameraConfiguration CONSTANT)
     Q_PROPERTY(SystemState *systemState READ systemState CONSTANT)
     Q_PROPERTY(CameraPreviewSession *cameraPreviewSession READ cameraPreviewSession CONSTANT)
     Q_PROPERTY(VisionAnalysisSession *visionAnalysisSession READ visionAnalysisSession CONSTANT)
@@ -73,6 +101,10 @@ class QmlKcmFacade final : public QObject
     {
     }
 
+    AuthCameraConfiguration *authCameraConfiguration() const
+    {
+        return nullptr;
+    }
     SystemState *systemState() const
     {
         return m_systemState;
@@ -139,6 +171,45 @@ class QmlKcmFacade final : public QObject
     EnrollmentSession *m_enrollmentSession = nullptr;
     LocalVerificationSession *m_localVerificationSession = nullptr;
     SupportReport *m_supportReport = nullptr;
+};
+
+class ComparisonResultFixture final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QString statusText MEMBER text NOTIFY changed)
+    Q_PROPERTY(bool hasResult READ yes CONSTANT)
+    Q_PROPERTY(bool isMatch MEMBER match NOTIFY changed)
+    Q_PROPERTY(bool isAmbiguous MEMBER ambiguous NOTIFY changed)
+    Q_PROPERTY(bool isWaiting MEMBER waiting NOTIFY changed)
+    Q_PROPERTY(bool busy READ no CONSTANT)
+    Q_PROPERTY(bool canClearResult READ yes CONSTANT)
+    Q_PROPERTY(bool canVerify READ yes CONSTANT)
+    Q_PROPERTY(int cooldownRemainingSeconds MEMBER seconds NOTIFY changed)
+    Q_PROPERTY(int recommendedAction MEMBER action NOTIFY changed)
+  public:
+    QString text;
+    bool match = false;
+    bool ambiguous = false;
+    bool waiting = false;
+    int seconds = 0;
+    int action = 0;
+    int attempts = 0;
+    bool yes() const
+    {
+        return true;
+    }
+    bool no() const
+    {
+        return false;
+    }
+    Q_INVOKABLE void setPageActive(bool) {}
+    Q_INVOKABLE void clearResult() {}
+    Q_INVOKABLE void verifyCurrentFrame()
+    {
+        ++attempts;
+    }
+  Q_SIGNALS:
+    void changed();
 };
 
 namespace
@@ -501,6 +572,8 @@ void QmlPagesTest::setupRecoveryReplacementAndResponsiveFocus()
     QCoreApplication::processEvents();
     preview.refreshDevices();
     QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+    if (preview.selectedDeviceIndex() < 0)
+        preview.setSelectedDeviceIndex(1);
     preview.startPreview();
     QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Streaming);
     QTRY_VERIFY(preview.frameAvailable());
@@ -600,6 +673,8 @@ void QmlPagesTest::setupRecoveryReplacementAndResponsiveFocus()
     QCOMPARE(enrollment.storedSampleCount(), 5);
     item->setVisible(false);
     QTRY_COMPARE(preview.state(), CameraPreviewSession::State::Ready);
+    if (preview.selectedDeviceIndex() < 0)
+        preview.setSelectedDeviceIndex(1);
     item->setParentItem(nullptr);
 }
 
@@ -627,6 +702,8 @@ void QmlPagesTest::setupPageStopsWhenHidden()
     QVERIFY(item);
     session.refreshDevices();
     QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    if (session.selectedDeviceIndex() < 0)
+        session.setSelectedDeviceIndex(1);
 
     auto *previewAction = page->findChild<QObject *>(QStringLiteral("cameraPreviewAction"));
     auto *analyzeAction = page->findChild<QObject *>(QStringLiteral("visionAnalyzeAction"));
@@ -644,6 +721,8 @@ void QmlPagesTest::setupPageStopsWhenHidden()
     item->setVisible(false);
     QTRY_COMPARE(analysis.state(), VisionAnalysisSession::State::Idle);
     QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    if (session.selectedDeviceIndex() < 0)
+        session.setSelectedDeviceIndex(1);
     QVERIFY(!session.frameAvailable());
     QVERIFY(!analysis.resultAvailable());
 }
@@ -655,6 +734,8 @@ void QmlPagesTest::analysisCancelsWhenApplicationDeactivates()
     VisionAnalysisSession analysis(&session, QStringLiteral(KFACEAUTH_FAKE_VISION_WORKER_PATH), environment, nullptr);
     session.refreshDevices();
     QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    if (session.selectedDeviceIndex() < 0)
+        session.setSelectedDeviceIndex(1);
     session.startPreview();
     QTRY_COMPARE(session.state(), CameraPreviewSession::State::Streaming);
     QTRY_VERIFY(session.frameAvailable());
@@ -665,7 +746,83 @@ void QmlPagesTest::analysisCancelsWhenApplicationDeactivates()
                               Q_ARG(Qt::ApplicationState, Qt::ApplicationInactive));
     QTRY_COMPARE(analysis.state(), VisionAnalysisSession::State::Idle);
     QTRY_COMPARE(session.state(), CameraPreviewSession::State::Ready);
+    if (session.selectedDeviceIndex() < 0)
+        session.setSelectedDeviceIndex(1);
     QVERIFY(!analysis.resultAvailable());
+}
+
+void QmlPagesTest::comparisonResultsFitAndRecoveryNavigates()
+{
+    QQmlEngine engine;
+    KLocalization::setupLocalizedContext(&engine)->setTranslationDomain(QStringLiteral("kcm_kfaceauth"));
+    CameraPreviewSession preview(QStringLiteral("/unused"), nullptr);
+    ComparisonResultFixture result;
+    auto page = createPage(engine, QStringLiteral("TestPage.qml"),
+                           {{QStringLiteral("cameraPreviewSession"), QVariant::fromValue(&preview)},
+                            {QStringLiteral("localVerificationSession"), QVariant::fromValue(&result)},
+                            {QStringLiteral("backendReady"), false}});
+    QVERIFY(page);
+    auto *item = qobject_cast<QQuickItem *>(page.get());
+    QVERIFY(item);
+    QQuickWindow window;
+    item->setParentItem(window.contentItem());
+    item->setHeight(1800);
+    window.show();
+    auto *label = page->findChild<QQuickItem *>(QStringLiteral("verificationResultLabel"));
+    auto *verdict = page->findChild<QQuickItem *>(QStringLiteral("verificationVerdict"));
+    auto *recovery = page->findChild<QObject *>(QStringLiteral("verificationRecoveryButton"));
+    QVERIFY(label && verdict && recovery);
+    QSignalSpy setup(page.get(), SIGNAL(setupRequested()));
+    QSignalSpy diagnostics(page.get(), SIGNAL(diagnosticsRequested()));
+    for (int width : {320, 480, 960})
+    {
+        window.resize(width, 1800);
+        item->setWidth(width);
+        QFont large = label->property("font").value<QFont>();
+        large.setPointSize(24);
+        label->setProperty("font", large);
+        for (int variant = 0; variant < 8; ++variant)
+        {
+            result.match = variant == 0;
+            result.ambiguous = variant == 2;
+            result.waiting = variant == 6;
+            result.seconds = result.waiting ? 60 : 0;
+            result.action = variant == 0 ? 0 : variant == 3 ? 2 : variant == 4 ? 3 : 1;
+            result.text = QStringLiteral("Resultat: den krypterade ansiktsprofilen kunde jämföras lokalt. "
+                                         "Fortsätt enligt instruktionen eller öppna diagnostiken för fler uppgifter.");
+            Q_EMIT result.changed();
+            QTRY_VERIFY(label->width() > 0);
+            QTRY_VERIFY(label->height() >= label->property("implicitHeight").toDouble() - 1);
+            QTRY_VERIFY(verdict->height() > label->height());
+            QTRY_VERIFY(label->mapToItem(item, QPointF()).x() >= 0);
+            QTRY_VERIFY(label->mapToItem(item, QPointF()).x() + label->width() <= width + 1);
+            QCOMPARE(result.attempts, 0);
+        }
+    }
+    result.action = 2;
+    Q_EMIT result.changed();
+    QTest::qWait(20);
+    QVERIFY(QMetaObject::invokeMethod(recovery, "clicked"));
+    QCOMPARE(setup.count(), 1);
+    result.action = 3;
+    Q_EMIT result.changed();
+    QTest::qWait(20);
+    QVERIFY(QMetaObject::invokeMethod(recovery, "clicked"));
+    QCOMPARE(diagnostics.count(), 1);
+    QCOMPARE(result.attempts, 0);
+}
+
+void QmlPagesTest::cameraChangesRequireConfirmation()
+{
+    QQmlEngine engine;
+    KLocalization::setupLocalizedContext(&engine)->setTranslationDomain(QStringLiteral("kcm_kfaceauth"));
+    auto page = createPage(engine, QStringLiteral("AuthIntegrationPage.qml"), {});
+    QVERIFY(page);
+    auto *confirmation = page->findChild<QObject *>(QStringLiteral("cameraConfigurationConfirmation"));
+    QVERIFY(confirmation);
+    QVERIFY(confirmation->property("modal").toBool());
+    QVERIFY(!confirmation->property("visible").toBool());
+    QVERIFY(!confirmation->property("title").toString().isEmpty());
 }
 
 int main(int argc, char **argv)

@@ -94,6 +94,20 @@ class ExperimentalAuthBoundaryTests(unittest.TestCase):
             self.assertIn("read", permissions)
             self.assertNotRegex(permissions, r"\b(write|create|unlink|lock)\b")
 
+    def test_system_vault_group_lookup_uses_read_only_public_account_metadata(self) -> None:
+        policy = MAIN_POLICY.read_text(encoding="utf-8")
+        self.assertIn("type passwd_file_t;", policy)
+        self.assertIn("allow kfaceauth_t passwd_file_t:file { read getattr open };", policy)
+        self.assertNotIn("shadow_t", policy)
+        self.assertNotIn("allow kfaceauth_t init_var_run_t", policy)
+        self.assertNotIn("dontaudit", policy)
+        self.assertIn("Environment=SYSTEMD_BYPASS_USERDB=1", SERVICE.read_text(encoding="utf-8"))
+        self.assertIn("allow kfaceauth_t cert_t:dir { search getattr open read };", policy)
+        self.assertIn("allow kfaceauth_t cert_t:file { read getattr open };", policy)
+        for target in ("proc_t", "sysctl_vm_t"):
+            self.assertIn(f"allow kfaceauth_t {target}:file {{ read getattr open }};", policy)
+        self.assertIn("allow init_t kfaceauth_etc_t:file { read getattr open };", policy)
+
     def test_preparation_uses_dedicated_service_and_transactional_migration(self) -> None:
         setup = SETUP.read_text(encoding="utf-8")
         cmake = (ROOT / "data/CMakeLists.txt").read_text(encoding="utf-8")

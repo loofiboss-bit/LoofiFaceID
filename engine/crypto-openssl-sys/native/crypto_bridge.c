@@ -1030,3 +1030,34 @@ int kfaceauth_v4l2_capture(const char *device_path, uint32_t timeout_ms, uint8_t
         OPENSSL_cleanse(buffer, buffer_size);
     return capture_status;
 }
+
+/* Metadata-only query: never sets format, allocates buffers or starts streaming. */
+int kfaceauth_v4l2_metadata(const char *path, char *label, size_t capacity)
+{
+    if (path == NULL || label == NULL || capacity < 2)
+        return KFACEAUTH_CRYPTO_INVALID_ARGUMENT;
+    int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0)
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    struct stat st;
+    struct v4l2_capability cap = {0};
+    int supported = 0;
+    if (fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) && ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0)
+    {
+        uint32_t caps = (cap.capabilities & V4L2_CAP_DEVICE_CAPS) ? cap.device_caps : cap.capabilities;
+        struct v4l2_fmtdesc fmt = {0};
+        fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        for (fmt.index = 0; fmt.index < 256 && ioctl(fd, VIDIOC_ENUM_FMT, &fmt) == 0; ++fmt.index)
+            if (kfaceauth_camera_compatible(caps, fmt.pixelformat))
+                supported = 1;
+    }
+    close(fd);
+    if (!supported)
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    size_t length = strnlen((const char *)cap.card, sizeof(cap.card));
+    if (length == 0 || length >= capacity)
+        return KFACEAUTH_CRYPTO_PROVIDER_FAILURE;
+    memcpy(label, cap.card, length);
+    label[length] = '\0';
+    return KFACEAUTH_CRYPTO_OK;
+}

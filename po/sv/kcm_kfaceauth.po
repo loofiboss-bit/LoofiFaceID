@@ -1897,3 +1897,110 @@ msgstr "Uppdaterar experimentell autentisering…"
 
 msgid "Waiting for KWallet access…"
 msgstr "Väntar på åtkomst till KWallet…"
+
+msgid "Change authentication camera"
+msgstr "Ändra autentiseringskamera"
+
+msgid "This camera setting applies to all users of the authentication experiment. Applying it restarts its service and cancels active face attempts. Password sign-in remains available."
+msgstr "Kamerainställningen gäller alla användare av autentiseringsexperimentet. Ändringen startar om dess tjänst och avbryter pågående ansiktsförsök. Lösenordsinloggning är fortfarande tillgänglig."
+
+msgid "Camera for login and unlock"
+msgstr "Kamera för inloggning och upplåsning"
+
+msgid "Select a compatible camera"
+msgstr "Välj en kompatibel kamera"
+
+msgid "Authentication camera"
+msgstr "Autentiseringskamera"
+
+msgid "Refresh compatible cameras"
+msgstr "Uppdatera kompatibla kameror"
+
+msgid "Apply selected camera…"
+msgstr "Verkställ vald kamera…"
+
+msgid "Use automatic camera selection…"
+msgstr "Använd automatiskt kameraval…"
+
+msgid "Automatic selection requires exactly one compatible camera. Refreshing this list checks device capabilities without starting a camera stream."
+msgstr "Automatiskt val kräver exakt en kompatibel kamera. Uppdateringen kontrollerar enheternas egenskaper utan att starta en bildström."
+
+msgid "Open Enrollment"
+msgstr "Öppna registrering"
+
+msgid "Open Diagnostics"
+msgstr "Öppna diagnostik"
+
+msgid "Try again"
+msgstr "Försök igen"
+
+msgid "No enrolled face profile is available"
+msgstr "Ingen registrerad ansiktsprofil är tillgänglig"
+
+msgid "No current preview frame is available"
+msgstr "Ingen aktuell bildruta är tillgänglig"
+
+msgid "Open Enrollment and create an encrypted face profile."
+msgstr "Öppna registrering och skapa en krypterad ansiktsprofil."
+
+msgid "Start preview, wait for a current frame, then explicitly retry the local test."
+msgstr "Starta förhandsvisningen, vänta på en aktuell bildruta och begär sedan ett nytt lokalt test."
+
+msgid "Stale: the local profile has changed. Approve a fresh system-profile sync."
+msgstr "Inaktuell: den lokala profilen har ändrats. Godkänn en ny synkning av systemprofilen."
+
+msgid "Unknown: profile synchronization could not be verified."
+msgstr "Okänd: profilsynkningen kunde inte verifieras."
+
+msgid "Camera configuration helper is unavailable."
+msgstr "Hjälpprogrammet för kamerakonfiguration är inte tillgängligt."
+
+msgid "The selected camera is no longer available. Refresh the camera list."
+msgstr "Den valda kameran är inte längre tillgänglig. Uppdatera kameralistan."
+
+msgid "Applying camera setting and restarting the authentication service…"
+msgstr "Verkställer kamerainställningen och startar om autentiseringstjänsten…"
+
+msgid "Checking compatible cameras…"
+msgstr "Kontrollerar kompatibla kameror…"
+
+msgid "Camera configuration timed out. Refresh to verify the setting."
+msgstr "Kamerakonfigurationen tog för lång tid. Uppdatera för att verifiera inställningen."
+
+msgid "Camera configuration was not authorized."
+msgstr "Kamerakonfigurationen godkändes inte."
+
+msgid "Camera configuration failed and the previous service state could not be restored. Open Diagnostics."
+msgstr "Kamerakonfigurationen misslyckades och det tidigare tjänsttillståndet kunde inte återställas. Öppna diagnostik."
+
+msgid "Camera configuration failed. The previous setting was restored when possible. Refresh and check Diagnostics."
+msgstr "Kamerakonfigurationen misslyckades. Den tidigare inställningen återställdes när det var möjligt. Uppdatera och kontrollera diagnostiken."
+
+msgid "Camera configuration returned an invalid response."
+msgstr "Kamerakonfigurationen gav ett ogiltigt svar."
+
+msgid "Camera setting changed during verification. Refresh and check Diagnostics."
+msgstr "Kamerainställningen ändrades under verifieringen. Uppdatera och kontrollera diagnostiken."
+
+msgid "Camera setting verified. The authentication service was restarted."
+msgstr "Kamerainställningen verifierades. Autentiseringstjänsten startades om."
+
+msgid "The configured camera could not be verified."
+msgstr "Den konfigurerade kameran kunde inte verifieras."
+
+msgid "Camera configuration checked without starting a camera stream."
+msgstr "Kamerakonfigurationen kontrollerades utan att starta en bildström."
+
+msgid "Wait %1 second before another test."
+msgid_plural "Wait %1 seconds before another test."
+msgstr[0] "Vänta %1 sekund före ett nytt test."
+msgstr[1] "Vänta %1 sekunder före ett nytt test."
+
+msgid "Automatic camera selection"
+msgstr "Automatiskt kameraval"
+
+msgid "Configured camera: %1"
+msgstr "Inställd kamera: %1"
+
+msgid "Configured camera is unknown."
+msgstr "Den inställda kameran är okänd."

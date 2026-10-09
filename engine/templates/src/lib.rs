@@ -24,6 +24,7 @@ use kfaceauth_identity_types::{
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub mod auth_policy;
+pub mod freshness;
 
 pub const MINIMUM_PROFILE_SAMPLES: usize = 3;
 pub const RECOMMENDED_PROFILE_SAMPLES: usize = 5;
@@ -334,13 +335,87 @@ impl Vault {
     /// Filesystem, AEAD, schema, UID, model, and embedding failures are
     /// fail-closed and preserve the original file.
     pub fn open_profile(&self, key: &MasterKey) -> Result<Profile, VaultError> {
+        self.open_profile_snapshot(key).map(|(profile, _)| profile)
+    }
+
+    /// Reads and validates one ciphertext snapshot and hashes those exact bytes.
+    ///
+    /// # Errors
+    /// Returns the same filesystem and validation errors as `open_profile`.
+    pub fn open_profile_snapshot(
+        &self,
+        key: &MasterKey,
+    ) -> Result<(Profile, [u8; 32]), VaultError> {
         validate_directory(&self.root, self.uid, self.kind)?;
         let bytes = SensitiveBytes(read_secure_file(
             &self.root.join(VAULT_FILE),
             self.uid,
             self.kind,
         )?);
-        decode_vault(&bytes.0, key, self.uid)
+        let profile = decode_vault(&bytes.0, key, self.uid)?;
+        let digest = kfaceauth_crypto_openssl_sys::sha256(&bytes.0)?;
+        Ok((profile, digest))
+    }
+
+    /// Validates and hashes one snapshot read from an already anchored directory.
+    ///
+    /// # Errors
+    /// Rejects ownership, mode, link, replacement, and concurrent mutation errors.
+    pub fn open_anchored_profile_snapshot(
+        &self,
+        key: &MasterKey,
+        directory: &File,
+    ) -> Result<(Profile, [u8; 32]), VaultError> {
+        let directory_metadata = directory.metadata()?;
+        let expected_directory_mode = if self.kind == VaultKind::UserSession {
+            0o700
+        } else {
+            0o750
+        };
+        let expected_file_mode = if self.kind == VaultKind::UserSession {
+            0o600
+        } else {
+            0o640
+        };
+        if !directory_metadata.is_dir()
+            || !is_owner_valid(&directory_metadata, self.uid, self.kind)
+            || directory_metadata.mode() & 0o777 != expected_directory_mode
+        {
+            return Err(VaultError::UnsafeFilesystem);
+        }
+        let mut file =
+            kfaceauth_crypto_openssl_sys::open_child_file_nofollow(directory, VAULT_FILE)?;
+        let before = file.metadata()?;
+        if !before.is_file()
+            || !is_owner_valid(&before, self.uid, self.kind)
+            || before.mode() & 0o777 != expected_file_mode
+            || before.nlink() != 1
+            || before.len()
+                > u64::try_from(MAXIMUM_VAULT_BYTES).map_err(|_| VaultError::Oversized)?
+        {
+            return Err(VaultError::UnsafeFilesystem);
+        }
+        let mut bytes = SensitiveBytes(Vec::new());
+        (&mut file)
+            .take(u64::try_from(MAXIMUM_VAULT_BYTES + 1).map_err(|_| VaultError::Oversized)?)
+            .read_to_end(&mut bytes.0)?;
+        let after = file.metadata()?;
+        let current =
+            kfaceauth_crypto_openssl_sys::open_child_file_nofollow(directory, VAULT_FILE)?
+                .metadata()?;
+        if bytes.0.len() > MAXIMUM_VAULT_BYTES
+            || before.dev() != current.dev()
+            || before.ino() != current.ino()
+            || before.len() != after.len()
+            || before.mtime() != after.mtime()
+            || before.mtime_nsec() != after.mtime_nsec()
+            || before.ctime() != after.ctime()
+            || before.ctime_nsec() != after.ctime_nsec()
+        {
+            return Err(VaultError::UnsafeFilesystem);
+        }
+        let profile = decode_vault(&bytes.0, key, self.uid)?;
+        Ok((profile, kfaceauth_crypto_openssl_sys::sha256(&bytes.0)?))
     }
 
     /// Atomically commits an all-or-nothing profile.
@@ -1173,6 +1248,24 @@ mod tests {
         ambiguous[1] = (1.0_f32 - 0.43_f32.powi(2)).sqrt();
         let ambiguous = NormalizedEmbedding::from_normalized(ambiguous).unwrap();
         assert_eq!(profile.verify(&ambiguous), VerificationResult::Ambiguous);
+    }
+
+    #[test]
+    fn snapshot_digest_binds_exact_ciphertext_and_changes_after_rotation() {
+        let root = temporary_root("snapshot-digest");
+        let vault = Vault::for_test(root.clone(), current_uid());
+        let key = MasterKey::generate().unwrap();
+        vault.commit_profile(&key, &profile()).unwrap();
+        let (snapshot, digest) = vault.open_profile_snapshot(&key).unwrap();
+        assert_eq!(snapshot.sample_count(), profile().sample_count());
+        assert_eq!(
+            digest,
+            kfaceauth_crypto_openssl_sys::sha256(&fs::read(root.join(VAULT_FILE)).unwrap())
+                .unwrap()
+        );
+        vault.commit_profile(&key, &profile()).unwrap();
+        assert_ne!(vault.open_profile_snapshot(&key).unwrap().1, digest);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

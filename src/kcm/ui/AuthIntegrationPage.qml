@@ -12,6 +12,9 @@ Kirigami.ScrollablePage {
 
     property bool backendReady: false
     property var enrollmentSession: null
+    property var authCameraConfiguration: null
+    property string pendingCameraToken: ""
+    property bool pendingCameraReset: false
     property var refresh: () => {}
     property var openSetup: () => {}
 
@@ -47,6 +50,31 @@ Kirigami.ScrollablePage {
                 root.enrollmentSession.setPlasmaLockAuthMode(mode)
         }
         root.restoreModeBindings()
+    }
+
+    QQC2.Dialog {
+        id: cameraConfirmation
+        objectName: "cameraConfigurationConfirmation"
+        parent: QQC2.Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        title: i18n("Change authentication camera")
+        standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
+        width: Math.min(Kirigami.Units.gridUnit * 28, parent ? Math.max(Kirigami.Units.gridUnit * 12, parent.width - Kirigami.Units.largeSpacing * 2) : Kirigami.Units.gridUnit * 28)
+        contentItem: QQC2.Label {
+            text: i18n("This camera setting applies to all users of the authentication experiment. Applying it restarts its service and cancels active face attempts. Password sign-in remains available.")
+            wrapMode: Text.Wrap
+        }
+        onAccepted: {
+            if (root.authCameraConfiguration !== null) {
+                if (root.pendingCameraReset)
+                    root.authCameraConfiguration.reset()
+                else
+                    root.authCameraConfiguration.apply(root.pendingCameraToken)
+            }
+            root.pendingCameraToken = ""
+        }
+        onRejected: root.pendingCameraToken = ""
     }
 
     ColumnLayout {
@@ -275,6 +303,83 @@ Kirigami.ScrollablePage {
                 QQC2.Label {
                     Layout.fillWidth: true
                     text: i18n("Each setting belongs to this user and this target. Changing or deleting a local profile first revokes its system copy; if revocation fails, the local change is stopped.")
+                    wrapMode: Text.Wrap
+                }
+            }
+        }
+
+        Kirigami.AbstractCard {
+            Layout.fillWidth: true
+            visible: root.authCameraConfiguration !== null && root.authCameraConfiguration.available
+            Accessible.role: Accessible.Grouping
+            Accessible.name: i18n("Camera for login and unlock")
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.mediumSpacing
+                Kirigami.Heading {
+                    Layout.fillWidth: true
+                    level: 4
+                    text: i18n("Camera for login and unlock")
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    text: root.authCameraConfiguration !== null ? root.authCameraConfiguration.message : ""
+                    wrapMode: Text.Wrap
+                    Accessible.name: text
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    text: root.authCameraConfiguration !== null ? root.authCameraConfiguration.selectionText : ""
+                    wrapMode: Text.Wrap
+                    Accessible.name: text
+                }
+                QQC2.ComboBox {
+                    id: authenticationCamera
+                    objectName: "authenticationCameraSelector"
+                    Layout.fillWidth: true
+                    model: root.authCameraConfiguration !== null ? root.authCameraConfiguration.devices : []
+                    textRole: "label"
+                    valueRole: "token"
+                    currentIndex: -1
+                    displayText: currentIndex >= 0 ? currentText : i18n("Select a compatible camera")
+                    enabled: root.authCameraConfiguration !== null && !root.authCameraConfiguration.busy
+                        && root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy
+                    Accessible.name: i18n("Authentication camera")
+                    activeFocusOnTab: true
+                    onModelChanged: currentIndex = -1
+                }
+                QQC2.Button {
+                    objectName: "refreshAuthenticationCameras"
+                    Layout.fillWidth: true
+                    text: i18n("Refresh compatible cameras")
+                    enabled: root.authCameraConfiguration !== null && !root.authCameraConfiguration.busy
+                        && root.enrollmentSession !== null && !root.enrollmentSession.systemAuthBusy
+                    onClicked: root.authCameraConfiguration.refresh()
+                }
+                QQC2.Button {
+                    objectName: "applyAuthenticationCamera"
+                    Layout.fillWidth: true
+                    text: i18n("Apply selected camera…")
+                    enabled: authenticationCamera.enabled && authenticationCamera.currentIndex >= 0
+                    onClicked: {
+                        root.pendingCameraReset = false
+                        root.pendingCameraToken = authenticationCamera.currentValue
+                        cameraConfirmation.open()
+                    }
+                }
+                QQC2.Button {
+                    objectName: "resetAuthenticationCamera"
+                    Layout.fillWidth: true
+                    text: i18n("Use automatic camera selection…")
+                    enabled: authenticationCamera.enabled
+                    onClicked: {
+                        root.pendingCameraReset = true
+                        root.pendingCameraToken = ""
+                        cameraConfirmation.open()
+                    }
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    text: i18n("Automatic selection requires exactly one compatible camera. Refreshing this list checks device capabilities without starting a camera stream.")
                     wrapMode: Text.Wrap
                 }
             }

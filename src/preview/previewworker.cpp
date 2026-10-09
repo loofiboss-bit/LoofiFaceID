@@ -62,14 +62,15 @@ PreviewWorker::PreviewWorker(QObject *parent) : QObject(parent)
             {
                 m_previewLimit.stop();
                 m_provider.stop();
+                m_previewInProgress = false;
+                m_pendingFrame.clear();
+                if (m_sharedMemory.isAttached())
+                    m_sharedMemory.detach();
                 sendError(errorCode);
-            });
-    connect(&m_provider, &CameraProvider::deviceListChanged, this,
-            [this]()
-            {
-                if (!m_provider.active())
+                if (m_discoveryPending)
                     discover();
             });
+    connect(&m_provider, &CameraProvider::deviceListChanged, this, [this]() { discover(); });
 }
 
 PreviewWorker::~PreviewWorker()
@@ -184,6 +185,12 @@ void PreviewWorker::handleCommand(const QCborMap &command)
 
 void PreviewWorker::discover()
 {
+    if (m_sessionId.isEmpty() || m_previewInProgress)
+    {
+        m_discoveryPending = true;
+        return;
+    }
+    m_discoveryPending = false;
     const QVector<CameraDescriptor> devices = m_provider.discover();
     QCborArray array;
     for (const CameraDescriptor &device : devices)
@@ -201,7 +208,7 @@ void PreviewWorker::discover()
 
 void PreviewWorker::startPreview(const QString &token, qint64 deadlineMs)
 {
-    if (m_provider.active())
+    if (m_previewInProgress)
     {
         sendError(QStringLiteral("camera-busy"));
         return;
@@ -216,8 +223,16 @@ void PreviewWorker::startPreview(const QString &token, qint64 deadlineMs)
         m_sharedMemory.attach();
     }
     QString errorCode;
+    m_previewInProgress = true;
     if (!m_provider.start(token, &errorCode))
+    {
+        m_previewInProgress = false;
+        if (m_sharedMemory.isAttached())
+            m_sharedMemory.detach();
         sendError(errorCode);
+        if (m_discoveryPending)
+            discover();
+    }
 }
 
 void PreviewWorker::stopPreview(const QString &reason)
@@ -225,6 +240,7 @@ void PreviewWorker::stopPreview(const QString &reason)
     const bool wasActive = m_provider.active();
     m_previewLimit.stop();
     m_provider.stop();
+    m_previewInProgress = false;
     m_pendingFrame.clear();
     if (m_sharedMemory.isAttached())
         m_sharedMemory.detach();
@@ -232,6 +248,8 @@ void PreviewWorker::stopPreview(const QString &reason)
     record.insert(QStringLiteral("reason"), reason);
     record.insert(QStringLiteral("was_active"), wasActive);
     queueControl(record);
+    if (m_discoveryPending)
+        discover();
 }
 
 void PreviewWorker::sendError(const QString &errorCode)

@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "authcameraconfiguration.h"
 #include "camerapreviewsession.h"
 #include "enrollmentsession.h"
 #include "faceauthbackend.h"
@@ -22,6 +23,7 @@ class KFaceAuthKcm final : public KQuickConfigModule
 {
     Q_OBJECT
 
+    Q_PROPERTY(AuthCameraConfiguration *authCameraConfiguration READ authCameraConfiguration CONSTANT)
     Q_PROPERTY(SystemState *systemState READ systemState CONSTANT)
     Q_PROPERTY(CameraPreviewSession *cameraPreviewSession READ cameraPreviewSession CONSTANT)
     Q_PROPERTY(VisionAnalysisSession *visionAnalysisSession READ visionAnalysisSession CONSTANT)
@@ -55,6 +57,7 @@ class KFaceAuthKcm final : public KQuickConfigModule
     KFaceAuthKcm(QObject *parent, const KPluginMetaData &data, std::unique_ptr<FaceAuthBackend> backend);
     ~KFaceAuthKcm() override;
 
+    [[nodiscard]] AuthCameraConfiguration *authCameraConfiguration();
     [[nodiscard]] SystemState *systemState();
     [[nodiscard]] CameraPreviewSession *cameraPreviewSession();
     [[nodiscard]] VisionAnalysisSession *visionAnalysisSession();
@@ -80,6 +83,7 @@ class KFaceAuthKcm final : public KQuickConfigModule
     void flowStateChanged();
 
   private:
+    AuthCameraConfiguration m_authCameraConfiguration;
     SystemProbe m_probe;
     SystemState m_systemState;
     CameraPreviewSession m_cameraPreviewSession;

@@ -27,6 +27,14 @@ LocalVerificationSession::LocalVerificationSession(CameraPreviewSession *preview
     : QObject(parent), m_preview(preview), m_worker(worker), m_keyProvider(keyProvider),
       m_statusText(translate("Start preview, then explicitly test one current frame."))
 {
+    m_cooldownTimer.setInterval(100);
+    connect(&m_cooldownTimer, &QTimer::timeout, this,
+            [this]()
+            {
+                if (cooldownRemainingSeconds() == 0)
+                    m_cooldownTimer.stop();
+                Q_EMIT stateChanged();
+            });
     Q_ASSERT(m_preview);
     Q_ASSERT(m_worker);
     Q_ASSERT(m_keyProvider);
@@ -68,7 +76,7 @@ bool LocalVerificationSession::busy() const
 
 bool LocalVerificationSession::canVerify() const
 {
-    return m_pageActive && !m_worker->busy() && !busy() &&
+    return cooldownRemainingSeconds() == 0 && m_pageActive && !m_worker->busy() && !busy() &&
            m_preview->state() == CameraPreviewSession::State::Streaming && m_preview->frameAvailable();
 }
 
@@ -100,7 +108,7 @@ bool LocalVerificationSession::isAmbiguous() const
 bool LocalVerificationSession::isUnavailable() const
 {
     return m_result == Result::NoProfile || m_result == Result::VaultLocked || m_result == Result::ModelMismatch ||
-           m_result == Result::Unavailable || m_result == Result::Cancelled || m_result == Result::InternalFailure;
+           (m_result == Result::Unavailable && !isWaiting()) || m_result == Result::InternalFailure;
 }
 
 bool LocalVerificationSession::isSpoofDetected() const
@@ -118,17 +126,42 @@ QString LocalVerificationSession::errorCode() const
     return m_errorCode;
 }
 
+int LocalVerificationSession::cooldownRemainingSeconds() const
+{
+    return m_rateLimit.isValid()
+               ? static_cast<int>(qMax<qint64>(0, MinimumIntervalMs - m_rateLimit.elapsed() + 999) / 1000)
+               : 0;
+}
+
+bool LocalVerificationSession::isWaiting() const
+{
+    return m_state == State::RateLimited || m_state == State::Cancelled;
+}
+
+LocalVerificationSession::RecommendedAction LocalVerificationSession::recommendedAction() const
+{
+    if (m_result == Result::NoProfile)
+        return RecommendedAction::Enrollment;
+    if (m_result == Result::ModelMismatch || m_result == Result::InternalFailure ||
+        (m_result == Result::Unavailable && m_errorCode != QLatin1String("frame-unavailable") &&
+         m_errorCode != QLatin1String("rate-limited")))
+        return RecommendedAction::Diagnostics;
+    return hasResult() && m_result != Result::Match ? RecommendedAction::Retry : RecommendedAction::None;
+}
+
 void LocalVerificationSession::verifyCurrentFrame()
 {
-    if (!canVerify())
+    if (busy() || !m_pageActive)
         return;
-    if (m_rateLimit.isValid() && m_rateLimit.elapsed() < MinimumIntervalMs)
+    if (cooldownRemainingSeconds() > 0)
     {
         setResult(Result::Unavailable, State::RateLimited,
                   translate("Please wait briefly before requesting another local test."),
                   QStringLiteral("rate-limited"));
         return;
     }
+    if (!canVerify())
+        return;
     QImage frame;
     if (!m_preview->copyCurrentFrame(&frame))
     {
@@ -148,8 +181,14 @@ void LocalVerificationSession::verifyCurrentFrame()
             if (keyResult.state != KWalletKeyProvider::State::Available)
             {
                 frame.fill(0);
-                const bool locked = keyResult.state == KWalletKeyProvider::State::Locked ||
-                                    keyResult.state == KWalletKeyProvider::State::Cancelled;
+                if (keyResult.state == KWalletKeyProvider::State::Cancelled)
+                {
+                    keyResult.clear();
+                    setResult(Result::Cancelled, State::Cancelled,
+                              translate("The local recognition test was cancelled."));
+                    return;
+                }
+                const bool locked = keyResult.state == KWalletKeyProvider::State::Locked;
                 keyResult.clear();
                 setResult(locked ? Result::VaultLocked
                                  : (keyResult.state == KWalletKeyProvider::State::Absent ? Result::NoProfile
@@ -221,6 +260,7 @@ void LocalVerificationSession::handleResponse(quint64 generation, QByteArrayView
     m_requestActive = false;
     m_activeGeneration = 0;
     m_rateLimit.restart();
+    m_cooldownTimer.start();
     if (!transportError.isEmpty())
     {
         setResult(transportError == QLatin1String("cancelled") ? Result::Cancelled : Result::Unavailable,

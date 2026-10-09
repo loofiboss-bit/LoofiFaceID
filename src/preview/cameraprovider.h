@@ -5,6 +5,7 @@
 #include <QCameraDevice>
 #include <QCameraFormat>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QImage>
 #include <QObject>
 #include <QString>
@@ -45,6 +46,8 @@ class CameraProvider final : public QObject
     void stop();
     [[nodiscard]] bool active() const;
 
+    [[nodiscard]] static QHash<QByteArray, QString> tokensForDevices(const QList<QByteArray> &ids,
+                                                                     const QHash<QByteArray, QString> &previous);
     [[nodiscard]] static QCameraFormat selectFormat(const QList<QCameraFormat> &formats);
     [[nodiscard]] static int selectFormatIndex(const QVector<CameraFormatCandidate> &formats);
     [[nodiscard]] static QByteArray encodeFrame(const QImage &image);

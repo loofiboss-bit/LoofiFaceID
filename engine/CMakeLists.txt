@@ -29,6 +29,9 @@ set(KFACEAUTH_SYNC_VAULT_BINARY
 set(KFACEAUTH_POLICY_BINARY
     "${KFACEAUTH_CARGO_TARGET_DIR}/${KFACEAUTH_CARGO_PROFILE}/kfaceauth-policy"
 )
+set(KFACEAUTH_CAMERA_CONFIG_BINARY
+    "${KFACEAUTH_CARGO_TARGET_DIR}/${KFACEAUTH_CARGO_PROFILE}/kfaceauth-camera-config"
+)
 set(KFACEAUTH_RUST_OUTPUTS
     "${KFACEAUTH_VISION_WORKER_BINARY}"
     "${KFACEAUTH_IDENTITY_WORKER_BINARY}"
@@ -45,6 +48,7 @@ if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
         "${KFACEAUTH_AUTH_WORKER_BINARY}"
         "${KFACEAUTH_SYNC_VAULT_BINARY}"
         "${KFACEAUTH_POLICY_BINARY}"
+        "${KFACEAUTH_CAMERA_CONFIG_BINARY}"
     )
     list(APPEND KFACEAUTH_RUST_PACKAGES
         --package kfaceauth-daemon
@@ -53,6 +57,7 @@ if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
         --package kfaceauth-templates
         --bin kfaceauth-sync-vault
         --bin kfaceauth-policy
+        --bin kfaceauth-camera-config
     )
 endif()
 set(KFACEAUTH_REPRODUCIBLE_CXXFLAGS
@@ -157,6 +162,10 @@ if(KFACEAUTH_BUILD_EXPERIMENTAL_AUTH_COMPONENTS)
     install(PROGRAMS "${KFACEAUTH_POLICY_BINARY}"
         DESTINATION libexec
         RENAME "kfaceauth-policy"
+    )
+    install(PROGRAMS "${KFACEAUTH_CAMERA_CONFIG_BINARY}"
+        DESTINATION libexec
+        RENAME "kfaceauth-camera-config"
     )
 endif()
 

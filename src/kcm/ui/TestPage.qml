@@ -15,6 +15,9 @@ Kirigami.ScrollablePage {
     property bool backendReady: root.cameraPreviewSession !== null
         && root.localVerificationSession !== null
 
+    signal setupRequested()
+    signal diagnosticsRequested()
+
     title: i18n("Test")
     padding: Kirigami.Units.mediumSpacing
 
@@ -155,26 +158,29 @@ Kirigami.ScrollablePage {
 
                     // Visual Match Verdict Display Box
                     Rectangle {
+                        objectName: "verificationVerdict"
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Kirigami.Units.gridUnit * 4.2
+                        implicitHeight: verdictContent.implicitHeight + Kirigami.Units.mediumSpacing * 2
+                        Layout.preferredHeight: implicitHeight
                         radius: Kirigami.Units.cornerRadius
                         color: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
                             ? (root.localVerificationSession.isMatch
                                 ? Qt.alpha(Kirigami.Theme.positiveTextColor, 0.15)
-                                : (root.localVerificationSession.isAmbiguous
+                                : ((root.localVerificationSession.isAmbiguous || root.localVerificationSession.isWaiting)
                                     ? Qt.alpha(Kirigami.Theme.neutralTextColor, 0.15)
                                     : Qt.alpha(Kirigami.Theme.negativeTextColor, 0.15)))
                             : Qt.alpha(Kirigami.Theme.backgroundColor, 0.5)
                         border.color: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
                             ? (root.localVerificationSession.isMatch
                                 ? Kirigami.Theme.positiveTextColor
-                                : (root.localVerificationSession.isAmbiguous
+                                : ((root.localVerificationSession.isAmbiguous || root.localVerificationSession.isWaiting)
                                     ? Kirigami.Theme.neutralTextColor
                                     : Kirigami.Theme.negativeTextColor))
                             : Qt.alpha(Kirigami.Theme.textColor, 0.2)
                         border.width: (root.localVerificationSession !== null && root.localVerificationSession.hasResult) ? 2 : 1
 
                         RowLayout {
+                            id: verdictContent
                             anchors.fill: parent
                             anchors.margins: Kirigami.Units.mediumSpacing
                             spacing: Kirigami.Units.mediumSpacing
@@ -183,7 +189,7 @@ Kirigami.ScrollablePage {
                                 source: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
                                     ? (root.localVerificationSession.isMatch
                                         ? "emblem-checked"
-                                        : (root.localVerificationSession.isAmbiguous
+                                        : ((root.localVerificationSession.isAmbiguous || root.localVerificationSession.isWaiting)
                                             ? "dialog-warning"
                                             : "dialog-cancel"))
                                     : "view-preview"
@@ -192,7 +198,7 @@ Kirigami.ScrollablePage {
                                 color: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
                                     ? (root.localVerificationSession.isMatch
                                         ? Kirigami.Theme.positiveTextColor
-                                        : (root.localVerificationSession.isAmbiguous
+                                        : ((root.localVerificationSession.isAmbiguous || root.localVerificationSession.isWaiting)
                                             ? Kirigami.Theme.neutralTextColor
                                             : Kirigami.Theme.negativeTextColor))
                                     : Kirigami.Theme.disabledTextColor
@@ -204,13 +210,14 @@ Kirigami.ScrollablePage {
 
                                 QQC2.Label {
                                     Layout.fillWidth: true
+                                    objectName: "verificationResultLabel"
                                     text: root.localVerificationSession !== null
                                         ? root.localVerificationSession.statusText
                                         : i18n("Comparison service is initializing…")
                                     color: (root.localVerificationSession !== null && root.localVerificationSession.hasResult)
                                         ? (root.localVerificationSession.isMatch
                                             ? Kirigami.Theme.positiveTextColor
-                                            : (root.localVerificationSession.isAmbiguous
+                                            : ((root.localVerificationSession.isAmbiguous || root.localVerificationSession.isWaiting)
                                                 ? Kirigami.Theme.neutralTextColor
                                                 : Kirigami.Theme.negativeTextColor))
                                         : Kirigami.Theme.disabledTextColor
@@ -223,14 +230,31 @@ Kirigami.ScrollablePage {
                         }
                     }
 
-                    // Actionable Issue if test unavailable
-                    Components.ActionableIssue {
-                        issueTitle: root.localVerificationSession !== null && root.localVerificationSession.isUnavailable
-                            ? i18n("Test unavailable")
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        visible: root.localVerificationSession !== null && root.localVerificationSession.cooldownRemainingSeconds > 0
+                        text: root.localVerificationSession !== null
+                            ? i18np("Wait %1 second before another test.", "Wait %1 seconds before another test.", root.localVerificationSession.cooldownRemainingSeconds)
                             : ""
-                        recoveryText: root.localVerificationSession !== null && root.localVerificationSession.isUnavailable
-                            ? root.localVerificationSession.statusText
-                            : ""
+                        wrapMode: Text.Wrap
+                    }
+
+                    QQC2.Button {
+                        objectName: "verificationRecoveryButton"
+                        visible: root.localVerificationSession !== null && root.localVerificationSession.recommendedAction !== 0
+                        text: root.localVerificationSession === null ? ""
+                            : root.localVerificationSession.recommendedAction === 2 ? i18n("Open Enrollment")
+                            : root.localVerificationSession.recommendedAction === 3 ? i18n("Open Diagnostics")
+                            : i18n("Try again")
+                        enabled: root.localVerificationSession !== null && (root.localVerificationSession.recommendedAction !== 1 || root.localVerificationSession.canVerify)
+                        onClicked: {
+                            if (root.localVerificationSession.recommendedAction === 2)
+                                root.setupRequested()
+                            else if (root.localVerificationSession.recommendedAction === 3)
+                                root.diagnosticsRequested()
+                            else
+                                root.localVerificationSession.verifyCurrentFrame()
+                        }
                     }
 
                     // Informational disclaimer message

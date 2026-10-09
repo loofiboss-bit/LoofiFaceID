@@ -141,6 +141,7 @@ class PackagingContractTests(unittest.TestCase):
             "kfaceauthd",
             "kfaceauth-sync-vault",
             "kfaceauth-policy",
+            "kfaceauth-camera-config",
             "pam_kfaceauth",
             "kfaceauth.service",
             "kfaceauth.socket",

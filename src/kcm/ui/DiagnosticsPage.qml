@@ -231,6 +231,15 @@ Kirigami.ScrollablePage {
                     }
 
                     Components.DetailRow {
+                        objectName: "diagnosticSystemProfileFreshness"
+                        Layout.fillWidth: true
+                        label: i18n("System profile")
+                        value: root.enrollmentSession !== null
+                            ? root.enrollmentSession.systemProfileFreshnessText : i18n("Initializing…")
+                        tone: 0
+                    }
+
+                    Components.DetailRow {
                         Layout.fillWidth: true
                         label: i18n("Experimental SDDM sign-in")
                         value: root.enrollmentSession !== null

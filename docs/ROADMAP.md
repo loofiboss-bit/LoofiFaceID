@@ -1,7 +1,7 @@
 # Roadmap
 
-**Reviewed:** 2026-10-05
-**Current source version:** 5.3.0
+**Reviewed:** 2026-10-09
+**Current source version:** 5.4.0 (unreleased development candidate)
 **Release status:** 5.3.0 is the current stable release for local profile
 enrollment and explicit comparison. See [release qualification](RELEASE-QUALIFICATION-V5.3.md).
 System authentication and biometric suitability remain unqualified.
@@ -41,6 +41,18 @@ unsupported for login.
   CI; the Fedora test job must assert that its container runs as root.
 - Complete KCM hardware/accessibility, PAM login, SELinux, device/session, and
   consent-based physical qualification only on the documented test system.
+
+## Implemented candidate and next priorities
+
+The 5.4.0 development source includes the planned 5.3.1 camera/diagnostic fixes
+and 5.4.0 protected profile freshness and administrative camera configuration.
+See [candidate validation](VALIDATION-V5.4-CANDIDATE.md). Publication and installation
+require a separate request.
+
+Next: physical local camera recovery, suspend/resume, 20 repeated sessions,
+keyboard and screen-reader qualification. Measure the existing complete camera
+pipeline before performance changes. Physical SDDM/Plasma qualification depends
+on a later separate test system; the experiment remains Off and unqualified.
 
 ## Qualification tracks
 

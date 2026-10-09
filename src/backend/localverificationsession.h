@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QTimer>
 
 class CameraPreviewSession;
 class IdentityWorkerClient;
@@ -26,6 +27,9 @@ class LocalVerificationSession final : public QObject
     Q_PROPERTY(bool isUnavailable READ isUnavailable NOTIFY resultChanged)
     Q_PROPERTY(bool isSpoofDetected READ isSpoofDetected NOTIFY resultChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY stateChanged)
+    Q_PROPERTY(int cooldownRemainingSeconds READ cooldownRemainingSeconds NOTIFY stateChanged)
+    Q_PROPERTY(bool isWaiting READ isWaiting NOTIFY stateChanged)
+    Q_PROPERTY(RecommendedAction recommendedAction READ recommendedAction NOTIFY stateChanged)
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY stateChanged)
 
   public:
@@ -57,6 +61,15 @@ class LocalVerificationSession final : public QObject
     };
     Q_ENUM(Result)
 
+    enum class RecommendedAction
+    {
+        None,
+        Retry,
+        Enrollment,
+        Diagnostics
+    };
+    Q_ENUM(RecommendedAction)
+
     LocalVerificationSession(CameraPreviewSession *preview, IdentityWorkerClient *worker,
                              KWalletKeyProvider *keyProvider, QObject *parent = nullptr);
     ~LocalVerificationSession() override;
@@ -74,6 +87,9 @@ class LocalVerificationSession final : public QObject
     [[nodiscard]] bool isSpoofDetected() const;
     [[nodiscard]] QString statusText() const;
     [[nodiscard]] QString errorCode() const;
+    [[nodiscard]] int cooldownRemainingSeconds() const;
+    [[nodiscard]] bool isWaiting() const;
+    [[nodiscard]] RecommendedAction recommendedAction() const;
 
     Q_INVOKABLE void verifyCurrentFrame();
     Q_INVOKABLE void clearResult();
@@ -101,4 +117,5 @@ class LocalVerificationSession final : public QObject
     bool m_requestActive = false;
     bool m_pageActive = false;
     QElapsedTimer m_rateLimit;
+    QTimer m_cooldownTimer;
 };

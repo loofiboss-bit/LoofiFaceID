@@ -1,0 +1,88 @@
+--- a/desktoppackage/contents/lockscreen/LockScreenUi.qml
++++ b/desktoppackage/contents/lockscreen/LockScreenUi.qml
+@@ -83,6 +83,29 @@
+         }
+     }
+ 
++    function cancelFaceAuthentication() {
++        if (typeof faceAuthenticator !== "undefined" && faceAuthenticator) {
++            faceAuthenticator.cancel();
++        }
++    }
++
++    // The experimental greeter remains unavailable until this control registers.
++    Connections {
++        target: typeof faceAuthenticator !== "undefined" ? faceAuthenticator : null
++        function onSucceeded() {
++            Qt.quit();
++        }
++    }
++
++    Connections {
++        target: mainBlock.mainPasswordBox
++        function onTextEdited() {
++            if (typeof faceAuthenticator !== "undefined" && faceAuthenticator) {
++                faceAuthenticator.cancel();
++            }
++        }
++    }
++
+     SessionManagement {
+         id: sessionManagement
+     }
+@@ -124,6 +147,9 @@
+             seenPositionChange = true;
+         }
+         onUiVisibleChanged: {
++            if (!uiVisible) {
++                lockScreenUi.cancelFaceAuthentication();
++            }
+             if (uiVisible) {
+                 Window.window.requestActivate();
+             }
+@@ -147,6 +173,7 @@
+             uiVisible = false;
+         }
+         Keys.onEscapePressed: {
++            lockScreenUi.cancelFaceAuthentication();
+             // If the escape key is pressed, kscreenlocker will turn off the screen.
+             // We do not want to show the password prompt in this case.
+             if (uiVisible) {
+@@ -291,6 +318,9 @@
+                 }
+ 
+                 onPasswordResult: password => {
++                    if (typeof faceAuthenticator !== "undefined" && faceAuthenticator) {
++                        faceAuthenticator.cancel();
++                    }
+                     authenticator.respond(password)
+                 }
+ 
+@@ -311,11 +341,27 @@
+                         text: i18ndc("plasma_shell_org.kde.plasma.desktop", "@action:button", "Switch &User")
+                         icon.name: "system-switch-user"
+                         onClicked: {
++                            lockScreenUi.cancelFaceAuthentication();
+                             sessionManagement.switchUser();
+                         }
+                         visible: sessionManagement.canSwitchUser
+                     }
+                 ]
++
++                Loader {
++                    id: faceAuthenticationControl
++                    objectName: "faceAuthenticationControl"
++                    Layout.topMargin: Kirigami.Units.smallSpacing
++                    Layout.fillWidth: true
++                    Layout.preferredHeight: item && item.visible ? item.implicitHeight : 0
++                    active: typeof faceAuthenticator !== "undefined"
++                        && faceAuthenticator
++                        && typeof faceAuthenticator.registerThemeComponent === "function"
++                    source: active ? "qrc:/fallbacktheme/FaceAuthenticationControl.qml" : ""
++                    onLoaded: item.usePasswordRequested.connect(function() {
++                        mainBlock.mainPasswordBox.forceActiveFocus();
++                    })
++                }
+ 
+                 Loader {
+                     Layout.topMargin: Kirigami.Units.smallSpacing // some distance to the password field

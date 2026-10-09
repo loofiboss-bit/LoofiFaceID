@@ -19,7 +19,8 @@ the fixed `/usr/libexec/kfaceauth-policy` helper using
 `--get --uid UID --target plasma-lock`. The helper must exit successfully and
 write exactly one of `mode=off\n`, `mode=manual\n`, or `mode=on-activity\n`;
 missing helpers, timeouts, nonzero exit, extra output, and malformed output all
-resolve to `unknown`. Lookup runs asynchronously with a 250 ms deadline, so the
+resolve to `unknown`. Lookup is queued after synchronous greeter/QML initialization and then runs
+asynchronously with a 250 ms deadline, so the
 password PAM path does not wait for it.
 
 `off` hides and disables the face factor. `manual` starts only when the user
@@ -58,12 +59,12 @@ themes must instantiate
 `faceAuthenticator` context object. The greeter counts these live component
 instances and rejects starts if none has reported interface version 1. Themes
 that do not do this continue to use password authentication and do not trigger
-face recognition. NoxForge 15's Graphite and Obsidian lock screens load this
-component behind the API-v1 guard in the [companion NoxForge PR](https://github.com/loofiboss-bit/NoxForge/pull/43).
-That theme change has offscreen and password-fallback checks only; physical
-unlock, camera cancellation, and assistive-technology behavior remain
-unverified. Breeze and other themes remain password-only until they load the
-component and complete their own runtime qualification.
+face recognition. Plasma Desktop 6.7.5 loads its `Plasma/Shell` lock-screen surface instead of
+LookAndFeel lock-screen files. Installing NoxForge 15's LookAndFeel hook alone
+does not register a control in that surface. The companion
+[Plasma Desktop patch](../plasma-desktop/README.md) adds the guarded control
+to the actual shell surface and preserves its password flow. Its synthetic
+checks do not qualify physical login/unlock or assistive technology.
 
 ## Fixed error feedback
 

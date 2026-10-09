@@ -17,7 +17,7 @@ use kfaceauth_crypto_openssl_sys::{
     seal_master_key, set_fd_permissions,
 };
 use kfaceauth_templates::auth_policy::{AuthPolicy, AuthPolicyMode, AuthTarget};
-use kfaceauth_templates::{MasterKey, Vault, migrate_legacy_vault_with_separate_key};
+use kfaceauth_templates::{MasterKey, Vault};
 use zeroize::Zeroize;
 
 const INPUT_MAGIC: &[u8; 8] = b"KFAUTH01";
@@ -679,6 +679,10 @@ fn commit_verified_profile(
     };
     let installed_vault = Vault::system_with_root(&paths.system_root_path(), target_uid);
     if installed_vault.validate_integrity(system_key).is_err()
+        || !kfaceauth_templates::freshness::verify_installed_metadata_at(
+            &paths.system_root,
+            target_uid,
+        )
         || paths.system_root.sync_all().is_err()
     {
         eprintln!("The installed system profile failed integrity verification");
@@ -816,19 +820,38 @@ fn sync_profile(
     }
 
     let system_vault = Vault::system_with_root(&staging.path, target_uid);
-    let Ok(_summary) = migrate_legacy_vault_with_separate_key(
-        &legacy_vault,
-        &system_vault,
-        &user_key,
-        &system_key,
-    ) else {
-        eprintln!("Could not validate and provision the system-login profile");
+    // Bind metadata to the same authenticated source snapshot used for migration.
+    let Ok(source_directory) =
+        open_child_directory_nofollow(&data_home, kfaceauth_templates::PRODUCT_DIRECTORY)
+    else {
+        eprintln!("Could not anchor the user profile directory");
         return ExitCode::FAILURE;
     };
+    let Ok((profile, source_digest)) =
+        legacy_vault.open_anchored_profile_snapshot(&user_key, &source_directory)
+    else {
+        eprintln!("Could not validate the source profile snapshot");
+        return ExitCode::FAILURE;
+    };
+    if system_vault.commit_profile(&system_key, &profile).is_err() {
+        eprintln!("Could not provision the system-login profile");
+        return ExitCode::FAILURE;
+    }
     if apply_system_profile_permissions(target_uid, &staging.directory).is_err()
         || system_vault.validate_integrity(&system_key).is_err()
     {
         eprintln!("The staged system profile failed ownership or integrity verification");
+        return ExitCode::FAILURE;
+    }
+
+    if kfaceauth_templates::freshness::write_staged_metadata(
+        &stage_profile_dir,
+        target_uid,
+        source_digest,
+    )
+    .is_err()
+    {
+        eprintln!("Could not stage verified profile freshness metadata");
         return ExitCode::FAILURE;
     }
 
@@ -1275,7 +1298,53 @@ mod tests {
             .commit_profile(&key, &synthetic_profile(1))
             .unwrap();
         apply_system_profile_permissions(1000, &staging.directory).unwrap();
+        kfaceauth_templates::freshness::write_staged_metadata(&staged_profile, 1000, [7; 32])
+            .unwrap();
         Some((root, paths, key, staging))
+    }
+
+    #[test]
+    fn freshness_is_installed_verified_and_replacement_is_unknown() {
+        use kfaceauth_templates::freshness::{ProfileFreshness, profile_freshness};
+        let Some((root, paths, key, staging)) = transaction_fixture() else {
+            return;
+        };
+        commit_verified_profile(1000, None, &paths, &key, &staging).unwrap();
+        let base = root.join("system");
+        assert_eq!(
+            profile_freshness(&base, 1000, &[7; 32]),
+            ProfileFreshness::Current
+        );
+        assert_eq!(
+            profile_freshness(&base, 1000, &[8; 32]),
+            ProfileFreshness::Stale
+        );
+        let metadata = root.join("system/1000/identity.freshness");
+        let original = fs::read(&metadata).unwrap();
+        let mut wrong_uid = original.clone();
+        wrong_uid[13] ^= 1;
+        fs::write(&metadata, wrong_uid).unwrap();
+        assert_eq!(
+            profile_freshness(&base, 1000, &[7; 32]),
+            ProfileFreshness::Unknown
+        );
+        fs::write(&metadata, &original).unwrap();
+        fs::write(
+            root.join("system/1000/identity.vault"),
+            b"replaced ciphertext",
+        )
+        .unwrap();
+        assert_eq!(
+            profile_freshness(&base, 1000, &[7; 32]),
+            ProfileFreshness::Unknown
+        );
+        fs::remove_file(metadata).unwrap();
+        assert_eq!(
+            profile_freshness(&base, 1000, &[7; 32]),
+            ProfileFreshness::Unknown
+        );
+        drop(staging);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1485,6 +1554,10 @@ mod tests {
             .expect("protect previous directory");
         set_fd_permissions(&previous_file, 0, 0o640, SYSTEM_GROUP).expect("protect previous file");
 
+        kfaceauth_templates::freshness::write_staged_metadata(&previous_dir, 1000, [1; 32])
+            .unwrap();
+        let previous_metadata = fs::read(previous.join("identity.freshness")).unwrap();
+
         let stage_entry = system_root_path.join(".stage-test");
         fs::create_dir(&stage_entry).expect("create staging root");
         let stage_directory =
@@ -1500,6 +1573,7 @@ mod tests {
             .expect("open staged profile file");
         set_fd_permissions(&staged_dir, 0, 0o750, SYSTEM_GROUP).expect("protect staged directory");
         set_fd_permissions(&staged_file, 0, 0o640, SYSTEM_GROUP).expect("protect staged file");
+        kfaceauth_templates::freshness::write_staged_metadata(&staged_dir, 1000, [2; 32]).unwrap();
         let staging_path = descriptor_path(&stage_directory);
         let staging = StagingDirectory {
             directory: stage_directory,
@@ -1513,7 +1587,15 @@ mod tests {
             fs::read(system_root_path.join("1000/identity.vault")).unwrap(),
             b"new profile"
         );
+        assert_eq!(
+            kfaceauth_templates::freshness::profile_freshness(&system_root_path, 1000, &[2; 32]),
+            kfaceauth_templates::freshness::ProfileFreshness::Current
+        );
         swap.rollback().expect("restore previous profile");
+        assert_eq!(
+            fs::read(previous.join("identity.freshness")).unwrap(),
+            previous_metadata
+        );
         assert_eq!(
             fs::read(system_root_path.join("1000/identity.vault")).unwrap(),
             b"previous profile"

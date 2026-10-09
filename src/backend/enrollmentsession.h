@@ -57,6 +57,7 @@ class EnrollmentSession final : public QObject
     Q_PROPERTY(QString plasmaLockIntegrationStatusText READ plasmaLockIntegrationStatusText NOTIFY systemAuthChanged)
     Q_PROPERTY(QString plasmaLockAuthStatusText READ plasmaLockAuthStatusText NOTIFY systemAuthChanged)
     Q_PROPERTY(QString plasmaLockAuthErrorCode READ plasmaLockAuthErrorCode NOTIFY systemAuthChanged)
+    Q_PROPERTY(ProfileFreshness systemProfileFreshness READ systemProfileFreshness NOTIFY systemAuthChanged)
     Q_PROPERTY(QString systemProfileFreshnessText READ systemProfileFreshnessText NOTIFY systemAuthChanged)
     Q_PROPERTY(bool systemAuthBusy READ systemAuthBusy NOTIFY systemAuthChanged)
     Q_PROPERTY(bool systemProfileCanSync READ systemProfileCanSync NOTIFY systemAuthChanged)
@@ -111,6 +112,14 @@ class EnrollmentSession final : public QObject
     };
     Q_ENUM(GuidePhase)
 
+    enum class ProfileFreshness
+    {
+        Unknown,
+        Current,
+        Stale,
+    };
+    Q_ENUM(ProfileFreshness)
+
     enum class AuthTargetStatus
     {
         MissingComponents,
@@ -151,6 +160,7 @@ class EnrollmentSession final : public QObject
 
     struct AuthStatusSnapshot
     {
+        ProfileFreshness freshness = ProfileFreshness::Unknown;
         Readiness components = Readiness::Unknown;
         Readiness sddmApi = Readiness::Unknown;
         Readiness sddmTheme = Readiness::Unknown;
@@ -211,6 +221,8 @@ class EnrollmentSession final : public QObject
     [[nodiscard]] QString plasmaLockIntegrationStatusText() const;
     [[nodiscard]] QString plasmaLockAuthStatusText() const;
     [[nodiscard]] QString plasmaLockAuthErrorCode() const;
+    [[nodiscard]] ProfileFreshness systemProfileFreshness() const;
+    [[nodiscard]] QString systemProfileFreshnessCode() const;
     [[nodiscard]] QString systemProfileFreshnessText() const;
     [[nodiscard]] bool systemAuthBusy() const;
     [[nodiscard]] bool systemProfileCanSync() const;
@@ -309,7 +321,7 @@ class EnrollmentSession final : public QObject
     QString m_plasmaLockAuthMode = QStringLiteral("unknown");
     QString m_sddmIntegrationStatus = QStringLiteral("not-checked");
     QString m_plasmaLockIntegrationStatus = QStringLiteral("not-checked");
-    QString m_systemProfileFreshness = QStringLiteral("unknown");
+    ProfileFreshness m_systemProfileFreshness = ProfileFreshness::Unknown;
     bool m_authComponentsAvailable = false;
     bool m_sddmIntegrationAvailable = false;
     bool m_plasmaLockIntegrationAvailable = false;
@@ -328,6 +340,7 @@ class EnrollmentSession final : public QObject
     QString m_expectedSddmMode;
     QString m_expectedPlasmaMode;
     bool m_authOperationRequiresProfile = false;
+    bool m_authOperationRequiresFreshness = false;
     quint64 m_authOperationGeneration = 0;
     QTimer m_authReadbackTimer;
     QProcess *m_systemProfileMutationProcess = nullptr;

@@ -23,6 +23,11 @@ pub const NONCE_BYTES: usize = 12;
 pub const TAG_BYTES: usize = 16;
 
 unsafe extern "C" {
+    fn kfaceauth_v4l2_metadata(
+        path: *const std::ffi::c_char,
+        label: *mut std::ffi::c_char,
+        capacity: usize,
+    ) -> c_int;
     fn kfaceauth_crypto_random(output: *mut u8, output_size: usize) -> c_int;
     fn kfaceauth_crypto_aes256gcm_encrypt(
         key: *const u8,
@@ -594,10 +599,53 @@ pub fn v4l2_capture(
     Ok((width, height, format))
 }
 
+/// Queries capture/streaming capabilities and GREY/YUYV formats without capturing frames.
+///
+/// # Errors
+/// Returns an error for unavailable or incompatible nodes.
+pub fn camera_metadata(path: &Path) -> Result<String, CryptoError> {
+    use std::os::unix::ffi::OsStrExt;
+    let path =
+        CString::new(path.as_os_str().as_bytes()).map_err(|_| CryptoError::InvalidArgument)?;
+    let mut label = [0_u8; 128];
+    // SAFETY: both buffers are valid for the call and the output capacity is explicit.
+    status_result(unsafe {
+        kfaceauth_v4l2_metadata(path.as_ptr(), label.as_mut_ptr().cast(), label.len())
+    })?;
+    let length = label
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or(CryptoError::ProviderFailure)?;
+    Ok(String::from_utf8_lossy(&label[..length]).into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn camera_metadata_rejects_missing_regular_symlink_and_fifo_nodes() {
+        let root =
+            std::env::temp_dir().join(format!("kfaceauth-camera-metadata-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        assert!(camera_metadata(&root.join("missing")).is_err());
+        std::fs::write(root.join("regular"), b"not a video device").unwrap();
+        assert!(camera_metadata(&root.join("regular")).is_err());
+        std::os::unix::fs::symlink(root.join("regular"), root.join("link")).unwrap();
+        assert!(camera_metadata(&root.join("link")).is_err());
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(root.join("fifo"))
+                .status()
+                .unwrap()
+                .success()
+        );
+        let start = std::time::Instant::now();
+        assert!(camera_metadata(&root.join("fifo")).is_err());
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn concurrent_group_resolution_keeps_each_gid_private() {

@@ -200,12 +200,12 @@ Kirigami.AbstractCard {
                 objectName: "cameraDeviceSelector"
                 Layout.fillWidth: true
                 Layout.minimumWidth: Kirigami.Units.gridUnit * 8
-                visible: root.sessionReady && root.cameraPreviewSession.deviceCount > 1
+                visible: root.sessionReady && root.cameraPreviewSession.deviceCount > 0
                 model: root.sessionReady ? root.cameraPreviewSession : null
                 textRole: "label"
                 currentIndex: root.sessionReady ? root.cameraPreviewSession.selectedDeviceIndex : -1
                 enabled: root.sessionReady
-                    && ((root.cameraPreviewSession.canRefresh && root.cameraPreviewSession.hasUsableCamera)
+                    && ((root.cameraPreviewSession.canRefresh && root.cameraPreviewSession.deviceCount > 0)
                         || root.cameraPreviewSession.canStartPreview)
                 property string accessibilityLabel: i18n("Local camera")
                 Accessible.name: accessibilityLabel

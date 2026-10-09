@@ -31,4 +31,16 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/kfaceauth-policy</annotate>
   </action>
+  <action id="org.kde.kfaceauth.manage-camera">
+    <description>Read or change the camera used by experimental face authentication</description>
+    <description xml:lang="sv">Läs eller ändra kameran för experimentell ansiktsautentisering</description>
+    <message>Administrator authorization is required to read or change the authentication camera for all users</message>
+    <message xml:lang="sv">Administratörsbehörighet krävs för att läsa eller ändra autentiseringskameran för alla användare</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/kfaceauth-camera-config</annotate>
+  </action>
 </policyconfig>
