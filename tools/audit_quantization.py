@@ -91,7 +91,7 @@ def _load_embeddings(path: Path) -> dict[str, tuple[float, ...]]:
         vector = tuple(
             _finite_number(value, f"embedding:{path.name}:{identifier}") for value in values
         )
-        norm = math.sqrt(sum(value * value for value in vector))
+        norm = math.hypot(*vector)
         if not math.isfinite(norm) or norm <= 1.0e-12:
             raise AuditError(f"embedding-zero-norm:{path.name}:{identifier}")
         embeddings[identifier] = vector
@@ -135,8 +135,8 @@ def _load_pairs(path: Path) -> list[dict[str, Any]]:
 
 
 def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
-    left_norm = math.sqrt(sum(value * value for value in left))
-    right_norm = math.sqrt(sum(value * value for value in right))
+    left_norm = math.hypot(*left)
+    right_norm = math.hypot(*right)
     score = sum(a * b for a, b in zip(left, right, strict=True)) / (left_norm * right_norm)
     if not math.isfinite(score):
         raise AuditError("non-finite-cosine")
