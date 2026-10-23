@@ -183,6 +183,175 @@ esac
             with self.assertRaises(ValueError):
                 source.source_files(root)
 
+    def test_source_files_manifest_validation_edge_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            manifest = root / "packaging/fedora/source-files.txt"
+
+            manifest.write_text("")
+            with self.assertRaisesRegex(ValueError, "source manifest must be non-empty"):
+                source.source_files(root)
+
+            manifest.write_text("a\n" * 10001)
+            with self.assertRaisesRegex(ValueError, "source manifest must be non-empty"):
+                source.source_files(root)
+
+            manifest.write_text("engine/Cargo.toml\ncmake/ProjectIdentity.cmake\n")
+            with self.assertRaisesRegex(ValueError, "source manifest must be non-empty"):
+                source.source_files(root)
+
+            manifest.write_text("/etc/passwd\n")
+            with self.assertRaisesRegex(ValueError, "unsafe source manifest entry"):
+                source.source_files(root)
+
+            manifest.write_text(".git/config\n")
+            with self.assertRaisesRegex(ValueError, "unsafe source manifest entry"):
+                source.source_files(root)
+
+            manifest.write_text("sub/.git/config\n")
+            with self.assertRaisesRegex(ValueError, "unsafe source manifest entry"):
+                source.source_files(root)
+
+            for non_canonical in ("./engine/Cargo.toml\n", "engine//Cargo.toml\n", "engine/Cargo.toml/\n"):
+                manifest.write_text(non_canonical)
+                with self.assertRaisesRegex(ValueError, "unsafe source manifest entry"):
+                    source.source_files(root)
+
+            manifest.write_text("nonexistent.txt\n")
+            with self.assertRaisesRegex(ValueError, "missing or unsafe source file"):
+                source.source_files(root)
+
+            outside_dir = Path(directory) / "outside"
+            outside_dir.mkdir()
+            outside_file = outside_dir / "secret.txt"
+            outside_file.write_text("secret")
+            (root / "outside_link").symlink_to(outside_file)
+            manifest.write_text("outside_link\n")
+            with self.assertRaisesRegex(ValueError, "missing or unsafe source file"):
+                source.source_files(root)
+
+    def test_provenance_generation_and_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            values = project.identity(root)
+
+            prov_file = root / "SOURCE-PROVENANCE.json"
+            valid_prov = {
+                "name": "kfaceauth",
+                "version": "9.8.7",
+                "commit": "1234567890abcdef1234567890abcdef12345678",
+                "source_date_epoch": 1600000000,
+            }
+            prov_file.write_text(json.dumps(valid_prov))
+            self.assertEqual(source.provenance(root, values), valid_prov)
+
+            invalid_prov = dict(valid_prov, name="other")
+            prov_file.write_text(json.dumps(invalid_prov))
+            with self.assertRaisesRegex(ValueError, "source provenance identity mismatch"):
+                source.provenance(root, values)
+
+            prov_file.unlink()
+
+            with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "1700000000"}):
+                record = source.provenance(root, values)
+                self.assertEqual(record["source_date_epoch"], 1700000000)
+                self.assertEqual(record["name"], "kfaceauth")
+                self.assertEqual(record["version"], "9.8.7")
+
+    def test_create_archive_tar_metadata_and_structure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+
+            script = root / "bin/script.sh"
+            script.parent.mkdir(parents=True, exist_ok=True)
+            script.write_text("#!/bin/sh\necho test\n")
+            script.chmod(0o755)
+
+            manifest = root / "packaging/fedora/source-files.txt"
+            entries = sorted([
+                "bin/script.sh",
+                "cmake/ProjectIdentity.cmake",
+                "engine/Cargo.toml",
+                "packaging/fedora/kfaceauth.spec",
+                "packaging/fedora/source-files.txt",
+            ])
+            manifest.write_text("\n".join(entries) + "\n")
+
+            output = root / "nested/build/output.tar.gz"
+            with patch.dict(os.environ, {"SOURCE_DATE_EPOCH": "1600000000"}):
+                source.create_archive(root, output)
+
+            self.assertTrue(output.is_file())
+
+            with tarfile.open(output, "r:gz") as archive:
+                members = {m.name: m for m in archive.getmembers()}
+                prefix = "kfaceauth-9.8.7"
+
+                dir_member = members[prefix]
+                self.assertTrue(dir_member.isdir())
+                self.assertEqual(dir_member.mode, 0o755)
+                self.assertEqual(dir_member.mtime, 1600000000)
+
+                bin_dir_member = members[f"{prefix}/bin"]
+                self.assertTrue(bin_dir_member.isdir())
+                self.assertEqual(bin_dir_member.mode, 0o755)
+
+                script_member = members[f"{prefix}/bin/script.sh"]
+                self.assertTrue(script_member.isfile())
+                self.assertEqual(script_member.mode, 0o755)
+                self.assertEqual(script_member.mtime, 1600000000)
+
+                spec_member = members[f"{prefix}/packaging/fedora/kfaceauth.spec"]
+                self.assertTrue(spec_member.isfile())
+                self.assertEqual(spec_member.mode, 0o644)
+                self.assertEqual(spec_member.mtime, 1600000000)
+
+                prov_member = members[f"{prefix}/SOURCE-PROVENANCE.json"]
+                self.assertTrue(prov_member.isfile())
+                self.assertEqual(prov_member.mode, 0o644)
+                self.assertEqual(prov_member.mtime, 1600000000)
+
+                extracted_file = archive.extractfile(prov_member)
+                self.assertIsNotNone(extracted_file)
+                extracted_prov = json.loads(extracted_file.read().decode("utf-8"))
+                self.assertEqual(extracted_prov["name"], "kfaceauth")
+                self.assertEqual(extracted_prov["version"], "9.8.7")
+                self.assertEqual(extracted_prov["source_date_epoch"], 1600000000)
+
+    def test_create_archive_error_cleanup_and_main_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+
+            with patch.object(source, "source_files", side_effect=ValueError("forced error")):
+                output = root / "out.tar.gz"
+                with self.assertRaisesRegex(ValueError, "forced error"):
+                    source.create_archive(root, output)
+                self.assertFalse(output.exists())
+                temp_files = list(root.glob("kfaceauth-source-*.tar.gz"))
+                self.assertEqual(temp_files, [])
+
+            output_cli = root / "cli-output.tar.gz"
+            with patch.object(sys, "argv", ["create_source_archive.py", str(output_cli), "--root", str(root)]):
+                exit_code = source.main()
+                self.assertEqual(exit_code, 0)
+                self.assertTrue(output_cli.is_file())
+
+            with patch.object(sys, "argv", ["create_source_archive.py", "--root", str(root)]):
+                exit_code = source.main()
+                self.assertEqual(exit_code, 0)
+                default_output = root / "kfaceauth-9.8.7.tar.gz"
+                self.assertTrue(default_output.is_file())
+
+            (root / "packaging/fedora/source-files.txt").write_text("invalid\n")
+            with patch.object(sys, "argv", ["create_source_archive.py", "--root", str(root)]):
+                with self.assertRaises(SystemExit) as cm:
+                    source.main()
+                self.assertEqual(cm.exception.code, 1)
+
     def test_tag_and_archive_lineage_rejected_before_upload(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
