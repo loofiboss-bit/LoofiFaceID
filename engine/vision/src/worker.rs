@@ -486,7 +486,7 @@ mod tests {
             ),
             Err(WorkerIoError::TrailingData)
         ));
-        assert_eq!(output, [] as [u8; 0]);
+        assert!(output.is_empty());
     }
 
     #[test]
