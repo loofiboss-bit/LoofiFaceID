@@ -2074,19 +2074,35 @@ pub(crate) mod parsing {
     #[cfg_attr(docsrs, doc(cfg(feature = "parsing")))]
     impl Parse for ItemType {
         fn parse(input: ParseStream) -> Result<Self> {
+            let attrs = input.call(Attribute::parse_outer)?;
+            let FlexibleItemType {
+                vis,
+                defaultness: _,
+                type_token,
+                ident,
+                generics,
+                colon_token,
+                bounds: _,
+                ty,
+                semi_token,
+            } = FlexibleItemType::parse(
+                input,
+                TypeDefaultness::Disallowed,
+                WhereClauseLocation::Both,
+            )?;
+            let (eq_token, ty) = match ty {
+                Some(ty) if colon_token.is_none() => ty,
+                _ => return Err(input.error("expected `=`")),
+            };
             Ok(ItemType {
-                attrs: input.call(Attribute::parse_outer)?,
-                vis: input.parse()?,
-                type_token: input.parse()?,
-                ident: input.parse()?,
-                generics: {
-                    let mut generics: Generics = input.parse()?;
-                    generics.where_clause = input.parse()?;
-                    generics
-                },
-                eq_token: input.parse()?,
-                ty: input.parse()?,
-                semi_token: input.parse()?,
+                attrs,
+                vis,
+                type_token,
+                ident,
+                generics,
+                eq_token,
+                ty: Box::new(ty),
+                semi_token,
             })
         }
     }
@@ -2105,7 +2121,7 @@ pub(crate) mod parsing {
         } = FlexibleItemType::parse(
             input,
             TypeDefaultness::Disallowed,
-            WhereClauseLocation::BeforeEq,
+            WhereClauseLocation::Both,
         )?;
 
         let (eq_token, ty) = match ty {
