@@ -9,14 +9,22 @@ import tomllib
 from pathlib import Path
 
 
+_IDENTITY_PATTERNS = (
+    ("name", re.compile(r'^set\(KFACEAUTH_PROJECT_ID "([a-z][a-z0-9-]*)"\)$', re.MULTILINE)),
+    ("version", re.compile(r'^set\(KFACEAUTH_VERSION "([0-9]+\.[0-9]+\.[0-9]+)"\)$', re.MULTILINE)),
+)
+
+_SPEC_PATTERNS = (
+    ("Name", "name", re.compile(r"^Name:\s+(\S+)\s*$", re.MULTILINE)),
+    ("Version", "version", re.compile(r"^Version:\s+(\S+)\s*$", re.MULTILINE)),
+)
+
+
 def identity(root: Path) -> dict[str, str]:
     text = (root / "cmake/ProjectIdentity.cmake").read_text(encoding="utf-8")
     result = {}
-    for field, key, pattern in (
-        ("name", "KFACEAUTH_PROJECT_ID", r"[a-z][a-z0-9-]*"),
-        ("version", "KFACEAUTH_VERSION", r"[0-9]+\.[0-9]+\.[0-9]+"),
-    ):
-        matches = re.findall(rf'^set\({key} "({pattern})"\)$', text, re.MULTILINE)
+    for field, pattern in _IDENTITY_PATTERNS:
+        matches = pattern.findall(text)
         if len(matches) != 1:
             raise ValueError(f"invalid canonical {field}")
         result[field] = matches[0]
@@ -29,8 +37,8 @@ def verify(root: Path, values: dict[str, str]) -> None:
     if cargo["workspace"]["package"]["version"] != values["version"]:
         raise ValueError("Cargo version differs from canonical identity")
     spec = (root / "packaging/fedora/kfaceauth.spec").read_text(encoding="utf-8")
-    for label, field in (("Name", "name"), ("Version", "version")):
-        matches = re.findall(rf"^{label}:\s+(\S+)\s*$", spec, re.MULTILINE)
+    for label, field, pattern in _SPEC_PATTERNS:
+        matches = pattern.findall(spec)
         if matches != [values[field]]:
             raise ValueError(f"RPM {label} differs from canonical identity")
 
