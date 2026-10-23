@@ -169,9 +169,9 @@ class PamSetupSandbox:
             f"password include {target}\n"
             f"session include {target}\n"
         )
-        (self.fixture_root / f"usr/share/kfaceauth/pam/{service}").write_text(
-            text, encoding="utf-8"
-        )
+        path = self.fixture_root / f"usr/share/kfaceauth/pam/{service}"
+        path.write_text(text, encoding="utf-8")
+        path.chmod(0o644)
 
     @property
     def env(self) -> dict[str, str]:
