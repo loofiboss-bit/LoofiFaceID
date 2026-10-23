@@ -210,6 +210,95 @@ esac
     def test_upload_conflicting_assets_fails_without_mutation(self):
         self.check_upload("different", expected_uploads=0, reject=True)
 
+    def test_verify_project_identity_identity_valid_and_invalid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            id_data = project.identity(root)
+            self.assertEqual(id_data["name"], "kfaceauth")
+            self.assertEqual(id_data["version"], "9.8.7")
+            self.assertEqual(id_data["archive"], "kfaceauth-9.8.7.tar.gz")
+
+            cmake_file = root / "cmake/ProjectIdentity.cmake"
+
+            # Invalid name format (uppercase / invalid chars)
+            cmake_file.write_text('set(KFACEAUTH_PROJECT_ID "KFaceAuth")\nset(KFACEAUTH_VERSION "9.8.7")\n')
+            with self.assertRaisesRegex(ValueError, "invalid canonical name"):
+                project.identity(root)
+
+            # Duplicate name match key
+            cmake_file.write_text('set(KFACEAUTH_PROJECT_ID "kfaceauth")\nset(KFACEAUTH_PROJECT_ID "kfaceauth")\nset(KFACEAUTH_VERSION "9.8.7")\n')
+            with self.assertRaisesRegex(ValueError, "invalid canonical name"):
+                project.identity(root)
+
+            # Invalid version format
+            cmake_file.write_text('set(KFACEAUTH_PROJECT_ID "kfaceauth")\nset(KFACEAUTH_VERSION "9.8")\n')
+            with self.assertRaisesRegex(ValueError, "invalid canonical version"):
+                project.identity(root)
+
+            # Missing version match key
+            cmake_file.write_text('set(KFACEAUTH_PROJECT_ID "kfaceauth")\n')
+            with self.assertRaisesRegex(ValueError, "invalid canonical version"):
+                project.identity(root)
+
+    def test_verify_project_identity_verify_valid_and_invalid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            values = project.identity(root)
+
+            # Valid verification passes without error
+            project.verify(root, values)
+
+            # Cargo version mismatch
+            (root / "engine/Cargo.toml").write_text('[workspace.package]\nversion = "1.2.3"\n')
+            with self.assertRaisesRegex(ValueError, "Cargo version differs"):
+                project.verify(root, values)
+            (root / "engine/Cargo.toml").write_text('[workspace.package]\nversion = "9.8.7"\n')
+
+            # RPM Name mismatch
+            (root / "packaging/fedora/kfaceauth.spec").write_text("Name: wrongname\nVersion: 9.8.7\n")
+            with self.assertRaisesRegex(ValueError, "RPM Name differs"):
+                project.verify(root, values)
+
+            # RPM Version mismatch
+            (root / "packaging/fedora/kfaceauth.spec").write_text("Name: kfaceauth\nVersion: 1.2.3\n")
+            with self.assertRaisesRegex(ValueError, "RPM Version differs"):
+                project.verify(root, values)
+
+            # Missing/malformed file handling
+            (root / "engine/Cargo.toml").write_text("invalid toml {{{")
+            with self.assertRaises(Exception):
+                project.verify(root, values)
+
+    def test_verify_project_identity_main_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+
+            with patch.object(sys, "argv", ["verify_project_identity.py", "--root", str(root)]):
+                with patch("sys.stdout.write") as mock_stdout:
+                    ret = project.main()
+                    self.assertEqual(ret, 0)
+                    output = "".join(call.args[0] for call in mock_stdout.call_args_list)
+                    parsed = json.loads(output)
+                    self.assertEqual(parsed, {"archive": "kfaceauth-9.8.7.tar.gz", "name": "kfaceauth", "version": "9.8.7"})
+
+            for field, expected in (("name", "kfaceauth"), ("version", "9.8.7"), ("archive", "kfaceauth-9.8.7.tar.gz")):
+                with patch.object(sys, "argv", ["verify_project_identity.py", "--root", str(root), "--field", field]):
+                    with patch("sys.stdout.write") as mock_stdout:
+                        ret = project.main()
+                        self.assertEqual(ret, 0)
+                        output = "".join(call.args[0] for call in mock_stdout.call_args_list)
+                        self.assertEqual(output.strip(), expected)
+
+            # Test failure exit in main
+            (root / "engine/Cargo.toml").write_text('[workspace.package]\nversion = "0.0.0"\n')
+            with patch.object(sys, "argv", ["verify_project_identity.py", "--root", str(root)]):
+                with self.assertRaises(SystemExit) as cm:
+                    project.main()
+                self.assertEqual(cm.exception.code, 1)
+
     def check_upload(self, mode, expected_uploads, reject=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
