@@ -388,8 +388,9 @@ fn run() -> Result<(), &'static str> {
     let _lock =
         lock_child_file_nonblocking(&directory, ".camera-config.lock").map_err(|_| "busy")?;
     // Enumerate again after taking the lock to reject unplugged or changed selections.
+    let devices = cameras();
     if desired.as_ref().is_some_and(|path| {
-        !cameras()
+        !devices
             .iter()
             .any(|(node, _)| node.to_str() == Some(path.as_str()))
     }) {
@@ -397,7 +398,7 @@ fn run() -> Result<(), &'static str> {
     }
     transaction(&directory, 0, desired.as_deref(), service, || {
         desired.as_ref().is_none_or(|path| {
-            cameras()
+            devices
                 .iter()
                 .any(|(node, _)| node.to_str() == Some(path.as_str()))
         })
@@ -409,7 +410,7 @@ fn run() -> Result<(), &'static str> {
     } else {
         println!("automatic");
     }
-    for (path, label) in cameras() {
+    for (path, label) in devices {
         if let Some(path) = path.to_str() {
             println!("device {} {}", hex(path.as_bytes()), hex(label.as_bytes()));
         }
