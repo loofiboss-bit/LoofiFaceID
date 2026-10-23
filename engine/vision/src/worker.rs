@@ -399,6 +399,7 @@ pub fn encode_error(code: WorkerErrorCode, generation: u64) -> Vec<u8> {
 struct SensitiveBytes(Vec<u8>);
 
 #[cfg(test)]
+#[allow(clippy::assert_is_empty)]
 mod tests {
     use super::*;
     use crate::{FakeDeterministicProvider, VisionAnalysis};
