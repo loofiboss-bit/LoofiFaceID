@@ -569,10 +569,7 @@ mod tests {
         let smallest_bytes = [0; 3];
         let smallest = ImageView::new(PixelFormat::Rgb8, 1, 1, 3, &smallest_bytes).unwrap();
         assert_eq!(
-            provider
-                .analyze(smallest, control(&token))
-                .unwrap()
-                .faces,
+            provider.analyze(smallest, control(&token)).unwrap().faces,
             [] as [FaceObservation; 0]
         );
 
@@ -580,10 +577,7 @@ mod tests {
         let largest =
             ImageView::new(PixelFormat::Rgb8, 1920, 1080, 1920 * 3, &largest_bytes).unwrap();
         assert_eq!(
-            provider
-                .analyze(largest, control(&token))
-                .unwrap()
-                .faces,
+            provider.analyze(largest, control(&token)).unwrap().faces,
             [] as [FaceObservation; 0]
         );
     }
