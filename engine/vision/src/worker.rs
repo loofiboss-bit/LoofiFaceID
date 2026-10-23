@@ -644,4 +644,31 @@ mod tests {
         );
         assert_eq!(output.len(), first_end + second_length + 4);
     }
+
+    #[test]
+    fn encode_error_layout_and_encoding() {
+        let test_cases = [
+            (WorkerErrorCode::InvalidRequest, 0_u64),
+            (WorkerErrorCode::UnsupportedVersion, 1_u64),
+            (WorkerErrorCode::Cancelled, 42_u64),
+            (WorkerErrorCode::ModelUnavailable, 0x0102_0304_0506_0708_u64),
+            (WorkerErrorCode::RuntimeFailure, u64::MAX),
+        ];
+
+        for (code, generation) in test_cases {
+            let payload = encode_error(code, generation);
+
+            assert_eq!(payload.len(), 12);
+            assert_eq!(payload.capacity(), 12);
+
+            let version = u16::from_be_bytes(payload[0..2].try_into().unwrap());
+            assert_eq!(version, WORKER_PROTOCOL_VERSION);
+
+            assert_eq!(payload[2], RESPONSE_ERROR);
+            assert_eq!(payload[3], code as u8);
+
+            let encoded_generation = u64::from_be_bytes(payload[4..12].try_into().unwrap());
+            assert_eq!(encoded_generation, generation);
+        }
+    }
 }
