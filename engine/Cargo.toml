@@ -26,3 +26,6 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = "deny"
 pedantic = "deny"
+
+[patch.crates-io]
+syn = { path = "vendor/syn" }
