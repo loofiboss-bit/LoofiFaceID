@@ -486,7 +486,10 @@ mod tests {
             ),
             Err(WorkerIoError::TrailingData)
         ));
-        assert_eq!(output, [] as [u8; 0]);
+        #[allow(clippy::assert_is_empty)]
+        {
+            assert!(output.is_empty());
+        }
     }
 
     #[test]
