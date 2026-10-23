@@ -568,23 +568,23 @@ mod tests {
         let token = CancellationToken::default();
         let smallest_bytes = [0; 3];
         let smallest = ImageView::new(PixelFormat::Rgb8, 1, 1, 3, &smallest_bytes).unwrap();
-        assert!(
+        assert_eq!(
             provider
                 .analyze(smallest, control(&token))
                 .unwrap()
-                .faces
-                .is_empty()
+                .faces,
+            []
         );
 
         let largest_bytes = vec![0; 1920 * 1080 * 3];
         let largest =
             ImageView::new(PixelFormat::Rgb8, 1920, 1080, 1920 * 3, &largest_bytes).unwrap();
-        assert!(
+        assert_eq!(
             provider
                 .analyze(largest, control(&token))
                 .unwrap()
-                .faces
-                .is_empty()
+                .faces,
+            []
         );
     }
 }
