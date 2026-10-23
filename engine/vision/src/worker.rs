@@ -621,6 +621,31 @@ mod tests {
     }
 
     #[test]
+    fn encode_error_produces_expected_byte_layout() {
+        let test_cases = [
+            (WorkerErrorCode::InvalidRequest, 0_u64),
+            (WorkerErrorCode::ModelUnavailable, 1_u64),
+            (WorkerErrorCode::RuntimeFailure, 42_u64),
+            (WorkerErrorCode::InternalError, u64::MAX),
+        ];
+
+        for (code, generation) in test_cases {
+            let encoded = encode_error(code, generation);
+            assert_eq!(encoded.len(), 12);
+            assert_eq!(
+                u16::from_be_bytes(encoded[0..2].try_into().unwrap()),
+                WORKER_PROTOCOL_VERSION
+            );
+            assert_eq!(encoded[2], RESPONSE_ERROR);
+            assert_eq!(encoded[3], code as u8);
+            assert_eq!(
+                u64::from_be_bytes(encoded[4..12].try_into().unwrap()),
+                generation
+            );
+        }
+    }
+
+    #[test]
     fn session_accepts_multiple_framed_requests_and_preserves_generations() {
         let first = analyze_request_with_generation(101);
         let second = analyze_request_with_generation(102);
