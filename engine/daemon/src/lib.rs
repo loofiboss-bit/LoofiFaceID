@@ -1773,8 +1773,11 @@ mod tests {
 
     #[test]
     fn client_disconnect_kills_the_active_auth_worker() {
-        let fixture = WorkerFixture::new("hang-once");
+        let fixture = WorkerFixture::new("slow-start-hang");
         let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+        client_stream
+            .set_read_timeout(Some(Duration::from_millis(2000)))
+            .unwrap();
         let peer = PeerCredentials {
             uid: 1000,
             gid: 1000,
@@ -1798,14 +1801,13 @@ mod tests {
         request.extend_from_slice(b"test");
         write_frame(&mut client_stream, &request, MAX_DAEMON_REQUEST_BYTES).unwrap();
 
-        let deadline = Instant::now() + Duration::from_millis(300);
-        while !fixture.root.join("started").exists() {
-            assert!(
-                Instant::now() < deadline,
-                "authentication worker did not start"
-            );
-            thread::sleep(Duration::from_millis(2));
-        }
+        // Wait for actual worker readiness within the request's existing budget;
+        // process startup under load is separate from the cancellation bound.
+        let progress = read_frame(&mut client_stream, MAX_DAEMON_RESPONSE_BYTES).unwrap();
+        assert_eq!(
+            progress,
+            encode_daemon_response(STATUS_PROGRESS_LOOKING_FOR_FACE, &[])
+        );
         let cancelled_at = Instant::now();
         drop(client_stream);
         let _ = server.join().unwrap();
