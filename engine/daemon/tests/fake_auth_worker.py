@@ -12,9 +12,16 @@ if len(request) != 9:
 mode = os.environ["KFACEAUTH_CAMERA_DEVICE"]
 root = Path(os.environ["KFACEAUTH_KEYS_DIR"])
 response = bytes([0, 2, 0, 0])
-if mode == "progress":
+if mode == "slow-start-hang":
+    # Exercise startup beyond the old 300 ms polling budget, still within the
+    # request deadline. Cancellation timing starts only after this handshake.
+    time.sleep(0.35)
+    (root / "started").write_text("started")
+if mode in ("progress", "slow-start-hang"):
     sys.stdout.buffer.write(bytes([0, 2, 0x80, 0]))
     sys.stdout.buffer.flush()
+if mode == "slow-start-hang":
+    time.sleep(30)
 if mode == "hang-once" and not (root / "started").exists():
     (root / "started").write_text("started")
     time.sleep(30)
